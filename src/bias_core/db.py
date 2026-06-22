@@ -1,13 +1,27 @@
-from django.db import connection
+import time
+from functools import wraps
+
+from django.db import OperationalError, close_old_connections
 
 
-def dict_fetch_all(sql: str, params=None) -> list[dict]:
-    with connection.cursor() as cursor:
-        cursor.execute(sql, params or ())
-        columns = [col[0] for col in cursor.description]
-        return [dict(zip(columns, row)) for row in cursor.fetchall()]
+SQLITE_LOCKED_MESSAGE = "database is locked"
 
 
-def dict_fetch_one(sql: str, params=None) -> dict | None:
-    rows = dict_fetch_all(sql, params)
-    return rows[0] if rows else None
+def sqlite_write_retry(attempts: int = 4, delay: float = 0.1, backoff: float = 2.0):
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            current_delay = delay
+            for attempt in range(attempts):
+                try:
+                    return func(*args, **kwargs)
+                except OperationalError as exc:
+                    message = str(exc).lower()
+                    is_locked = SQLITE_LOCKED_MESSAGE in message
+                    if not is_locked or attempt == attempts - 1:
+                        raise
+                    close_old_connections()
+                    time.sleep(current_delay)
+                    current_delay *= backoff
+        return wrapper
+    return decorator

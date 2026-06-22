@@ -6,7 +6,7 @@ from typing import Dict, List, Tuple
 
 from django.db import OperationalError, ProgrammingError
 
-from bias_core.extensions.forum_registry_core import _register_core_modules
+from bias_core.forum_registry_core import _register_core_modules
 from bias_core.extensions.forum_registry_types import (
     AdminPageDefinition,
     DiscussionListFilterDefinition,

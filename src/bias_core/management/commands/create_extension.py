@@ -198,7 +198,7 @@ class Command(BaseCommand):
         )
 
     def _build_app_config_source(self, extension_package: str, app_config_class: str, name: str) -> str:
-        verbose_name = name.replace('"', '\\"')
+        verbose_name = name.replace('"', '"')
         return (
             "from django.apps import AppConfig\n\n\n"
             f"class {app_config_class}(AppConfig):\n"
@@ -237,4 +237,5 @@ class Command(BaseCommand):
 
     def _write_text(self, path: Path, content: str) -> None:
         path.write_text(content, encoding="utf-8")
+
 

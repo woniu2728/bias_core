@@ -52,7 +52,7 @@ class BaseStorageBackend:
 
     @staticmethod
     def _normalize_dir(value: str) -> str:
-        return str(value or "").strip("/\\") or ""
+        return str(value or "").strip("/") or ""
 
     @staticmethod
     def _normalize_public_base(value: str) -> str:

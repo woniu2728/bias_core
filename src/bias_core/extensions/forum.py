@@ -1,27 +1,33 @@
 from __future__ import annotations
 
-"""
-bias_core.extensions.forum - 论坛宿主能力门面（面向扩展开发者）
-
-提供：
-- 论坛注册表访问
-- 实时广播
-- 在线用户
-"""
-
-
-def get_forum_registry():
-    """获取论坛注册表（占位实现，需要 forum_registry 模块完善）"""
-    from bias_core.extensions.forum_registry import get_forum_registry as _get
-    return _get()
-
-
-def broadcast_realtime_discussion_event(event_type: str, discussion_id: int, **kwargs) -> None:
-    """广播实时讨论事件（占位实现，C7 完善）"""
-    pass
-
+from bias_core.db import sqlite_write_retry
+from bias_core.forum_registry import (
+    get_forum_registry,
+    get_registry_staff_managed_admin_permission_codes,
+)
+from bias_core.forum_runtime import (
+    broadcast_realtime_discussion_event,
+    can_view_realtime_discussion,
+    iter_realtime_included_enrichers,
+    resolve_realtime_visible_discussion_ids,
+)
+from bias_core.models import AuditLog
+from bias_core.online_service import OnlineUserService
+from bias_core.runtime_diagnostics import detect_database_label
+from bias_core.schemas import UploadFileOutSchema
+from bias_core.search_index_service import SearchIndexService
 
 __all__ = [
-    "get_forum_registry",
+    "AuditLog",
+    "OnlineUserService",
+    "SearchIndexService",
+    "UploadFileOutSchema",
     "broadcast_realtime_discussion_event",
+    "can_view_realtime_discussion",
+    "detect_database_label",
+    "get_forum_registry",
+    "get_registry_staff_managed_admin_permission_codes",
+    "iter_realtime_included_enrichers",
+    "resolve_realtime_visible_discussion_ids",
+    "sqlite_write_retry",
 ]

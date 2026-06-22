@@ -1,23 +1,23 @@
-from typing import Any
-
-from ninja import Schema
-
-
-class Message(Schema):
-    message: str
+from typing import Optional
+from pydantic import BaseModel, Field
 
 
-class Error(Schema):
-    detail: str
+class UploadFileOutSchema(BaseModel):
+    """Composer 附件上传结果"""
+    url: str
+    original_name: str
+    size: int
+    mime_type: Optional[str] = None
+    hash: Optional[str] = None
+    is_image: bool = False
 
 
-class StatusResponse(Schema):
-    status: str
-    message: str = ""
+class MarkdownPreviewInSchema(BaseModel):
+    """Markdown 预览请求"""
+    content: str = Field("", description="Markdown 原文")
 
 
-class PaginatedResponse(Schema):
-    data: list[Any]
-    total: int
-    page: int
-    page_size: int
+class MarkdownPreviewOutSchema(BaseModel):
+    """Markdown 预览结果"""
+    html: str
+

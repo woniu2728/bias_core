@@ -371,7 +371,7 @@ def _build_extension_forum_settings(
 
 
 def build_frontend_manifest() -> dict:
-    \"\"\"Build the frontend extension manifest for the site frontend.\"\"\"
+    """Build the frontend extension manifest for the site frontend."""
     try:
         entries = get_enabled_extension_runtime_entries()
         return {

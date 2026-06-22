@@ -450,13 +450,13 @@ def _frontend_route_component_chunk_keys(payload: dict, extension_id: str, front
 
 
 def _frontend_route_component_import_path(component: str, extension_id: str, frontend: str, entry: str) -> str:
-    normalized = str(component or "").strip().replace("\\", "/")
+    normalized = str(component or "").strip().replace("", "/")
     if not normalized:
         return ""
     if normalized.startswith("extensions/"):
         return _frontend_import_path(normalized)
     if normalized.startswith("./") or normalized.startswith("../"):
-        entry_dir = "/".join(str(entry or "").strip().replace("\\", "/").split("/")[:-1])
+        entry_dir = "/".join(str(entry or "").strip().replace("", "/").split("/")[:-1])
         if entry_dir:
             return _frontend_import_path(_normalize_frontend_path(f"{entry_dir}/{normalized}"))
         return _frontend_import_path(_normalize_frontend_path(f"extensions/{extension_id}/frontend/{frontend}/{normalized}"))
@@ -466,8 +466,8 @@ def _frontend_route_component_import_path(component: str, extension_id: str, fro
 
 
 def _frontend_route_component_keys(component: str, extension_id: str, frontend: str, entry: str, import_path: str) -> list[str]:
-    normalized = str(component or "").strip().replace("\\", "/")
-    entry_dir = "/".join(str(entry or "").strip().replace("\\", "/").split("/")[:-1])
+    normalized = str(component or "").strip().replace("", "/")
+    entry_dir = "/".join(str(entry or "").strip().replace("", "/").split("/")[:-1])
     canonical = ""
     if normalized.startswith(("./", "../")):
         canonical = _normalize_frontend_path(
@@ -492,7 +492,7 @@ def _frontend_route_component_keys(component: str, extension_id: str, frontend: 
 
 
 def _frontend_extension_asset_import_path(path: str, extension_id: str) -> str:
-    normalized = str(path or "").strip().replace("\\", "/")
+    normalized = str(path or "").strip().replace("", "/")
     if not normalized or normalized.startswith(("http://", "https://", "/")):
         return ""
     if normalized.startswith("extensions/") or normalized.startswith("../"):
@@ -537,7 +537,7 @@ def _dedupe(values: list[str]) -> list[str]:
 
 def _normalize_frontend_path(path: str) -> str:
     parts = []
-    for part in str(path or "").replace("\\", "/").split("/"):
+    for part in str(path or "").replace("", "/").split("/"):
         if not part or part == ".":
             continue
         if part == ".." and parts and parts[-1] != "..":
@@ -551,7 +551,7 @@ def _frontend_loader_keys(*keys: str) -> list[str]:
     seen = set()
     normalized_keys = []
     for key in keys:
-        normalized = str(key or "").strip().replace("\\", "/")
+        normalized = str(key or "").strip().replace("", "/")
         if not normalized or normalized in seen:
             continue
         seen.add(normalized)
@@ -560,29 +560,29 @@ def _frontend_loader_keys(*keys: str) -> list[str]:
 
 
 def _frontend_import_path(entry: str) -> str:
-    normalized = str(entry or "").strip().replace("\\", "/")
+    normalized = str(entry or "").strip().replace("", "/")
     if normalized.startswith("extensions/"):
         return f"../../../{normalized}"
     return normalized
 
 
 def _admin_loader_key(entry: str) -> str:
-    normalized = str(entry or "").strip().replace("\\", "/")
+    normalized = str(entry or "").strip().replace("", "/")
     if normalized.startswith("extensions/"):
         return f"../../../{normalized}"
     return normalized
 
 
 def _forum_loader_key(entry: str) -> str:
-    normalized = str(entry or "").strip().replace("\\", "/")
+    normalized = str(entry or "").strip().replace("", "/")
     if normalized.startswith("extensions/"):
         return f"../../../{normalized}"
     return normalized
 
 
 def _resolve_vite_entry(vite_manifest: dict, entry: str, *, extra_chunks: list[str] | None = None, revision: str = "") -> dict:
-    normalized = str(entry or "").strip().replace("\\", "/")
-    extra_dynamic_imports = _dedupe([str(item or "").strip().replace("\\", "/") for item in extra_chunks or []])
+    normalized = str(entry or "").strip().replace("", "/")
+    extra_dynamic_imports = _dedupe([str(item or "").strip().replace("", "/") for item in extra_chunks or []])
     if not normalized:
         return {
             "revision": revision,
@@ -616,7 +616,7 @@ def _resolve_vite_entry(vite_manifest: dict, entry: str, *, extra_chunks: list[s
 def _resolve_vite_chunks(vite_manifest: dict, dynamic_imports: list[str], *, revision: str = "") -> list[dict]:
     chunks = []
     for key in dynamic_imports:
-        normalized_key = str(key or "").strip().replace("\\", "/")
+        normalized_key = str(key or "").strip().replace("", "/")
         if not normalized_key:
             continue
         payload = vite_manifest.get(normalized_key)
@@ -657,7 +657,7 @@ def _build_extension_input_revision(manifest: dict) -> str:
 
 
 def _resolve_vite_module_id(key: str) -> str:
-    normalized = str(key or "").strip().replace("\\", "/").lstrip("./")
+    normalized = str(key or "").strip().replace("", "/").lstrip("./")
     marker = "extensions/"
     if marker in normalized:
         suffix = normalized.split(marker, 1)[1]
@@ -674,4 +674,5 @@ def _read_json(path: Path) -> dict:
         return json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError:
         return {}
+
 

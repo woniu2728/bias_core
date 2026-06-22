@@ -6,7 +6,7 @@ from bias_core.extensions.application_types import ApplicationForumPermissionChe
 
 if TYPE_CHECKING:
     from bias_core.extensions.application import ExtensionHost
-    from bias_core.extensions.forum_registry import ForumRegistry
+    from bias_core.forum_registry import ForumRegistry
     from bias_core.resource_registry import ResourceRegistry
 
 
@@ -306,5 +306,6 @@ class ApplicationResourceService:
 
     def __getattr__(self, item: str) -> Any:
         return getattr(self._registry, item)
+
 
 

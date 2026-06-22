@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 
 from bias_core.extensions.registry import get_extension_registry
-from bias_core.extensions.forum_registry import get_core_module_ids
+from bias_core.forum_registry import get_core_module_ids
 
 
 logger = logging.getLogger(__name__)
@@ -16,5 +16,6 @@ def resolve_available_extension_ids_for_validation() -> set[str]:
     except Exception:
         logger.warning("Failed to resolve installed extension ids for extension validation.", exc_info=True)
     return extension_ids
+
 
 

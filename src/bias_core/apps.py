@@ -21,7 +21,7 @@ class CoreConfig(AppConfig):
             from bias_core.extensions.runtime_event_listeners import bootstrap_extension_runtime_event_listeners
             from bias_core.extensions.signal_bootstrap import bootstrap_extension_signal_proxies
             from bias_core.extensions.forum import get_forum_registry
-            from bias_core.extensions.forum_resources import bootstrap_forum_resource_fields
+            from bias_core.forum_resources import bootstrap_forum_resource_fields
 
             get_forum_registry()
             bootstrap_extension_runtime_event_listeners()

@@ -67,7 +67,7 @@ logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from bias_core.extensions.extension_runtime import Extension
-    from bias_core.extensions.forum_registry import ForumRegistry
+    from bias_core.forum_registry import ForumRegistry
     from bias_core.resource_registry import ResourceRegistry
 
 
@@ -89,7 +89,7 @@ class ExtensionApplication:
         event_bus: DomainEventBus | None = None,
     ) -> None:
         if forum_registry is None:
-            from bias_core.extensions.forum_registry import ForumRegistry
+            from bias_core.forum_registry import ForumRegistry
 
             forum_registry = ForumRegistry()
         if resource_registry is None:
@@ -233,7 +233,7 @@ class ExtensionApplication:
         self.instance("bias.api.resources", [])
         self.singleton("api.application", lambda host: _build_api_application_from_host(host))
         try:
-            from bias_core.extensions.forum_runtime import set_realtime_service
+            from bias_core.forum_runtime import set_realtime_service
 
             set_realtime_service(self.realtime)
         except Exception:
@@ -1036,5 +1036,7 @@ def _build_api_application_from_host(host: ExtensionApplication):
     from bias_core.api_runtime import build_api_application
 
     return build_api_application(extension_host=host)
+
+
 
 

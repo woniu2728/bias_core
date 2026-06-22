@@ -60,7 +60,7 @@ class ExtensionManifestLoader:
             extension_files = [
                 file
                 for file in (distribution.files or ())
-                if self._is_distribution_manifest_file(str(file).replace("\\", "/"))
+                if self._is_distribution_manifest_file(str(file).replace("", "/"))
             ]
             for file in extension_files:
                 manifest_path = Path(str(distribution.locate_file(file)))
@@ -299,4 +299,5 @@ class ExtensionManifestLoader:
             multiline=bool(payload.get("multiline", False)),
             order=int(payload.get("order", 100) or 100),
         )
+
 

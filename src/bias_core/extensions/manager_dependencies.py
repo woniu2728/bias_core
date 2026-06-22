@@ -5,7 +5,7 @@ from bias_core.extensions.extension_runtime import Extension
 
 def get_core_satisfied_dependency_ids() -> set[str]:
     try:
-        from bias_core.extensions.forum_registry import get_core_module_ids
+        from bias_core.forum_registry import get_core_module_ids
 
         return set(get_core_module_ids())
     except Exception:
@@ -99,5 +99,6 @@ def build_dependency_resolution_payload(extensions: list[Extension]) -> dict:
         "missing_dependencies": dict(resolved.get("missing_dependencies") or {}),
         "circular_dependencies": list(resolved.get("circular_dependencies") or []),
     }
+
 
 

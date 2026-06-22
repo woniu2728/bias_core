@@ -193,7 +193,7 @@ class ApplicationViewService:
             raise ValueError("扩展模板名必须使用 namespace::template 格式")
         namespace, name = raw.split("::", 1)
         namespace = namespace.strip()
-        name = name.strip().lstrip("/\\")
+        name = name.strip().lstrip("/")
         if not namespace or not name or ".." in Path(name).parts:
             raise ValueError("扩展模板名非法")
         return namespace, name
@@ -304,4 +304,5 @@ class ApplicationPostEventDataService:
             if result is not None:
                 return result
         return None
+
 

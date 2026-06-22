@@ -50,7 +50,7 @@ class ExtensionNamespaceLoader(Loader):
             raise ValueError("不是扩展命名空间模板")
         namespace, name = raw.split("::", 1)
         namespace = namespace.strip()
-        name = name.strip().lstrip("/\\")
+        name = name.strip().lstrip("/")
         if not namespace or not name or ".." in Path(name).parts:
             raise ValueError("扩展模板名非法")
         return namespace, name
@@ -65,4 +65,5 @@ def clear_extension_template_caches() -> None:
             reset = getattr(loader, "reset", None)
             if callable(reset):
                 reset()
+
 

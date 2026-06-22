@@ -196,11 +196,11 @@ def reset_extension_runtime_state() -> None:
     )
     from bias_core.extensions.signal_runtime import disconnect_runtime_signal_receivers
     from bias_core.forum_permissions import clear_forum_permission_checkers
-    from bias_core.extensions.forum_resources import reset_forum_resource_bootstrap_state
-    from bias_core.extensions.forum_runtime import (
+    from bias_core.forum_resources import reset_forum_resource_bootstrap_state
+    from bias_core.forum_runtime import (
         clear_realtime_service,
     )
-    from bias_core.extensions.forum_registry import reset_forum_registry_state
+    from bias_core.forum_registry import reset_forum_registry_state
     from bias_core.resource_registry import reset_resource_registry_state
     from bias_core.settings_service import clear_runtime_setting_caches
 
@@ -229,5 +229,7 @@ def reset_extension_runtime_state() -> None:
     bootstrap_extension_runtime_event_listeners()
 
     clear_runtime_setting_caches()
+
+
 
 
