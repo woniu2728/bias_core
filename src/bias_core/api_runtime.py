@@ -26,13 +26,69 @@ def build_api_application(*, extension_host=None, urls_namespace: str | None = N
     )
 
     _register_core_routes(api)
+    _register_admin_routes(api)
+    _register_resource_routes(api)
+    _register_frontend_manifest_route(api)
     _register_health_route(api)
+    _register_extension_routes(api, extension_host=extension_host)
     return api
 
 
 def _register_core_routes(api: NinjaAPI) -> None:
     from bias_core.api import router as core_router
     _add_router_once(api, "", core_router, tags=["System"])
+
+
+def _register_admin_routes(api: NinjaAPI) -> None:
+    """Register admin API routes (dashboard, settings, audit, extensions, stats)."""
+    try:
+        from bias_core.admin_api import router as admin_router
+        _add_router_once(api, "/admin", admin_router, tags=["Admin"])
+    except ImportError:
+        pass
+
+
+def _register_resource_routes(api: NinjaAPI) -> None:
+    """Register resource API routes for JSON:API runtime."""
+    try:
+        from bias_core.resource_routes import build_resource_endpoint_router
+        from bias_core.resource_registry import get_resource_registry
+        registry = get_resource_registry()
+        resource_router = build_resource_endpoint_router(registry)
+        _add_router_once(api, "", resource_router, tags=["Resources"])
+    except ImportError:
+        pass
+
+
+def _register_frontend_manifest_route(api: NinjaAPI) -> None:
+    """Expose frontend manifest for extension loading."""
+    @api.get("/frontend/manifest", tags=["System"], response={200: dict})
+    def frontend_manifest(request):
+        from bias_core.extensions.frontend_runtime_service import build_frontend_manifest
+        manifest = build_frontend_manifest()
+        return manifest
+
+
+def _register_extension_routes(api: NinjaAPI, *, extension_host=None) -> None:
+    """Register routes from installed extensions."""
+    host = extension_host
+    if host is None:
+        try:
+            from bias_core.extensions.bootstrap import get_extension_host
+            host = get_extension_host()
+        except (ImportError, Exception):
+            return
+
+    if host is None:
+        return
+
+    # Mount extension API routes
+    try:
+        routes = host.make("routes")
+        for mount in routes.get_mounts():
+            _add_router_once(api, mount.prefix, mount.router, tags=list(mount.tags))
+    except (AttributeError, Exception):
+        pass
 
 
 def _register_health_route(api: NinjaAPI) -> None:

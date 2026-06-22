@@ -369,3 +369,25 @@ def _build_extension_forum_settings(
     return output
 
 
+
+def build_frontend_manifest() -> dict:
+    \"\"\"Build the frontend extension manifest for the site frontend.\"\"\"
+    try:
+        entries = get_enabled_extension_runtime_entries()
+        return {
+            "extensions": [
+                {
+                    "id": e.get("id", ""),
+                    "name": e.get("name", ""),
+                    "version": e.get("version", ""),
+                    "frontend": {
+                        "forum": e.get("forum_entry", ""),
+                        "admin": e.get("admin_entry", ""),
+                    },
+                }
+                for e in entries
+                if e.get("forum_entry") or e.get("admin_entry")
+            ],
+        }
+    except Exception:
+        return {"extensions": []}
