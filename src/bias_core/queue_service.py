@@ -8,7 +8,7 @@ from django.core.cache import cache
 from django.utils import timezone
 from typing import Callable, Optional
 
-from bias_core.bootstrap_config import _is_test_process
+from bias_core.conf.bootstrap import _is_test_process
 from bias_core.settings_service import get_advanced_settings
 
 
@@ -248,5 +248,6 @@ class QueueService:
             return result
 
         return None
+
 
 

@@ -6,7 +6,7 @@ from django.conf import settings
 from django.core.management import BaseCommand, CommandError
 from django.core.management.base import CommandParser
 
-from bias_core.bootstrap_config import (
+from bias_core.conf.bootstrap import (
     DEFAULT_SITE_CONFIG_PATH,
     SiteBootstrapConfig,
     read_site_config,
@@ -167,4 +167,5 @@ class Command(BaseCommand):
             self.stdout.write(result.stdout.rstrip())
         if result.stderr:
             self.stderr.write(result.stderr.rstrip())
+
 
