@@ -1692,4 +1692,3 @@ class _DefinitionBackedResource(Resource):
     def serialize(self, instance: Any, context: dict) -> dict[str, Any]:
         return self.definition.resolver(instance, context) or {}
 
-

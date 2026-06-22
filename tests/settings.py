@@ -61,3 +61,18 @@ USE_I18N = True
 USE_TZ = True
 
 AUTH_USER_MODEL = "auth.User"
+
+from types import SimpleNamespace
+BOOTSTRAP = SimpleNamespace(
+    installed=False,
+    debug=True,
+    secret_key="test-secret-key-for-bias-core",
+    jwt_algorithm="HS256",
+    jwt_secret_key="test-jwt-secret-key-for-bias-core",
+    frontend_url="",
+    site_scheme="http",
+    database_mode="sqlite",
+    use_redis=False,
+    email_backend="django.core.mail.backends.console.EmailBackend",
+)
+SITE_SCHEME = "http"

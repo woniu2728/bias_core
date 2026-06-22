@@ -65,3 +65,16 @@ def clear_access_token_cookie(response) -> None:
 
 def clear_refresh_token_cookie(response) -> None:
     response.delete_cookie(REFRESH_TOKEN_COOKIE_NAME, path=REFRESH_TOKEN_COOKIE_PATH)
+
+def resolve_user_from_access_token(token: str):
+    """Resolve a user from an access token (stub)."""
+    from django.contrib.auth import get_user_model
+    from ninja_jwt.tokens import AccessToken
+    try:
+        access_token = AccessToken(token)
+        user_id = access_token.get("user_id")
+        if user_id:
+            return get_user_model().objects.get(id=user_id)
+    except Exception:
+        pass
+    return None
