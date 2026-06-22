@@ -30,6 +30,16 @@ def get_runtime_resource_registry():
     return get_resource_registry()
 
 
+def get_runtime_formatter_service():
+    """获取运行时格式化服务"""
+    return None
+
+
+def get_runtime_locale_service():
+    """获取运行时本地化服务"""
+    return None
+
+
 def notify_runtime_notification(user, notification_type: str, **kwargs) -> None:
     """发送运行时通知（占位实现）"""
     pass

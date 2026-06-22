@@ -121,6 +121,17 @@ class PostTypeDefinition:
 
 
 @dataclass(frozen=True)
+class EventListenerDefinition:
+    event: str
+    class_name: str = ""
+    method: str = ""
+    handler: str = ""
+    module_id: str = ""
+    priority: int = 100
+    description: str = ""
+
+
+@dataclass(frozen=True)
 class LifecycleDefinition:
     key: str
     module_id: str

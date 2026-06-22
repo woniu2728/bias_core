@@ -3,48 +3,31 @@ from __future__ import annotations
 from typing import Any
 
 
+MIN_HS256_KEY_LENGTH = 32
+KNOWN_PLACEHOLDER_SECRETS = {
+    "django-insecure-change-this-in-production",
+    "jwt-secret-key-change-this",
+}
+
+
 def normalize_secret_value(value: Any) -> str:
-    if not value:
-        return ""
-    return str(value).strip()
+    return str(value or "").strip()
 
 
-def looks_like_placeholder_secret(value: str | None) -> bool:
-    if not value:
-        return True
-
-    value = value.strip()
-    if not value or len(value) < 32:
-        return True
-
-    lower = value.lower()
-    placeholder_patterns = [
-        "dev",
-        "test",
-        "change",
-        "placeholder",
-        "secret",
-        "your-",
-        "xxxx",
-        "django-insecure",
-    ]
-    for pattern in placeholder_patterns:
-        if pattern in lower:
-            return True
-
-    return False
+def looks_like_placeholder_secret(value: Any) -> bool:
+    normalized = normalize_secret_value(value).lower()
+    return (
+        not normalized
+        or normalized in KNOWN_PLACEHOLDER_SECRETS
+        or "change-this" in normalized
+        or normalized.startswith("replace-with")
+    )
 
 
 def jwt_key_length_requirement(algorithm: str) -> int:
-    algorithm = (algorithm or "").strip().upper()
-    if algorithm.startswith("HS"):
-        try:
-            bits = int(algorithm[2:])
-            return bits // 8
-        except (ValueError, IndexError):
-            return 0
-    if algorithm.startswith("RS") or algorithm.startswith("ES"):
-        return 0
+    normalized = str(algorithm or "").strip().upper()
+    if normalized.startswith("HS"):
+        return MIN_HS256_KEY_LENGTH
     return 0
 
 
@@ -55,65 +38,55 @@ def build_auth_secret_risks(
     jwt_signing_key: str,
 ) -> list[dict[str, Any]]:
     risks: list[dict[str, Any]] = []
+    normalized_secret_key = normalize_secret_value(secret_key)
+    normalized_jwt_signing_key = normalize_secret_value(jwt_signing_key)
+    jwt_required_length = jwt_key_length_requirement(jwt_algorithm)
 
-    if looks_like_placeholder_secret(secret_key):
-        risks.append({
-            "code": "secret-key-placeholder",
-            "level": "danger",
-            "title": "Django SECRET_KEY 仍为占位符或开发密钥",
-            "message": "当前密钥强度不足，容易在 CSRF、会话签名和 JWT 签名等场景中被预测。",
-        })
-    elif len(normalize_secret_value(secret_key)) < 32:
-        risks.append({
-            "code": "secret-key-short",
-            "level": "danger",
-            "title": "Django SECRET_KEY 长度不足",
-            "message": "密钥长度应不少于 32 字符。",
-        })
+    if looks_like_placeholder_secret(normalized_secret_key):
+        risks.append(
+            {
+                "code": "django-secret-placeholder",
+                "level": "danger",
+                "title": "Django SECRET_KEY 仍为默认占位值",
+                "message": "当前 SECRET_KEY 仍带有开发占位标记，生产环境必须替换为独立高强度密钥。",
+            }
+        )
 
-    required_len = jwt_key_length_requirement(jwt_algorithm)
-    if required_len > 0 and len(normalize_secret_value(jwt_signing_key)) < required_len:
-        risks.append({
-            "code": "jwt-signing-key-short",
-            "level": "warning",
-            "title": "JWT 签名密钥长度不足",
-            "message": f"{jwt_algorithm} 要求密钥长度至少为 {required_len} 字节。",
-        })
+    if looks_like_placeholder_secret(normalized_jwt_signing_key):
+        risks.append(
+            {
+                "code": "jwt-secret-placeholder",
+                "level": "danger",
+                "title": "JWT 签名密钥仍为默认占位值",
+                "message": "当前 JWT 签名密钥仍带有开发占位标记，生产环境必须替换为独立高强度密钥。",
+            }
+        )
 
-    if looks_like_placeholder_secret(jwt_signing_key):
-        risks.append({
-            "code": "jwt-signing-key-placeholder",
-            "level": "warning",
-            "title": "JWT 签名密钥仍为占位符",
-            "message": "当前 JWT 签名密钥稳定性不足，容易被字典攻击或彩虹表破解。",
-        })
+    if jwt_required_length and len(normalized_jwt_signing_key) < jwt_required_length:
+        risks.append(
+            {
+                "code": "jwt-secret-too-short",
+                "level": "danger",
+                "title": "JWT 签名密钥长度不足",
+                "message": f"当前 {jwt_algorithm or 'JWT'} 签名密钥长度小于 {jwt_required_length} 字节，存在被弱密钥攻击的风险。",
+            }
+        )
 
     return risks
 
 
 def build_auth_secret_status(*, risks: list[dict[str, Any]]) -> dict[str, Any]:
-    if not risks:
+    if risks:
+        highest_level = "danger" if any(item.get("level") == "danger" for item in risks) else "warning"
         return {
-            "status": "secure",
-            "label": "密钥安全",
-            "message": "当前密钥配置符合安全要求，未检测到已知风险。",
+            "status": highest_level,
+            "label": "存在风险",
+            "message": "；".join(item.get("title") or "" for item in risks if item.get("title")),
         }
 
-    danger_count = sum(1 for r in risks if r.get("level") == "danger")
-    warning_count = sum(1 for r in risks if r.get("level") == "warning")
-
-    if danger_count > 0:
-        status = "insecure"
-        label = "存在安全风险"
-    else:
-        status = "warning"
-        label = "存在安全建议"
-
-    messages = [r["message"] for r in risks]
     return {
-        "status": status,
-        "label": label,
-        "message": "；".join(messages),
-        "danger_count": danger_count,
-        "warning_count": warning_count,
+        "status": "healthy",
+        "label": "健康",
+        "message": "Django 与 JWT 密钥未发现默认占位值或长度不足问题。",
     }
+
