@@ -1,21 +1,11 @@
 from __future__ import annotations
 
-"""
-bias_core.extensions.platform - 平台工具门面（面向扩展开发者）
-"""
+from django.conf import settings
 
-
-def _lazy_import(module_name: str, names: list[str]):
-    """延迟导入，模块不存在时返回 None 占位"""
-    import importlib
-    try:
-        mod = importlib.import_module(module_name)
-        return tuple(getattr(mod, name, None) for name in names)
-    except ImportError:
-        return tuple(None for _ in names)
-
-
-(
+from bias_core.audit import log_admin_action
+from bias_core.auth import AuthBearer, get_optional_user
+from bias_core.admin_auth import require_staff
+from bias_core.authorization import (
     AuthorizationDecision,
     AuthorizationPolicy,
     allow,
@@ -24,14 +14,25 @@ def _lazy_import(module_name: str, names: list[str]):
     deny,
     force_allow,
     force_deny,
-) = _lazy_import("bias_core.authorization", [
-    "AuthorizationDecision", "AuthorizationPolicy",
-    "allow", "assert_can", "can", "deny", "force_allow", "force_deny",
-])
-
-(api_error,) = _lazy_import("bias_core.api_errors", ["api_error"])
-
-(
+)
+from bias_core.domain_events import (
+    DomainEvent,
+    DomainEventBus,
+    dispatch_forum_event_after_commit,
+    get_forum_event_bus,
+)
+from bias_core.api_errors import api_error
+from bias_core.extension_settings_service import (
+    build_extension_settings_defaults,
+    get_extension_settings,
+    save_extension_settings,
+    serialize_extension_settings_schema,
+)
+from bias_core.extensions.policy_runtime_service import evaluate_extension_policy
+from bias_core.email_service import EmailService
+from bias_core.file_service import FileUploadService
+from bias_core.forum_permissions import has_forum_permission
+from bias_core.jwt_auth import (
     ACCESS_TOKEN_COOKIE_NAME,
     ACCESS_TOKEN_COOKIE_PATH,
     REFRESH_TOKEN_COOKIE_NAME,
@@ -46,33 +47,126 @@ def _lazy_import(module_name: str, names: list[str]):
     refresh_token_max_age,
     set_access_token_cookie,
     set_refresh_token_cookie,
-) = _lazy_import("bias_core.jwt_auth", [
-    "ACCESS_TOKEN_COOKIE_NAME", "ACCESS_TOKEN_COOKIE_PATH",
-    "REFRESH_TOKEN_COOKIE_NAME", "REFRESH_TOKEN_COOKIE_PATH",
-    "AccessTokenAuth", "access_token_max_age", "auth_cookie_secure",
-    "blacklist_jwt_token", "clear_access_token_cookie", "clear_refresh_token_cookie",
-    "is_jwt_blacklisted", "refresh_token_max_age",
-    "set_access_token_cookie", "set_refresh_token_cookie",
-])
+)
+from bias_core.resource_api import (
+    ResourceQueryOptions,
+    apply_resource_preloads,
+    merge_resource_includes,
+    parse_csv_param,
+    parse_resource_query_options,
+)
+from bias_core.resource_errors import (
+    BadJsonApiRequest,
+    JsonApiConflict,
+    JsonApiError,
+    JsonApiErrorItem,
+    JsonApiForbidden,
+    JsonApiValidationError,
+    jsonapi_error_response,
+)
+from bias_core.mail_drivers import can_mail_driver_send, send_with_extension_mail_driver
+from bias_core.markdown_service import MarkdownService
+from bias_core.queue_service import QueueService
+from bias_core.services import PaginationService
+from bias_core.settings_service import (
+    get_advanced_settings,
+    get_advanced_settings_defaults,
+    get_mail_settings_defaults,
+    get_setting_group,
+)
+from bias_core.storage_service import get_storage_backend
+from bias_core.visibility import (
+    apply_model_visibility_scope,
+    apply_related_model_visibility_subquery,
+    can_view_model_instance,
+)
 
-(require_staff,) = _lazy_import("bias_core.admin_auth", ["require_staff"])
-(AuthBearer, get_optional_user) = _lazy_import("bias_core.auth", ["AuthBearer", "get_optional_user"])
-(PaginationService,) = _lazy_import("bias_core.services", ["PaginationService"])
 
-is_debug_mode = lambda: __import__("django").conf.settings.DEBUG
-get_frontend_url = lambda: str(getattr(__import__("django").conf.settings, "FRONTEND_URL", "") or "")
+def is_debug_mode() -> bool:
+    return bool(settings.DEBUG)
 
 
-def get_extension_settings(extension_id: str, default: dict | None = None) -> dict:
-    """获取扩展设置（占位实现，C6 完善）"""
-    return default or {}
+def get_frontend_url() -> str:
+    return str(getattr(settings, "FRONTEND_URL", "") or "")
 
 
-def save_extension_settings(extension_id: str, settings_dict: dict) -> None:
-    """保存扩展设置（占位实现，C6 完善）"""
-    pass
+def require_forum_permission(request, permission_code, message: str):
+    denied = require_staff(request)
+    if denied:
+        return denied
+    if not has_forum_permission(request.auth, permission_code):
+        return api_error(message, status=403, code="permission_denied")
+    return None
 
 
-def log_admin_action(user, action: str, **kwargs) -> None:
-    """记录管理员操作（占位实现，C6 完善）"""
-    pass
+__all__ = [
+    "AccessTokenAuth",
+    "ACCESS_TOKEN_COOKIE_NAME",
+    "ACCESS_TOKEN_COOKIE_PATH",
+    "AuthBearer",
+    "AuthorizationDecision",
+    "AuthorizationPolicy",
+    "BadJsonApiRequest",
+    "DomainEvent",
+    "DomainEventBus",
+    "EmailService",
+    "FileUploadService",
+    "JsonApiConflict",
+    "JsonApiError",
+    "JsonApiErrorItem",
+    "JsonApiForbidden",
+    "JsonApiValidationError",
+    "MarkdownService",
+    "PaginationService",
+    "QueueService",
+    "REFRESH_TOKEN_COOKIE_NAME",
+    "REFRESH_TOKEN_COOKIE_PATH",
+    "ResourceQueryOptions",
+    "access_token_max_age",
+    "allow",
+    "api_error",
+    "apply_model_visibility_scope",
+    "apply_related_model_visibility_subquery",
+    "apply_resource_preloads",
+    "assert_can",
+    "build_extension_settings_defaults",
+    "can",
+    "can_view_model_instance",
+    "can_mail_driver_send",
+    "auth_cookie_secure",
+    "blacklist_jwt_token",
+    "clear_access_token_cookie",
+    "is_jwt_blacklisted",
+    "clear_refresh_token_cookie",
+    "deny",
+    "dispatch_forum_event_after_commit",
+    "evaluate_extension_policy",
+    "force_allow",
+    "force_deny",
+    "get_extension_settings",
+    "get_advanced_settings",
+    "get_advanced_settings_defaults",
+    "get_frontend_url",
+    "get_forum_event_bus",
+    "get_mail_settings_defaults",
+    "get_optional_user",
+    "get_setting_group",
+    "get_storage_backend",
+    "has_forum_permission",
+    "is_debug_mode",
+    "jsonapi_error_response",
+    "log_admin_action",
+    "merge_resource_includes",
+    "parse_csv_param",
+    "parse_resource_query_options",
+    "refresh_token_max_age",
+    "require_forum_permission",
+    "require_staff",
+    "save_extension_settings",
+    "send_with_extension_mail_driver",
+    "serialize_extension_settings_schema",
+    "set_access_token_cookie",
+    "set_refresh_token_cookie",
+]
+
+

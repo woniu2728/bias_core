@@ -36,20 +36,22 @@ from bias_core.extensions.forum_registry_types import (
     SearchFilterDefinition,
     UserPreferenceDefinition,
 )
-from bias_core.extensions.types import (
-    DatabaseResource,
+from bias_core.resource_definitions import (
     ResourceDefinition,
-    ResourceEndpoint,
     ResourceEndpointDefinition,
-    ResourceField,
     ResourceFieldDefinition,
     ResourceFieldMutatorDefinition,
-    ResourceFilter,
     ResourceFilterDefinition,
-    ResourceRelationship,
     ResourceRelationshipDefinition,
-    ResourceSort,
     ResourceSortDefinition,
+)
+from bias_core.resource_objects import (
+    DatabaseResource,
+    ResourceEndpoint,
+    ResourceField,
+    ResourceFilter,
+    ResourceRelationship,
+    ResourceSort,
 )
 
 
