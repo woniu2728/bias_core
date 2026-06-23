@@ -16,7 +16,7 @@ def serialize_audit_log(log: AuditLog) -> dict:
         "user": {
             "id": log.user.id,
             "username": log.user.username,
-            "display_name": log.user.display_name,
+            "display_name": log.user.username,
         } if log.user else None,
     }
 
