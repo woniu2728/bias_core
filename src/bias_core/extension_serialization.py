@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from apps.core import admin_content_api
+from bias_core import admin_content_api
 
 
 def serialize_admin_extension(extension, *, include_permission_details: bool = False) -> dict:

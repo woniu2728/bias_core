@@ -1419,7 +1419,7 @@ class ResourceRegistryTests(TestCase):
         app = ExtensionApplication(resource_registry=registry)
         app.policies.global_policy("alpha", lambda **context: True if context["ability"] == "view" else None)
 
-        with patch("apps.core.extensions.policy_runtime_service.get_extension_application", return_value=app):
+        with patch("bias_core.extensions.policy_runtime_service.get_extension_application", return_value=app):
             payload = registry.dispatch_resource_endpoint(
                 endpoint,
                 {"resource": "policy_item", "endpoint": "show", "method": "GET", "object_id": "1", "user": SimpleNamespace(is_authenticated=True), "query": {}},
@@ -1429,7 +1429,7 @@ class ResourceRegistryTests(TestCase):
 
         app = ExtensionApplication(resource_registry=registry)
         app.policies.model_policy("alpha", Item, lambda **context: False if context["ability"] == "view" else None)
-        with patch("apps.core.extensions.policy_runtime_service.get_extension_application", return_value=app):
+        with patch("bias_core.extensions.policy_runtime_service.get_extension_application", return_value=app):
             with self.assertRaises(PermissionError):
                 registry.dispatch_resource_endpoint(
                     endpoint,
@@ -1770,7 +1770,7 @@ class ResourceRegistryTests(TestCase):
                     resource="path_resource",
                     field="username",
                     module_id="",
-                    resolver="apps.core.tests.resolve_test_username",
+                    resolver="bias_core.tests.resolve_test_username",
                 ),
             )
         )
@@ -2718,7 +2718,7 @@ class ResourceRegistryTests(TestCase):
             content_type="application/json",
         )
 
-        with patch("apps.core.resource_dispatcher.get_runtime_resource_registry", return_value=registry):
+        with patch("bias_core.resource_dispatcher.get_runtime_resource_registry", return_value=registry):
             response = dispatch_resource_endpoint(request, resource="schema_rule_items", endpoint="update", object_id="1")
 
         payload = json.loads(response.content)
@@ -2782,7 +2782,7 @@ class ResourceRegistryTests(TestCase):
             content_type="application/json",
         )
 
-        with patch("apps.core.resource_dispatcher.get_runtime_resource_registry", return_value=registry):
+        with patch("bias_core.resource_dispatcher.get_runtime_resource_registry", return_value=registry):
             response = dispatch_resource_endpoint(request, resource="unmarked_rule_items", endpoint="update", object_id="1")
 
         self.assertEqual(response.status_code, 200)
@@ -2850,7 +2850,7 @@ class ResourceRegistryTests(TestCase):
             content_type="application/json",
         )
 
-        with patch("apps.core.resource_dispatcher.get_runtime_resource_registry", return_value=registry):
+        with patch("bias_core.resource_dispatcher.get_runtime_resource_registry", return_value=registry):
             response = dispatch_resource_endpoint(request, resource="conditional_rule_items", endpoint="update", object_id="1")
 
         self.assertEqual(response.status_code, 200)
@@ -2964,7 +2964,7 @@ class ResourceRegistryTests(TestCase):
             content_type="application/json",
         )
 
-        with patch("apps.core.resource_dispatcher.get_runtime_resource_registry", return_value=registry):
+        with patch("bias_core.resource_dispatcher.get_runtime_resource_registry", return_value=registry):
             response = dispatch_resource_endpoint(request, resource="factory_payload_item", endpoint="update", object_id="1")
 
         self.assertEqual(response.status_code, 200)
@@ -3031,7 +3031,7 @@ class ResourceRegistryTests(TestCase):
             content_type="application/json",
         )
 
-        with patch("apps.core.resource_dispatcher.get_runtime_resource_registry", return_value=registry):
+        with patch("bias_core.resource_dispatcher.get_runtime_resource_registry", return_value=registry):
             response = dispatch_resource_endpoint(request, resource="writable_rule_items", endpoint="update", object_id="1")
 
         self.assertEqual(response.status_code, 200)
@@ -3091,7 +3091,7 @@ class ResourceRegistryTests(TestCase):
             content_type="application/json",
         )
 
-        with patch("apps.core.resource_dispatcher.get_runtime_resource_registry", return_value=registry):
+        with patch("bias_core.resource_dispatcher.get_runtime_resource_registry", return_value=registry):
             response = dispatch_resource_endpoint(request, resource="validator_protocol_item", endpoint="update", object_id="1")
 
         payload = json.loads(response.content)
@@ -3164,7 +3164,7 @@ class ResourceRegistryTests(TestCase):
             content_type="application/json",
         )
 
-        with patch("apps.core.resource_dispatcher.get_runtime_resource_registry", return_value=registry):
+        with patch("bias_core.resource_dispatcher.get_runtime_resource_registry", return_value=registry):
             response = dispatch_resource_endpoint(request, resource="relationship_validation_items", endpoint="update", object_id="1")
 
         payload = json.loads(response.content)
@@ -3742,7 +3742,7 @@ class ResourceRegistryTests(TestCase):
             content_type="application/json",
         )
 
-        with patch("apps.core.resource_dispatcher.get_runtime_resource_registry", return_value=registry):
+        with patch("bias_core.resource_dispatcher.get_runtime_resource_registry", return_value=registry):
             response = dispatch_resource_endpoint(
                 request,
                 resource="discussion",
@@ -3775,7 +3775,7 @@ class ResourceRegistryTests(TestCase):
         )
         request = RequestFactory().get("/api/resources/discussion/secure")
 
-        with patch("apps.core.resource_dispatcher.get_runtime_resource_registry", return_value=registry):
+        with patch("bias_core.resource_dispatcher.get_runtime_resource_registry", return_value=registry):
             response = dispatch_resource_endpoint(request, resource="discussion", endpoint="secure")
 
         self.assertEqual(response.status_code, 401)
@@ -3801,11 +3801,11 @@ class ResourceRegistryTests(TestCase):
         user = Mock(is_authenticated=True)
         request.user = user
 
-        with patch("apps.core.resource_dispatcher.get_runtime_resource_registry", return_value=registry):
-            with patch("apps.core.resource_dispatcher.get_optional_user", return_value=user):
-                with patch("apps.core.resource_dispatcher.has_forum_permission", return_value=False):
+        with patch("bias_core.resource_dispatcher.get_runtime_resource_registry", return_value=registry):
+            with patch("bias_core.resource_dispatcher.get_optional_user", return_value=user):
+                with patch("bias_core.resource_dispatcher.has_forum_permission", return_value=False):
                     denied = dispatch_resource_endpoint(request, resource="secure", endpoint="show")
-                with patch("apps.core.resource_dispatcher.has_forum_permission", return_value=True):
+                with patch("bias_core.resource_dispatcher.has_forum_permission", return_value=True):
                     allowed = dispatch_resource_endpoint(request, resource="secure", endpoint="show")
 
         self.assertEqual(denied.status_code, 403)
@@ -3852,7 +3852,7 @@ class ResourceRegistryTests(TestCase):
         registry.register_resource(ItemResource())
         request = RequestFactory().get("/api/resources/dispatch_item/1/show")
 
-        with patch("apps.core.resource_dispatcher.get_runtime_resource_registry", return_value=registry):
+        with patch("bias_core.resource_dispatcher.get_runtime_resource_registry", return_value=registry):
             response = dispatch_resource_endpoint(
                 request,
                 resource="dispatch_item",
@@ -3900,7 +3900,7 @@ class ResourceRegistryTests(TestCase):
         registry.register_resource(ItemResource())
         request = RequestFactory().get("/api/resources/paged_dispatch_item/index", {"page[offset]": "1", "page[limit]": "2"})
 
-        with patch("apps.core.resource_dispatcher.get_runtime_resource_registry", return_value=registry):
+        with patch("bias_core.resource_dispatcher.get_runtime_resource_registry", return_value=registry):
             response = dispatch_resource_endpoint(request, resource="paged_dispatch_item", endpoint="index")
 
         self.assertEqual(response.status_code, 200)
@@ -4050,7 +4050,7 @@ class ResourceRegistryTests(TestCase):
 
         app = ExtensionApplication(resource_registry=registry)
         app.search.manager = manager
-        with patch("apps.core.extensions.runtime_search.get_extension_host_service", side_effect=lambda key, default=None: app.search if key == "search" else default):
+        with patch("bias_core.extensions.runtime_search.get_extension_host_service", side_effect=lambda key, default=None: app.search if key == "search" else default):
             payload = registry.dispatch_resource_endpoint(
                 registry.get_dispatch_endpoint("managed_search_item", "index", "GET"),
                 {
@@ -4248,7 +4248,7 @@ class ResourceRegistryTests(TestCase):
         registry = ResourceRegistry()
         request = RequestFactory().get("/api/resources/missing/index")
 
-        with patch("apps.core.resource_dispatcher.get_runtime_resource_registry", return_value=registry):
+        with patch("bias_core.resource_dispatcher.get_runtime_resource_registry", return_value=registry):
             response = dispatch_resource_endpoint(request, resource="missing", endpoint="index")
 
         payload = json.loads(response.content)
@@ -4366,7 +4366,7 @@ class ResourceRegistryTests(TestCase):
             content_type="application/json",
         )
 
-        with patch("apps.core.resource_dispatcher.get_runtime_resource_registry", return_value=registry):
+        with patch("bias_core.resource_dispatcher.get_runtime_resource_registry", return_value=registry):
             response = dispatch_resource_endpoint(request, resource="validated_item", endpoint="update", object_id="1")
 
         payload = json.loads(response.content)
@@ -4421,7 +4421,7 @@ class ResourceRegistryTests(TestCase):
             content_type="application/json",
         )
 
-        with patch("apps.core.resource_dispatcher.get_runtime_resource_registry", return_value=registry):
+        with patch("bias_core.resource_dispatcher.get_runtime_resource_registry", return_value=registry):
             response = dispatch_resource_endpoint(request, resource="factory_validated_item", endpoint="update", object_id="1")
 
         payload = json.loads(response.content)
@@ -4485,7 +4485,7 @@ class ResourceRegistryTests(TestCase):
             content_type="application/json",
         )
 
-        with patch("apps.core.resource_dispatcher.get_runtime_resource_registry", return_value=registry):
+        with patch("bias_core.resource_dispatcher.get_runtime_resource_registry", return_value=registry):
             response = dispatch_resource_endpoint(request, resource="aggregated_validated_item", endpoint="update", object_id="1")
 
         payload = json.loads(response.content)
@@ -4612,7 +4612,7 @@ class ResourceRegistryTests(TestCase):
         )
         api = build_api_application(extension_host=host, urls_namespace=f"same-path-resource-test-api-{uuid.uuid4().hex}")
         api_urls = api.urls
-        urlconf_name = "apps.core.tests_same_path_resource_urls"
+        urlconf_name = "bias_core.tests_same_path_resource_urls"
         urlconf = ModuleType(urlconf_name)
         urlconf.urlpatterns = [path("api/", api_urls)]
         sys.modules[urlconf_name] = urlconf
@@ -4620,7 +4620,7 @@ class ResourceRegistryTests(TestCase):
         try:
             clear_url_caches()
             with override_settings(ROOT_URLCONF=urlconf_name):
-                with patch("apps.core.resource_dispatcher.get_runtime_resource_registry", return_value=registry):
+                with patch("bias_core.resource_dispatcher.get_runtime_resource_registry", return_value=registry):
                     get_response = self.client.get("/api/shared-items")
                     post_response = self.client.post(
                         "/api/shared-items",
@@ -4682,7 +4682,7 @@ class ResourceRegistryTests(TestCase):
             "auto_items" in str(pattern)
             for pattern in api_urls[0]
         ))
-        urlconf_name = "apps.core.tests_auto_resource_urls"
+        urlconf_name = "bias_core.tests_auto_resource_urls"
         urlconf = ModuleType(urlconf_name)
         urlconf.urlpatterns = [path("api/", api_urls)]
         sys.modules[urlconf_name] = urlconf
@@ -4690,7 +4690,7 @@ class ResourceRegistryTests(TestCase):
         try:
             clear_url_caches()
             with override_settings(ROOT_URLCONF=urlconf_name):
-                with patch("apps.core.resource_dispatcher.get_runtime_resource_registry", return_value=registry):
+                with patch("bias_core.resource_dispatcher.get_runtime_resource_registry", return_value=registry):
                     response = self.client.get("/api/auto_items/1")
         finally:
             clear_url_caches()

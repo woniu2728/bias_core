@@ -4,7 +4,7 @@ import django
 from django.conf import settings
 from ninja import Router
 
-from apps.core import runtime_diagnostics
+from bias_core import runtime_diagnostics
 from bias_core.admin_auth import require_staff
 from bias_core.admin_runtime_summary import (
     probe_cache_connection,

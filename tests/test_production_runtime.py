@@ -19,7 +19,7 @@ class ProductionRuntimeCheckTests(TestCase):
         EMAIL_BACKEND="django.core.mail.backends.console.EmailBackend",
     )
     @patch.object(django_settings.BOOTSTRAP, "installed", True)
-    @patch("apps.core.runtime_checks._is_test_process", return_value=False)
+    @patch("bias_core.runtime_checks._is_test_process", return_value=False)
     def test_production_runtime_checks_report_critical_risks(self, _is_test_process):
         messages = run_checks(tags=["bias_runtime"])
         message_ids = {message.id for message in messages}
@@ -40,7 +40,7 @@ class ProductionRuntimeCheckTests(TestCase):
         NINJA_JWT={"ALGORITHM": "HS256", "SIGNING_KEY": "runtime-jwt-secret-key-123456789012345"},
     )
     @patch.object(django_settings.BOOTSTRAP, "installed", True)
-    @patch("apps.core.runtime_checks._is_test_process", return_value=False)
+    @patch("bias_core.runtime_checks._is_test_process", return_value=False)
     def test_production_runtime_checks_warn_about_multiprocess_inmemory_backends(self, _is_test_process):
         messages = run_checks(tags=["bias_runtime"])
         message_ids = {message.id for message in messages}
@@ -50,8 +50,8 @@ class ProductionRuntimeCheckTests(TestCase):
 
     @override_settings(DEBUG=False)
     @patch.object(django_settings.BOOTSTRAP, "installed", True)
-    @patch("apps.core.runtime_checks._is_test_process", return_value=False)
-    @patch("apps.core.startup_guard.run_checks")
+    @patch("bias_core.runtime_checks._is_test_process", return_value=False)
+    @patch("bias_core.startup_guard.run_checks")
     def test_startup_guard_blocks_production_startup_when_critical_checks_exist(
         self,
         run_checks_mock,
@@ -74,7 +74,7 @@ class ProductionRuntimeCheckTests(TestCase):
         self.assertIn("fix it", message)
 
     @override_settings(DEBUG=True)
-    @patch("apps.core.startup_guard.run_checks")
+    @patch("bias_core.startup_guard.run_checks")
     def test_startup_guard_skips_non_production_runtime(self, run_checks_mock):
         from bias_core.startup_guard import enforce_production_runtime_checks
 
@@ -84,8 +84,8 @@ class ProductionRuntimeCheckTests(TestCase):
 
     @override_settings(DEBUG=False)
     @patch.object(django_settings.BOOTSTRAP, "installed", True)
-    @patch("apps.core.runtime_checks._is_test_process", return_value=False)
-    @patch("apps.core.startup_guard.run_checks")
+    @patch("bias_core.runtime_checks._is_test_process", return_value=False)
+    @patch("bias_core.startup_guard.run_checks")
     def test_startup_guard_allows_installation_with_development_email_backend(
         self,
         run_checks_mock,
@@ -104,7 +104,7 @@ class ProductionRuntimeCheckTests(TestCase):
         with patch.dict(os.environ, {"BIAS_INSTALLING": "1"}):
             enforce_production_runtime_checks()
 
-    @patch("apps.core.startup_guard.enforce_production_runtime_checks")
+    @patch("bias_core.startup_guard.enforce_production_runtime_checks")
     @patch("django.core.management.execute_from_command_line")
     def test_manage_py_main_enforces_production_runtime_checks(
         self,
@@ -118,7 +118,7 @@ class ProductionRuntimeCheckTests(TestCase):
         enforce_runtime_checks_mock.assert_called_once_with()
         execute_from_command_line_mock.assert_called_once_with(sys.argv)
 
-    @patch("apps.core.startup_guard.enforce_production_runtime_checks")
+    @patch("bias_core.startup_guard.enforce_production_runtime_checks")
     @patch("django.core.management.execute_from_command_line")
     def test_manage_py_main_skips_startup_guard_for_validate_extensions(
         self,
@@ -134,7 +134,7 @@ class ProductionRuntimeCheckTests(TestCase):
         enforce_runtime_checks_mock.assert_not_called()
         execute_from_command_line_mock.assert_called_once_with(argv)
 
-    @patch("apps.core.startup_guard.enforce_production_runtime_checks")
+    @patch("bias_core.startup_guard.enforce_production_runtime_checks")
     @patch("django.core.management.execute_from_command_line")
     def test_manage_py_main_skips_startup_guard_for_create_extension(
         self,
@@ -150,7 +150,7 @@ class ProductionRuntimeCheckTests(TestCase):
         enforce_runtime_checks_mock.assert_not_called()
         execute_from_command_line_mock.assert_called_once_with(argv)
 
-    @patch("apps.core.startup_guard.enforce_production_runtime_checks")
+    @patch("bias_core.startup_guard.enforce_production_runtime_checks")
     @patch("django.core.management.execute_from_command_line")
     def test_manage_py_main_skips_startup_guard_for_inspect_extensions(
         self,
@@ -166,7 +166,7 @@ class ProductionRuntimeCheckTests(TestCase):
         enforce_runtime_checks_mock.assert_not_called()
         execute_from_command_line_mock.assert_called_once_with(argv)
 
-    @patch("apps.core.startup_guard.enforce_production_runtime_checks")
+    @patch("bias_core.startup_guard.enforce_production_runtime_checks")
     def test_celery_module_enforces_production_runtime_checks(self, enforce_runtime_checks_mock):
         import config.celery as celery_module
 

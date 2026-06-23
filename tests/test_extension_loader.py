@@ -702,7 +702,7 @@ class ExtensionManifestLoaderTests(TestCase):
 
             registry = ExtensionRegistry(extensions_path=extensions_dir)
             application = build_extension_application(manager=registry, force=True)
-            with patch("apps.core.extensions.frontend_runtime_service.get_extension_host", return_value=application):
+            with patch("bias_core.extensions.frontend_runtime_service.get_extension_host", return_value=application):
                 clear_runtime_setting_caches()
                 payload = get_public_forum_settings()
 
@@ -773,7 +773,7 @@ class ExtensionManifestLoaderTests(TestCase):
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
-    @patch("apps.core.extensions.manifest.metadata.distributions")
+    @patch("bias_core.extensions.manifest.metadata.distributions")
     def test_manifest_loader_discovers_python_distribution_extensions(self, distributions_mock):
         temp_dir = make_workspace_temp_dir()
         try:
@@ -962,7 +962,7 @@ class ExtensionManifestLoaderTests(TestCase):
             self.assertTrue(namespaces[0].prepend)
             self.assertEqual(namespaces[1].hints, (str(templates_dir.resolve()), str(overrides_dir.resolve())))
             self.assertEqual(runtime_view.view_namespaces, tuple(namespaces))
-            with patch("apps.core.extensions.bootstrap.get_extension_host", return_value=app):
+            with patch("bias_core.extensions.bootstrap.get_extension_host", return_value=app):
                 clear_extension_template_caches()
                 self.assertEqual(app.views.render("alpha::hello.html", {"name": "Bias"}), "Override Bias")
                 self.assertEqual(render_to_string("alpha::hello.html", {"name": "Bias"}), "Override Bias")
@@ -1027,7 +1027,7 @@ class ExtensionManifestLoaderTests(TestCase):
         ).extend(app, extension)
         app.make("mail")
 
-        with patch("apps.core.extensions.bootstrap.get_extension_host", return_value=app):
+        with patch("bias_core.extensions.bootstrap.get_extension_host", return_value=app):
             definitions = get_driver_definitions()
             self.assertEqual(normalize_mail_driver("custom"), "custom")
 
@@ -1048,7 +1048,7 @@ class ExtensionManifestLoaderTests(TestCase):
         MailExtender().driver("digest", send_digest).extend(app, extension)
         app.make("mail")
 
-        with patch("apps.core.extensions.bootstrap.get_extension_host", return_value=app):
+        with patch("bias_core.extensions.bootstrap.get_extension_host", return_value=app):
             result = send_with_extension_mail_driver("digest", {"subject": "Digest"}, {"source": "test"})
 
         self.assertEqual(result, True)
@@ -1229,7 +1229,7 @@ class ExtensionManifestLoaderTests(TestCase):
         relations = app.models.get_relations_for_model(DemoModel)
         self.assertEqual(relations[0].name, "followers")
         self.assertEqual(app.models.resolve_relation(DemoModel, "followers", DemoModel()), ["alice"])
-        with patch("apps.core.extensions.policy_runtime_service.get_extension_application", return_value=app):
+        with patch("bias_core.extensions.policy_runtime_service.get_extension_application", return_value=app):
             self.assertTrue(evaluate_model_policy("view", model=DemoModel(), default=False))
 
     def test_post_event_extender_registers_event_data_resolver(self):
@@ -1355,7 +1355,7 @@ class ExtensionManifestLoaderTests(TestCase):
         app.make("filesystem")
         app.make("console")
 
-        with patch("apps.core.extensions.bootstrap.get_extension_host", return_value=app):
+        with patch("bias_core.extensions.bootstrap.get_extension_host", return_value=app):
             report_runtime_error(ValueError("broken"), operation="unit-test")
             storage = resolve_runtime_filesystem_driver("custom", {"storage_driver": "custom"})
             storage_from_service = get_storage_backend({"storage_driver": "custom"})
@@ -1400,7 +1400,7 @@ class ExtensionManifestLoaderTests(TestCase):
         app.make("auth")
         app.make("session")
 
-        with patch("apps.core.extensions.bootstrap.get_extension_host", return_value=app):
+        with patch("bias_core.extensions.bootstrap.get_extension_host", return_value=app):
             checkers = get_runtime_password_checkers(default_checker=lambda current_user, raw_password: False)
             accepted = verify_runtime_user_password(user, "alpha", default_checker=lambda current_user, raw_password: False)
             rejected = verify_runtime_user_password(user, "wrong", default_checker=lambda current_user, raw_password: True)
@@ -1441,7 +1441,7 @@ class ExtensionManifestLoaderTests(TestCase):
         app.make("throttle.api")
         app.make("search")
 
-        with patch("apps.core.extensions.bootstrap.get_extension_host", return_value=app):
+        with patch("bias_core.extensions.bootstrap.get_extension_host", return_value=app):
             routes = get_runtime_csrf_exempt_routes()
             throttlers = get_runtime_api_throttlers()
             throttled = should_throttle_runtime_api_request(request)
@@ -1476,7 +1476,7 @@ class ExtensionManifestLoaderTests(TestCase):
 
         clear_extension_formatter_cache()
         try:
-            with patch("apps.core.extensions.bootstrap.get_extension_host", return_value=app):
+            with patch("bias_core.extensions.bootstrap.get_extension_host", return_value=app):
                 html = apply_extension_formatters(
                     '<p><a href="https://external.test/page">外部</a> '
                     '<a href="https://bias.test/d/1">内部</a></p>'
@@ -1511,7 +1511,7 @@ class ExtensionManifestLoaderTests(TestCase):
 
         clear_extension_formatter_cache()
         try:
-            with patch("apps.core.extensions.bootstrap.get_extension_host", return_value=app):
+            with patch("bias_core.extensions.bootstrap.get_extension_host", return_value=app):
                 self.assertTrue(apply_extension_formatter_config({})["alpha"])
                 parsed = apply_extension_formatter_parse("hello :alpha:")
                 rendered = apply_extension_formatter_render(parsed)
@@ -1582,7 +1582,7 @@ class ExtensionManifestLoaderTests(TestCase):
         app.make("user")
         app.make("models")
 
-        with patch("apps.core.extensions.system_runtime.get_runtime_system_service", side_effect=lambda key: app.make(key)):
+        with patch("bias_core.extensions.system_runtime.get_runtime_system_service", side_effect=lambda key: app.make(key)):
             self.assertEqual(get_runtime_user_display_name_drivers()["alpha"], "alpha.display")
             self.assertEqual(get_runtime_user_avatar_drivers()["alpha"], "alpha.avatar")
             self.assertEqual(apply_runtime_user_group_processors(SimpleNamespace(extra_group_id=9), [1, 2]), [1, 2, 9])
@@ -1695,7 +1695,7 @@ class ExtensionManifestLoaderTests(TestCase):
             lambda **context: False if context["ability"] == "view" else None,
         )
 
-        with patch("apps.core.extensions.policy_runtime_service.get_extension_application", return_value=app):
+        with patch("bias_core.extensions.policy_runtime_service.get_extension_application", return_value=app):
             queryset = apply_model_visibility_scope(
                 discussion_model,
                 discussion_model.objects.all(),
@@ -1733,7 +1733,7 @@ class ExtensionManifestLoaderTests(TestCase):
 
         from bias_core.extensions.frontend_runtime_service import _build_frontend_document_payload
 
-        with patch("apps.core.extensions.frontend_runtime_service.get_extension_host", return_value=app):
+        with patch("bias_core.extensions.frontend_runtime_service.get_extension_host", return_value=app):
             entry = {
                 "id": "alpha-tools",
                 "frontend_document": _build_frontend_document_payload(
@@ -1742,7 +1742,7 @@ class ExtensionManifestLoaderTests(TestCase):
                 ),
             }
 
-        with patch("apps.core.extensions.frontend_runtime_service.get_enabled_extension_runtime_entries", return_value=[entry]):
+        with patch("bias_core.extensions.frontend_runtime_service.get_enabled_extension_runtime_entries", return_value=[entry]):
             payload = build_enabled_frontend_document_payload()
 
         self.assertEqual(payload["theme_variables"]["bias-alpha-color"], "#123456")
@@ -1832,7 +1832,7 @@ class ExtensionManifestLoaderTests(TestCase):
         registry = ResourceRegistry()
         registry.register_resource(ValidatedResource())
 
-        with patch("apps.core.extensions.bootstrap.get_extension_host", return_value=app):
+        with patch("bias_core.extensions.bootstrap.get_extension_host", return_value=app):
             with self.assertRaises(JsonApiValidationError):
                 registry.apply_resource_payload("validated", Target(), {"title": "bad"})
 
@@ -1864,7 +1864,7 @@ class ExtensionManifestLoaderTests(TestCase):
         registry = ResourceRegistry()
         registry.register_resource(ValidatedResource())
 
-        with patch("apps.core.extensions.bootstrap.get_extension_host", return_value=app):
+        with patch("bias_core.extensions.bootstrap.get_extension_host", return_value=app):
             with self.assertRaises(JsonApiValidationError):
                 registry.apply_resource_payload("validated-class", Target(), {"title": "bad"})
 
@@ -2070,7 +2070,7 @@ class ExtensionManifestLoaderTests(TestCase):
 
         request = RequestFactory().get("/api/forum")
         middleware = ExtensionRuntimeInvalidationMiddleware(lambda current_request: HttpResponse("ok"))
-        with patch("apps.core.extensions.lifecycle.rebuild_extension_runtime_state") as rebuild_runtime:
+        with patch("bias_core.extensions.lifecycle.rebuild_extension_runtime_state") as rebuild_runtime:
             response = middleware(request)
 
         self.assertEqual(response.status_code, 200)
@@ -2086,7 +2086,7 @@ class ExtensionManifestLoaderTests(TestCase):
 
         request = RequestFactory().get("/api/forum")
         middleware = ExtensionRuntimeInvalidationMiddleware(lambda current_request: HttpResponse("ok"))
-        with patch("apps.core.extensions.lifecycle.get_extension_runtime_version", return_value="stable-version") as get_version:
+        with patch("bias_core.extensions.lifecycle.get_extension_runtime_version", return_value="stable-version") as get_version:
             first = middleware(request)
             second = middleware(request)
 
@@ -2100,7 +2100,7 @@ class ExtensionManifestLoaderTests(TestCase):
         request = RequestFactory().post("/api/discussions/")
         middleware = MaintenanceModeMiddleware(lambda current_request: HttpResponse("ok"))
 
-        with patch("apps.core.middleware.resolve_authenticated_user") as resolve_user:
+        with patch("bias_core.middleware.resolve_authenticated_user") as resolve_user:
             exempt = middleware._is_exempt(request, mode="high")
 
         self.assertFalse(exempt)
@@ -2115,7 +2115,7 @@ class ExtensionManifestLoaderTests(TestCase):
         middleware = MaintenanceModeMiddleware(lambda current_request: HttpResponse("ok"))
         staff = SimpleNamespace(is_staff=True)
 
-        with patch("apps.core.middleware.resolve_authenticated_user", return_value=staff) as resolve_user:
+        with patch("bias_core.middleware.resolve_authenticated_user", return_value=staff) as resolve_user:
             exempt = middleware._is_exempt(request, mode="high")
 
         self.assertTrue(exempt)
@@ -2135,7 +2135,7 @@ class ExtensionManifestLoaderTests(TestCase):
 
         Setting.objects.filter(key__in=[RUNTIME_REBUILD_MARKER_KEY, RUNTIME_VERSION_KEY]).delete()
         with patch(
-            "apps.core.extensions.frontend_compiler.recompile_extension_frontend_assets",
+            "bias_core.extensions.frontend_compiler.recompile_extension_frontend_assets",
             return_value=CompileResult(),
         ) as recompile:
             result = invalidate_extension_frontend_assets("extension_enabled", extension_id="alpha-tools")
@@ -2316,7 +2316,7 @@ class ExtensionManifestLoaderTests(TestCase):
                         frontend_routes=(),
                     ),
                 )
-                with patch("apps.core.extensions.frontend_compiler.subprocess.run", side_effect=FileNotFoundError("npm")):
+                with patch("bias_core.extensions.frontend_compiler.subprocess.run", side_effect=FileNotFoundError("npm")):
                     result = recompile_extension_frontend_assets([extension], run_build=True)
 
                 self.assertEqual(result.status, "error")
@@ -2719,7 +2719,7 @@ class ExtensionManifestLoaderTests(TestCase):
         self.assertTrue(second_patterns)
         self.assertNotEqual(root_urls.api.urls_namespace, "bias-api-1")
 
-    @patch("apps.core.extensions.manifest.metadata.distributions")
+    @patch("bias_core.extensions.manifest.metadata.distributions")
     def test_sync_extension_packages_persists_distribution_package_lock(self, distributions_mock):
         temp_dir = make_workspace_temp_dir()
         try:
@@ -3731,14 +3731,14 @@ class ExtensionManifestLoaderTests(TestCase):
             event_bus = DomainEventBus()
             resource_registry = ResourceRegistry()
 
-            with patch("apps.core.extensions.bootstrap.get_extension_registry", return_value=manager), patch(
-                "apps.core.forum_registry.get_forum_registry",
+            with patch("bias_core.extensions.bootstrap.get_extension_registry", return_value=manager), patch(
+                "bias_core.forum_registry.get_forum_registry",
                 return_value=forum_registry,
             ), patch(
-                "apps.core.domain_events.get_forum_event_bus",
+                "bias_core.domain_events.get_forum_event_bus",
                 return_value=event_bus,
             ), patch(
-                "apps.core.resource_registry.get_resource_registry",
+                "bias_core.resource_registry.get_resource_registry",
                 return_value=resource_registry,
             ):
                 application = bootstrap_extension_application(force=True)

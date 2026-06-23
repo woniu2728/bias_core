@@ -29,23 +29,23 @@ class ExtensionPolicyIntegrationTests(TestCase):
         self.assertFalse(resolve_authorization_decision([allow(), deny()], default=True))
         self.assertTrue(resolve_authorization_decision([allow()], default=False))
         self.assertIsNone(resolve_authorization_decision([None], default=None))
-        with patch("apps.core.extensions.policy_runtime_service.evaluate_model_policy", return_value=True) as evaluate:
+        with patch("bias_core.extensions.policy_runtime_service.evaluate_model_policy", return_value=True) as evaluate:
             self.assertTrue(can("actor", "discussion.edit", "discussion"))
             assert_can("actor", "discussion.edit", "discussion")
         evaluate.assert_called_with("discussion.edit", user="actor", model="discussion", default=None)
-        with patch("apps.core.extensions.policy_runtime_service.evaluate_model_policy", return_value=False):
+        with patch("bias_core.extensions.policy_runtime_service.evaluate_model_policy", return_value=False):
             with self.assertRaises(PermissionError):
                 assert_can("actor", "discussion.edit", "discussion")
-        with patch("apps.core.extensions.policy_runtime_service.evaluate_model_policy", return_value=None):
-            with patch("apps.core.forum_permissions.has_forum_permission", return_value=True) as has_permission:
+        with patch("bias_core.extensions.policy_runtime_service.evaluate_model_policy", return_value=None):
+            with patch("bias_core.forum_permissions.has_forum_permission", return_value=True) as has_permission:
                 self.assertTrue(can("actor", "discussion.edit", "discussion"))
         has_permission.assert_called_with("actor", "discussion.edit")
-        with patch("apps.core.extensions.policy_runtime_service.evaluate_model_policy", return_value=None):
-            with patch("apps.core.forum_permissions.has_forum_permission", return_value=False):
+        with patch("bias_core.extensions.policy_runtime_service.evaluate_model_policy", return_value=None):
+            with patch("bias_core.forum_permissions.has_forum_permission", return_value=False):
                 self.assertFalse(can("actor", "discussion.edit", "discussion"))
-        with patch("apps.core.extensions.policy_runtime_service.evaluate_model_policy", return_value=None):
-            with patch("apps.core.forum_permissions.has_forum_permission", side_effect=RuntimeError("permission backend down")):
-                with self.assertLogs("apps.core.authorization", level="WARNING") as logs:
+        with patch("bias_core.extensions.policy_runtime_service.evaluate_model_policy", return_value=None):
+            with patch("bias_core.forum_permissions.has_forum_permission", side_effect=RuntimeError("permission backend down")):
+                with self.assertLogs("bias_core.authorization", level="WARNING") as logs:
                     self.assertFalse(can("actor", "discussion.edit", "discussion"))
         self.assertTrue(any("Forum permission fallback failed" in message for message in logs.output))
 
@@ -127,7 +127,7 @@ class ExtensionPolicyIntegrationTests(TestCase):
 
             self.assertFalse(has_forum_permission(user, "searchUsers"))
 
-            with patch("apps.core.extensions.policy_runtime_service.get_extension_application", return_value=build_extension_application(manager=registry, force=True)):
+            with patch("bias_core.extensions.policy_runtime_service.get_extension_application", return_value=build_extension_application(manager=registry, force=True)):
                 self.assertTrue(has_forum_permission(user, "searchUsers"))
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
@@ -154,7 +154,7 @@ class ExtensionPolicyIntegrationTests(TestCase):
                 discussion=discussion,
             ))
 
-            with patch("apps.core.extensions.policy_runtime_service.get_extension_application", return_value=build_extension_application(manager=registry, force=True)):
+            with patch("bias_core.extensions.policy_runtime_service.get_extension_application", return_value=build_extension_application(manager=registry, force=True)):
                 self.assertFalse(evaluate_runtime_extension_policy(
                     "discussion.delete",
                     default=True,
@@ -227,7 +227,7 @@ class ExtensionPolicyIntegrationTests(TestCase):
             model_class = model_mount.model
 
             from bias_core.extensions.policy_runtime_service import evaluate_model_policy
-            with patch("apps.core.extensions.policy_runtime_service.get_extension_application", return_value=application):
+            with patch("bias_core.extensions.policy_runtime_service.get_extension_application", return_value=application):
                 self.assertFalse(evaluate_model_policy("alpha.edit", user="actor", model=model_class(), default=True))
                 self.assertTrue(evaluate_model_policy("alpha.view", user="actor", model=model_class(), default=False))
                 self.assertTrue(evaluate_model_policy("alpha.global", user="actor", model=None, default=False))

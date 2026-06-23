@@ -194,18 +194,18 @@ class ExtensionRegistryTests(TestCase):
         from bias_core.extensions.events import ExtensionDisabledEvent
         from bias_core.extensions.runtime_event_listeners import handle_extension_runtime_invalidation
 
-        with patch("apps.core.extensions.frontend_runtime_service.clear_extension_frontend_runtime_cache") as clear_frontend, patch(
-            "apps.core.extensions.locale_service.clear_extension_locale_cache"
+        with patch("bias_core.extensions.frontend_runtime_service.clear_extension_frontend_runtime_cache") as clear_frontend, patch(
+            "bias_core.extensions.locale_service.clear_extension_locale_cache"
         ) as clear_locale, patch(
-            "apps.core.extensions.formatter_service.clear_extension_formatter_cache"
+            "bias_core.extensions.formatter_service.clear_extension_formatter_cache"
         ) as clear_formatter, patch(
-            "apps.core.extensions.template_loader.clear_extension_template_caches"
+            "bias_core.extensions.template_loader.clear_extension_template_caches"
         ) as clear_templates, patch(
-            "apps.core.extensions.runtime_event_listeners.invalidate_extension_frontend_assets"
+            "bias_core.extensions.runtime_event_listeners.invalidate_extension_frontend_assets"
         ) as invalidate_assets, patch(
-            "apps.core.extensions.lifecycle.reset_extension_runtime_state"
+            "bias_core.extensions.lifecycle.reset_extension_runtime_state"
         ) as reset_runtime, patch(
-            "apps.core.extensions.lifecycle.rebuild_runtime_urlconf"
+            "bias_core.extensions.lifecycle.rebuild_runtime_urlconf"
         ) as rebuild_urlconf:
             handle_extension_runtime_invalidation(ExtensionDisabledEvent(extension_id="alpha-tools"))
 
@@ -573,7 +573,7 @@ class ExtensionRegistryTests(TestCase):
         frontend_runtime_service._frontend_runtime_catalog = {}
         frontend_runtime_service._frontend_runtime_bootstrapped = False
 
-        with patch("apps.core.extensions.frontend_runtime_service.get_extension_settings") as get_extension_settings_mock:
+        with patch("bias_core.extensions.frontend_runtime_service.get_extension_settings") as get_extension_settings_mock:
             bootstrap_extension_frontend_runtime()
 
         get_extension_settings_mock.assert_not_called()
@@ -584,8 +584,8 @@ class ExtensionRegistryTests(TestCase):
         entries = get_enabled_extension_runtime_entries(product_visible_only=True)
         self.assertTrue(any(item["id"] == "ai" for item in entries))
 
-        with patch("apps.core.extension_service.reset_extension_runtime_state") as reset_runtime_mock, patch(
-            "apps.core.extension_service.rebuild_runtime_urlconf"
+        with patch("bias_core.extension_service.reset_extension_runtime_state") as reset_runtime_mock, patch(
+            "bias_core.extension_service.rebuild_runtime_urlconf"
         ) as rebuild_urlconf_mock:
             ExtensionService.set_extension_enabled("ai", False)
 
@@ -653,7 +653,7 @@ class ExtensionRegistryTests(TestCase):
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
-    @patch("apps.core.extensions.runtime_probe.resolve_bias_version_compatibility")
+    @patch("bias_core.extensions.runtime_probe.resolve_bias_version_compatibility")
     def test_registry_marks_extension_unhealthy_when_bias_version_incompatible(self, resolve_bias_version_compatibility_mock):
         resolve_bias_version_compatibility_mock.return_value = {
             "compatible": False,

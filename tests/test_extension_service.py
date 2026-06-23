@@ -210,7 +210,7 @@ class ExtensionServiceTests(TestCase):
         self.assertEqual(uninstalled.runtime.backend_hooks["run_disable"]["status"], "ok")
         self.assertEqual(uninstalled.runtime.backend_hooks["run_uninstall"]["status"], "ok")
 
-    @patch("apps.core.extensions.compatibility_guard.resolve_bias_version_compatibility")
+    @patch("bias_core.extensions.compatibility_guard.resolve_bias_version_compatibility")
     def test_install_raises_when_bias_version_incompatible(self, resolve_bias_version_compatibility_mock):
         resolve_bias_version_compatibility_mock.return_value = {
             "compatible": False,
@@ -225,7 +225,7 @@ class ExtensionServiceTests(TestCase):
         self.assertEqual(context.exception.code, "extension_install_incompatible_bias_version")
         self.assertEqual(context.exception.details["required_bias_version"], "^2.0.0")
 
-    @patch("apps.core.extensions.compatibility_guard.resolve_bias_version_compatibility")
+    @patch("bias_core.extensions.compatibility_guard.resolve_bias_version_compatibility")
     def test_bias_compatibility_guard_normalizes_enable_errors(self, resolve_bias_version_compatibility_mock):
         from bias_core.extensions.compatibility_guard import validate_bias_compatibility
 

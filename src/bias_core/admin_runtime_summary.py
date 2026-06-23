@@ -5,7 +5,7 @@ import django
 from django.conf import settings
 from django.core.cache import cache
 
-from apps.core import runtime_diagnostics
+from bias_core import runtime_diagnostics
 from bias_core.queue_service import QueueService
 from bias_core.runtime_diagnostics import (
     build_runtime_dependency_checks,

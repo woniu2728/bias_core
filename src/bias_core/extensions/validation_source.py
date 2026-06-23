@@ -174,10 +174,10 @@ def validate_public_sdk_imports(
         return
 
     for imported_path in iter_core_import_paths(tree):
-        if imported_path == "apps.core":
+        if imported_path == "bias_core":
             collector.add_error(
                 "forbidden_core_internal_import",
-                "扩展源码不能直接导入 apps.core 根包；请只使用 apps.core.extensions 暴露的公共 SDK 接口。",
+                "扩展源码不能直接导入 bias_core 内部模块；请只使用 bias_core.extensions 暴露的公共 SDK 接口。",
                 extension_id=manifest.id,
                 field=relative_path,
             )
@@ -186,7 +186,7 @@ def validate_public_sdk_imports(
             continue
         collector.add_error(
             "forbidden_core_internal_import",
-            "扩展源码不能直接导入 apps.core 内部模块；请只使用 apps.core.extensions 暴露的公共 SDK 接口。",
+            "扩展源码不能直接导入 bias_core 内部模块；请只使用 bias_core.extensions 暴露的公共 SDK 接口。",
             extension_id=manifest.id,
             field=relative_path,
         )
@@ -197,23 +197,23 @@ def iter_core_import_paths(tree: ast.AST):
         if isinstance(node, ast.Import):
             for alias in node.names:
                 name = str(alias.name or "").strip()
-                if name == "apps.core" or name.startswith("apps.core."):
+                if name == "bias_core" or name.startswith("bias_core."):
                     yield normalize_core_public_import_path(name)
         elif isinstance(node, ast.ImportFrom):
             if getattr(node, "level", 0):
                 continue
             module = str(node.module or "").strip()
-            if module == "apps.core":
-                yield "apps.core"
-            elif module.startswith("apps.core."):
+            if module == "bias_core":
+                yield "bias_core"
+            elif module.startswith("bias_core."):
                 yield normalize_core_public_import_path(module)
 
 
 def normalize_core_public_import_path(module: str) -> str:
     parts = str(module or "").strip().split(".")
     if len(parts) <= 2:
-        return "apps.core"
-    if parts[:3] == ["apps", "core", "extensions"] and len(parts) >= 4:
+        return "bias_core"
+    if parts[:2] == ["bias_core", "extensions"] and len(parts) >= 4:
         return ".".join(parts[:4])
     return ".".join(parts[:3])
 
@@ -259,4 +259,7 @@ def resolve_extension_local_path(value: str, *, manifest: ExtensionManifest, bas
 def extension_root_path(manifest: ExtensionManifest, base_path: Path) -> Path:
     manifest_path = str(getattr(manifest, "path", "") or "").strip()
     return Path(manifest_path) if manifest_path else Path(base_path) / manifest.id
+
+
+
 

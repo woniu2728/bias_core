@@ -3,7 +3,7 @@ from django.core.cache import cache
 
 from ninja import Body, Router
 
-from apps.core import runtime_diagnostics
+from bias_core import runtime_diagnostics
 from bias_core.admin_auth import require_staff
 from bias_core.api_errors import api_error
 from bias_core.audit import log_admin_action

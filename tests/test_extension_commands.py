@@ -19,14 +19,14 @@ class ExtensionManagementCommandTests(TestCase):
             "handler": lambda options: {"ok": True, "scope": options.get("scope")},
         }]
 
-        with patch("apps.core.management.commands.extension_console.list_runtime_console_commands", return_value=commands):
+        with patch("bias_core.management.commands.extension_console.list_runtime_console_commands", return_value=commands):
             stdout = StringIO()
             call_command("extension_console", "--list", "--format", "json", stdout=stdout)
             payload = json.loads(stdout.getvalue())
 
         self.assertEqual(payload["commands"][0]["name"], "alpha:refresh")
 
-        with patch("apps.core.management.commands.extension_console.list_runtime_console_schedules", return_value=[{
+        with patch("bias_core.management.commands.extension_console.list_runtime_console_schedules", return_value=[{
             "name": "alpha:refresh",
             "description": "Refresh alpha",
             "schedule": "hourly",
@@ -39,7 +39,7 @@ class ExtensionManagementCommandTests(TestCase):
         self.assertEqual(payload["schedules"][0]["schedule"], "hourly")
 
         with patch(
-            "apps.core.management.commands.extension_console.run_runtime_console_command",
+            "bias_core.management.commands.extension_console.run_runtime_console_command",
             return_value={"ok": True, "scope": "all"},
         ):
             stdout = StringIO()
@@ -56,7 +56,7 @@ class ExtensionManagementCommandTests(TestCase):
 
         self.assertEqual(payload["result"], {"ok": True, "scope": "all"})
 
-    @patch("apps.core.management.commands.validate_extensions.get_core_module_ids", return_value=("core",))
+    @patch("bias_core.management.commands.validate_extensions.get_core_module_ids", return_value=("core",))
     def test_validate_extensions_command_uses_core_and_filesystem_extension_ids(self, get_core_module_ids_mock):
         temp_dir = make_workspace_temp_dir()
         try:
@@ -154,9 +154,9 @@ class ExtensionManagementCommandTests(TestCase):
                 self.assertIn("validate_extensions --strict", readme_source)
                 self.assertIn("build_extension_frontend --rebuild", readme_source)
                 self.assertIn("ApiResourceExtender(...)", readme_source)
-                self.assertIn("apps.core.extensions.runtime", readme_source)
-                self.assertIn("apps.core.extensions.platform", readme_source)
-                self.assertIn("apps.core.extensions.forum", readme_source)
+                self.assertIn("bias_core.extensions.runtime", readme_source)
+                self.assertIn("bias_core.extensions.platform", readme_source)
+                self.assertIn("bias_core.extensions.forum", readme_source)
                 self.assertIn("backend/apps.py", readme_source)
                 self.assertIn("backend/django_migrations", readme_source)
                 self.assertNotIn("migration_namespace", readme_source)

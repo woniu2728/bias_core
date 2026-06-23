@@ -75,7 +75,7 @@ class ExtensionMiddlewareIntegrationTests(TestCase):
 
             middleware = ExtensionRequestMiddleware(get_response)
 
-            with patch("apps.core.middleware.get_extension_application", return_value=build_extension_application(manager=registry, force=True)):
+            with patch("bias_core.middleware.get_extension_application", return_value=build_extension_application(manager=registry, force=True)):
                 response = middleware(request)
 
             self.assertEqual(response.status_code, 200)
@@ -95,7 +95,7 @@ class ExtensionMiddlewareIntegrationTests(TestCase):
 
             middleware = ExtensionRequestMiddleware(get_response)
 
-            with patch("apps.core.middleware.get_extension_application", return_value=build_extension_application(manager=registry, force=True)):
+            with patch("bias_core.middleware.get_extension_application", return_value=build_extension_application(manager=registry, force=True)):
                 response = middleware(request)
 
             self.assertEqual(response.status_code, 418)
@@ -115,7 +115,7 @@ class ExtensionMiddlewareIntegrationTests(TestCase):
         middleware = ExtensionErrorHandlingMiddleware(get_response)
 
         with patch(
-            "apps.core.extensions.system_runtime.report_runtime_error",
+            "bias_core.extensions.system_runtime.report_runtime_error",
             side_effect=lambda exc, **kwargs: reported.append((exc, kwargs)),
         ):
             with self.assertRaises(ValueError):
@@ -149,7 +149,7 @@ class ExtensionMiddlewareIntegrationTests(TestCase):
 
         middleware = ExtensionErrorHandlingMiddleware(get_response)
 
-        with patch("apps.core.extensions.bootstrap.get_extension_host", return_value=app):
+        with patch("bias_core.extensions.bootstrap.get_extension_host", return_value=app):
             response = middleware(request)
 
         self.assertEqual(response.status_code, 409)
@@ -168,7 +168,7 @@ class ExtensionMiddlewareIntegrationTests(TestCase):
         request.resolver_match = SimpleNamespace(url_name="alpha-webhook")
         middleware = ExtensionCsrfMiddleware(lambda current_request: HttpResponse("ok"))
 
-        with patch("apps.core.extensions.bootstrap.get_extension_host", return_value=app):
+        with patch("bias_core.extensions.bootstrap.get_extension_host", return_value=app):
             result = middleware.process_view(request, None, (), {})
 
         self.assertIsNone(result)
@@ -186,7 +186,7 @@ class ExtensionMiddlewareIntegrationTests(TestCase):
         request = RequestFactory().get("/api/demo")
         middleware = ExtensionThrottleApiMiddleware(lambda current_request: HttpResponse("ok"))
 
-        with patch("apps.core.extensions.bootstrap.get_extension_host", return_value=app):
+        with patch("bias_core.extensions.bootstrap.get_extension_host", return_value=app):
             response = middleware.process_view(request, None, (), {})
 
         self.assertEqual(response.status_code, 429)
@@ -229,9 +229,9 @@ class ExtensionMiddlewareIntegrationTests(TestCase):
         registry = Mock()
         registry.get_extensions.side_effect = RuntimeError("registry unavailable")
 
-        with patch("apps.core.extension_validation_context.get_core_module_ids", return_value=("core",)):
-            with patch("apps.core.extension_validation_context.get_extension_registry", return_value=registry):
-                with self.assertLogs("apps.core.extension_validation_context", level="WARNING") as logs:
+        with patch("bias_core.extension_validation_context.get_core_module_ids", return_value=("core",)):
+            with patch("bias_core.extension_validation_context.get_extension_registry", return_value=registry):
+                with self.assertLogs("bias_core.extension_validation_context", level="WARNING") as logs:
                     extension_ids = resolve_available_extension_ids_for_validation()
 
         self.assertEqual(extension_ids, {"core"})
@@ -1031,7 +1031,7 @@ class ExtensionMiddlewareIntegrationTests(TestCase):
                 "id": "alpha-tools",
                 "name": "Alpha Tools",
                 "version": "1.0.0",
-                "django_app_config": "apps.core.apps.CoreConfig",
+                "django_app_config": "bias_core.apps.CoreConfig",
             }, ensure_ascii=False), encoding="utf-8")
 
             loader = ExtensionManifestLoader(Path(temp_dir) / "extensions")

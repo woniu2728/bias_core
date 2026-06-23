@@ -54,9 +54,9 @@ class AdminDashboardStatsApiTests(TestCase):
         SECRET_KEY="dashboard-secret-key-12345678901234567890",
         NINJA_JWT={"ALGORITHM": "HS256", "SIGNING_KEY": "dashboard-jwt-secret-key-123456789012345"},
     )
-    @patch("apps.core.admin_runtime_summary.probe_redis_ping")
-    @patch("apps.core.admin_runtime_summary.cache")
-    @patch("apps.core.admin_stats_api.QueueService.get_worker_status")
+    @patch("bias_core.admin_runtime_summary.probe_redis_ping")
+    @patch("bias_core.admin_runtime_summary.cache")
+    @patch("bias_core.admin_stats_api.QueueService.get_worker_status")
     def test_admin_stats_marks_redis_and_queue_status(self, get_worker_status, mock_cache, probe_redis_ping):
         mock_cache.get.return_value = "ok"
         mock_cache.set.return_value = None
@@ -181,7 +181,7 @@ class AdminDashboardStatsApiTests(TestCase):
         CHANNEL_LAYERS={"default": {"BACKEND": "channels_redis.core.RedisChannelLayer", "CONFIG": {"hosts": [("localhost", 6379)]}}},
         CELERY_BROKER_URL="redis://localhost:6379/1",
     )
-    @patch("apps.core.admin_runtime_summary.cache")
+    @patch("bias_core.admin_runtime_summary.cache")
     def test_admin_stats_reports_cache_backend_unavailable(self, mock_cache):
         mock_cache.get.side_effect = RuntimeError("cache offline")
         mock_cache.set.side_effect = RuntimeError("cache offline")
@@ -207,7 +207,7 @@ class AdminDashboardStatsApiTests(TestCase):
         CHANNEL_LAYERS={"default": {"BACKEND": "channels_redis.core.RedisChannelLayer", "CONFIG": {}}},
         CELERY_BROKER_URL="memory://",
     )
-    @patch("apps.core.admin_runtime_summary.probe_redis_ping")
+    @patch("bias_core.admin_runtime_summary.probe_redis_ping")
     def test_admin_stats_reports_realtime_backend_misconfigured(self, _probe_redis_ping):
         response = self.client.get("/api/admin/stats", **self.auth_header())
 
@@ -225,8 +225,8 @@ class AdminDashboardStatsApiTests(TestCase):
         CHANNEL_LAYERS={"default": {"BACKEND": "channels.layers.InMemoryChannelLayer"}},
         CELERY_BROKER_URL="memory://",
     )
-    @patch("apps.core.admin_stats_api.QueueService.get_worker_status")
-    @patch("apps.core.admin_stats_api.get_runtime_advanced_settings")
+    @patch("bias_core.admin_stats_api.QueueService.get_worker_status")
+    @patch("bias_core.admin_stats_api.get_runtime_advanced_settings")
     def test_admin_stats_reports_queue_broker_misconfigured(self, get_runtime_advanced_settings, get_worker_status):
         get_runtime_advanced_settings.return_value = {
             "queue_enabled": True,
@@ -258,9 +258,9 @@ class AdminDashboardStatsApiTests(TestCase):
         CHANNEL_LAYERS={"default": {"BACKEND": "channels_redis.core.RedisChannelLayer", "CONFIG": {"hosts": [("redis.internal", 6379)]}}},
         CELERY_BROKER_URL="redis://redis.internal:6379/1",
     )
-    @patch("apps.core.admin_runtime_summary.cache")
-    @patch("apps.core.admin_runtime_summary.probe_redis_ping")
-    @patch("apps.core.admin_stats_api.QueueService.get_worker_status")
+    @patch("bias_core.admin_runtime_summary.cache")
+    @patch("bias_core.admin_runtime_summary.probe_redis_ping")
+    @patch("bias_core.admin_stats_api.QueueService.get_worker_status")
     def test_admin_stats_reports_unreachable_realtime_and_queue_broker(
         self,
         get_worker_status,
@@ -311,9 +311,9 @@ class AdminDashboardStatsApiTests(TestCase):
         CHANNEL_LAYERS={"default": {"BACKEND": "channels_redis.core.RedisChannelLayer", "CONFIG": {"hosts": [("redis.internal", 6379)]}}},
         CELERY_BROKER_URL="redis://redis.internal:6379/1",
     )
-    @patch("apps.core.admin_runtime_summary.cache")
-    @patch("apps.core.admin_runtime_summary.probe_redis_ping")
-    @patch("apps.core.admin_stats_api.QueueService.get_worker_status")
+    @patch("bias_core.admin_runtime_summary.cache")
+    @patch("bias_core.admin_runtime_summary.probe_redis_ping")
+    @patch("bias_core.admin_stats_api.QueueService.get_worker_status")
     def test_admin_stats_reports_protocol_error_for_realtime_and_queue_broker(
         self,
         get_worker_status,

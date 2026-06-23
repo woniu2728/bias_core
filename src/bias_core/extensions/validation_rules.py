@@ -24,12 +24,12 @@ PYTHON_EXTENSION_INTERNAL_IMPORT_PATTERN = re.compile(
     re.MULTILINE,
 )
 PUBLIC_EXTENSION_IMPORT_MODULES = {
-    "apps.core.extensions",
-    "apps.core.extensions.runtime",
-    "apps.core.extensions.platform",
-    "apps.core.extensions.forum",
-    "apps.core.extensions.contracts",
-    "apps.core.extensions.sdk",
+    "bias_core.extensions",
+    "bias_core.extensions.runtime",
+    "bias_core.extensions.platform",
+    "bias_core.extensions.forum",
+    "bias_core.extensions.contracts",
+    "bias_core.extensions.sdk",
 }
 FORBIDDEN_CROSS_EXTENSION_INTERNAL_IMPORT_RE = re.compile(
     r"^\.backend\.(?:models|services|tasks|signals|events|visibility|admin|admin_api|api|handlers|resources|resource|listeners)(?:\.|$)"

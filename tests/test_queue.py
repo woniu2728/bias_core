@@ -15,7 +15,7 @@ class QueueServiceTests(TestCase):
 
     @override_settings(CELERY_BROKER_URL="redis://localhost:6379/1")
     @patch("config.celery.app.control.inspect")
-    @patch("apps.core.queue_service.QueueService._should_skip_live_worker_check", return_value=False)
+    @patch("bias_core.queue_service.QueueService._should_skip_live_worker_check", return_value=False)
     def test_queue_worker_status_reports_available_workers(self, _skip_live_worker_check, inspect):
         from bias_core.queue_service import QueueService
 
@@ -37,7 +37,7 @@ class QueueServiceTests(TestCase):
 
     @override_settings(CELERY_BROKER_URL="redis://localhost:6379/1")
     @patch("config.celery.app.control.inspect")
-    @patch("apps.core.queue_service.QueueService._should_skip_live_worker_check", return_value=False)
+    @patch("bias_core.queue_service.QueueService._should_skip_live_worker_check", return_value=False)
     def test_queue_worker_status_reports_unavailable_without_ping_response(self, _skip_live_worker_check, inspect):
         from bias_core.queue_service import QueueService
 
@@ -118,7 +118,7 @@ class QueueServiceTests(TestCase):
             QueueService.dispatch_celery_task(SuccessfulTask(), fallback=lambda: "sync"),
             "queued",
         )
-        with self.assertLogs("apps.core.queue_service", level="WARNING") as logs:
+        with self.assertLogs("bias_core.queue_service", level="WARNING") as logs:
             self.assertEqual(
                 QueueService.dispatch_celery_task(FailingTask(), fallback=lambda: "fallback"),
                 "fallback",
@@ -168,7 +168,7 @@ class QueueServiceTests(TestCase):
                 raise AssertionError("queue should be disabled")
 
         QueueService.reset_metrics()
-        with patch("apps.core.queue_service.QueueService.should_enqueue", side_effect=[False]) as should_enqueue:
+        with patch("bias_core.queue_service.QueueService.should_enqueue", side_effect=[False]) as should_enqueue:
             result = QueueService.dispatch_celery_task(DummyTask(), fallback=lambda: "sync")
 
         metrics = QueueService.get_metrics()

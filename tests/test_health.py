@@ -37,7 +37,7 @@ class HealthCheckApiTests(TestCase):
         EMAIL_BACKEND="django.core.mail.backends.console.EmailBackend",
     )
     @patch.object(django_settings.BOOTSTRAP, "installed", True)
-    @patch("apps.core.runtime_checks._is_test_process", return_value=False)
+    @patch("bias_core.runtime_checks._is_test_process", return_value=False)
     def test_health_check_hides_production_runtime_risks(self, _is_test_process):
         response = self.client.get("/api/health")
 

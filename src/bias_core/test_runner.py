@@ -18,8 +18,8 @@ class BiasDiscoverRunner(DiscoverRunner):
 
         normalized = []
         for label in test_labels:
-            if label in {"apps.core", "core"}:
-                normalized.extend(_app_test_module_labels("apps.core"))
+            if label in {"bias_core", "core"}:
+                normalized.extend(_app_test_module_labels("bias_core"))
                 continue
             normalized.append(label)
         return normalized
@@ -57,4 +57,5 @@ def _app_test_module_labels(app_name: str) -> list[str]:
         if path.name != "test_runner.py"
     )
     return labels
+
 

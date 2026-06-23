@@ -99,7 +99,7 @@ class AdminExtensionsApiTests(TestCase):
         self.assertTrue(any(action["key"] == "documentation" for action in sample_extension["admin_actions"]))
         self.assertTrue(any(action["action"] == "hook:run_rebuild_cache" for action in sample_extension["runtime_actions"]))
 
-    @patch("apps.core.extension_detail.orchestrator.inspect_extension_frontend_output_manifest")
+    @patch("bias_core.extension_detail.orchestrator.inspect_extension_frontend_output_manifest")
     def test_extensions_api_reuses_frontend_output_manifest_snapshot(self, inspect_manifest):
         inspect_manifest.return_value = {
             "extensions": {},
@@ -215,7 +215,7 @@ class AdminExtensionsApiTests(TestCase):
                 }
 
         with patch(
-            "apps.core.extension_service.recompile_extension_frontend_assets",
+            "bias_core.extension_service.recompile_extension_frontend_assets",
             return_value=CompileResult(),
         ) as recompile:
             response = self.client.post(
@@ -249,7 +249,7 @@ class AdminExtensionsApiTests(TestCase):
                 }
 
         with patch(
-            "apps.core.extension_service.recompile_extension_frontend_assets",
+            "bias_core.extension_service.recompile_extension_frontend_assets",
             return_value=CompileResult(),
         ) as recompile:
             response = self.client.post(
@@ -485,9 +485,9 @@ class AdminExtensionsApiTests(TestCase):
         self.assertEqual(theme_runtime["document_attributes"], [{"class": ["alpha-theme"]}])
         self.assertEqual(theme_runtime["head_tags"][0]["attributes"]["name"], "alpha-theme")
 
-    @patch("apps.core.extension_settings_service.get_extension_settings", return_value={})
-    @patch("apps.core.extension_settings_service.serialize_extension_settings_schema", return_value=[])
-    @patch("apps.core.admin_content_api.get_extension_registry")
+    @patch("bias_core.extension_settings_service.get_extension_settings", return_value={})
+    @patch("bias_core.extension_settings_service.serialize_extension_settings_schema", return_value=[])
+    @patch("bias_core.admin_content_api.get_extension_registry")
     def test_extension_detail_api_prefers_contract_runtime_surfaces(
         self,
         get_extension_registry_mock,
@@ -743,7 +743,7 @@ class AdminExtensionsApiTests(TestCase):
         payload = response.json()
         self.assertEqual(payload["code"], "extension_enable_not_installed")
 
-    @patch("apps.core.extensions.compatibility_guard.resolve_bias_version_compatibility")
+    @patch("bias_core.extensions.compatibility_guard.resolve_bias_version_compatibility")
     def test_extensions_api_blocks_install_when_bias_version_incompatible(self, resolve_bias_version_compatibility_mock):
         resolve_bias_version_compatibility_mock.return_value = {
             "compatible": False,
