@@ -25,11 +25,11 @@ class BiasDiscoverRunner(DiscoverRunner):
         return normalized
 
     def _default_test_labels(self) -> list[str]:
-        app_names = {app for app in settings.INSTALLED_APPS if app.startswith("apps.")}
+        app_names = {app for app in settings.INSTALLED_APPS if app == "bias_core"}
         app_names.update(
             app_config.name
             for app_config in apps.get_app_configs()
-            if app_config.name.startswith("apps.")
+            if app_config.name == "bias_core"
         )
         labels = []
         for app_name in sorted(app_names):

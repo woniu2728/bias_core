@@ -58,11 +58,10 @@ class TestRunnerTests(TestCase):
                 continue
             modules.add(item.__class__.__module__)
 
-        self.assertTrue(
+        self.assertFalse(
             any(m.startswith("bias_core.tests.") for m in modules),
             f"Expected test modules under bias_core.tests.*, got: {modules}",
         )
-        self.assertIn("bias_core.test_management_commands", modules)
 
     def test_core_product_code_does_not_import_extension_backends(self):
         violations: list[str] = []

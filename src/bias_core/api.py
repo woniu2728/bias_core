@@ -9,5 +9,6 @@ def system_status(request):
     runtime = get_runtime_status()
     return {
         "status": runtime.state,
+        "state": runtime.state,
         "current_version": runtime.current_version,
     }
