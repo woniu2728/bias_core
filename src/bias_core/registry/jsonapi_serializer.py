@@ -159,3 +159,4 @@ class JsonApiSerializer:
     def _is_jsonapi_identifier(value):
         return ResourceSerializer.is_jsonapi_identifier(value)
 
+

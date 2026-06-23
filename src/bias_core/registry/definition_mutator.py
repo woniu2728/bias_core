@@ -292,3 +292,4 @@ class DefinitionMutator:
             return {str(methods).strip().upper()}
         return {str(m or "").strip().upper() for m in methods if str(m or "").strip()}
 
+

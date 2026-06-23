@@ -337,3 +337,4 @@ class ResourceValidator:
         return isinstance(value, dict) and "id" in value and "type" in value
 
 
+

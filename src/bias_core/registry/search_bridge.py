@@ -187,3 +187,4 @@ class SearchBridge:
             return queryset
         return queryset.filter(condition)
 
+

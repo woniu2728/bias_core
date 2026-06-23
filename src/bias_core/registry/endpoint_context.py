@@ -420,3 +420,4 @@ class EndpointContextResolver:
                 raise JsonApiValidationError(str(exc), pointer=EndpointContextResolver._validation_pointer(definition)) from exc
         return value
 
+
