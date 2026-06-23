@@ -1,26 +1,34 @@
-from __future__ import annotations
-
-from dataclasses import dataclass
-from typing import Any
+"""核心通用业务服务。"""
 
 
-@dataclass
 class PaginationService:
-    page: int = 1
-    page_size: int = 20
-    total: int = 0
+    DEFAULT_LIMIT = 20
+    MIN_PAGE = 1
+    MIN_LIMIT = 1
+    MAX_LIMIT = 100
 
-    @classmethod
-    def paginate(cls, queryset, request, **kwargs) -> dict:
-        page = int(request.GET.get("page", 1))
-        page_size = int(request.GET.get("page_size", 20))
-        start = (page - 1) * page_size
-        end = start + page_size
-        total = queryset.count()
-        items = queryset[start:end]
-        return {
-            "data": items,
-            "total": total,
-            "page": page,
-            "page_size": page_size,
-        }
+    @staticmethod
+    def normalize_page(page: int) -> int:
+        try:
+            normalized = int(page)
+        except (TypeError, ValueError):
+            return PaginationService.MIN_PAGE
+        return max(PaginationService.MIN_PAGE, normalized)
+
+    @staticmethod
+    def normalize_limit(limit: int, *, default: int | None = None, max_limit: int | None = None) -> int:
+        fallback = PaginationService.DEFAULT_LIMIT if default is None else int(default)
+        upper_bound = PaginationService.MAX_LIMIT if max_limit is None else int(max_limit)
+        try:
+            normalized = int(limit)
+        except (TypeError, ValueError):
+            return fallback
+        return max(PaginationService.MIN_LIMIT, min(normalized, upper_bound))
+
+    @staticmethod
+    def normalize(page: int, limit: int, *, default_limit: int | None = None, max_limit: int | None = None) -> tuple[int, int]:
+        return (
+            PaginationService.normalize_page(page),
+            PaginationService.normalize_limit(limit, default=default_limit, max_limit=max_limit),
+        )
+

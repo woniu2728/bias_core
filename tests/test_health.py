@@ -2,11 +2,15 @@ from unittest.mock import Mock, patch
 from django.test import TestCase, override_settings
 from django.conf import settings as django_settings
 
+from bias_core.runtime_state import get_runtime_status, RuntimeState
+
+
 class HealthCheckApiTests(TestCase):
     def setUp(self):
         super().setUp()
         if not hasattr(django_settings, 'BOOTSTRAP'):
             django_settings.BOOTSTRAP = type('obj', (object,), {'installed': False, 'debug': True})()
+        get_runtime_status().state = RuntimeState.READY
     @override_settings(
         CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache", "LOCATION": "health-test"}},
         CHANNEL_LAYERS={"default": {"BACKEND": "channels.layers.InMemoryChannelLayer"}},

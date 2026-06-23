@@ -96,7 +96,7 @@ def _register_health_route(api: NinjaAPI) -> None:
     def health_check(request):
         runtime = get_runtime_status()
         return {
-            "status": "ok" if runtime.state == "ready" else "degraded",
+            "status": "ok" if runtime.state in ("ready", "starting") else "degraded",
             "message": "Bias API is running",
             "state": runtime.state,
             "current_version": runtime.current_version,

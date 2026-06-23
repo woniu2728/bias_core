@@ -63,6 +63,7 @@ USE_TZ = True
 AUTH_USER_MODEL = "auth.User"
 
 from types import SimpleNamespace
+ALLOWED_HOSTS = ["*"]
 BOOTSTRAP = SimpleNamespace(
     installed=False,
     debug=True,

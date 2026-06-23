@@ -1,12 +1,7 @@
-from __future__ import annotations
-
-from typing import Any
-
-from ninja.errors import HttpError
+from bias_core.api_errors import api_error
 
 
-def require_staff(request) -> Any:
-    user = getattr(request, "auth", None)
-    if user is None or not getattr(user, "is_staff", False):
-        return HttpError(403, {"detail": "Staff access required"})
+def require_staff(request):
+    if not getattr(request, "auth", None) or not request.auth.is_staff:
+        return api_error("需要管理员权限", status=403)
     return None
