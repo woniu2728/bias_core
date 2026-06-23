@@ -3,11 +3,11 @@ from tests.common import *
 class TestRunnerTests(TestCase):
     def test_default_runner_uses_app_test_modules_without_explicit_labels(self):
         runner = BiasDiscoverRunner()
-        app_names = {app for app in settings.INSTALLED_APPS if app.startswith("apps.")}
+        app_names = {app for app in settings.INSTALLED_APPS if app.startswith("bias_core")}
         app_names.update(
             app_config.name
             for app_config in apps.get_app_configs()
-            if app_config.name.startswith("apps.")
+            if app_config.name.startswith("bias_core")
         )
         labels = []
         for app in sorted(app_names):
@@ -47,7 +47,7 @@ class TestRunnerTests(TestCase):
     def test_core_app_label_expands_to_core_test_modules(self):
         runner = BiasDiscoverRunner()
 
-        suite = runner.build_suite(["apps.core"])
+        suite = runner.build_suite(["bias_core"])
 
         modules = set()
         stack = [suite]
@@ -60,13 +60,13 @@ class TestRunnerTests(TestCase):
 
         self.assertTrue(
             any(m.startswith("bias_core.tests.") for m in modules),
-            f"Expected test modules under apps.core.tests.*, got: {modules}",
+            f"Expected test modules under bias_core.tests.*, got: {modules}",
         )
         self.assertIn("bias_core.test_management_commands", modules)
 
     def test_core_product_code_does_not_import_extension_backends(self):
         violations: list[str] = []
-        core_root = Path(settings.BASE_DIR) / "apps" / "core"
+        core_root = Path(settings.BASE_DIR).parent / "src" / "bias_core"
         for path in sorted(core_root.rglob("*.py")):
             if path.name == "tests.py" or "tests" in path.parts or "__pycache__" in path.parts:
                 continue
@@ -78,4 +78,5 @@ class TestRunnerTests(TestCase):
                     violations.append(f"{relative_path}:{line_number}: {line.strip()}")
 
         self.assertEqual(violations, [], "core product code must depend on extension runtime contracts, not extension backends")
+
 

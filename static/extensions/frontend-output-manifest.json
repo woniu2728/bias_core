@@ -1,0 +1,23 @@
+{
+  "build": {
+    "command": [],
+    "compiled_at": "2026-06-23T12:34:28.884976+00:00",
+    "published": {
+      "message": "未请求发布前端 dist。",
+      "source": "D:\\files\\project\\tmp\\bias_core\\frontend\\dist",
+      "status": "skipped",
+      "status_label": "已跳过",
+      "target": "D:\\files\\project\\tmp\\bias_core\\static\\frontend"
+    },
+    "ran": false,
+    "returncode": null,
+    "stderr": "",
+    "stdout": ""
+  },
+  "extensions": {},
+  "generated_at": "2026-06-23T12:34:28.884976+00:00",
+  "input_revision": "44136fa355b3678a",
+  "revision": "",
+  "vite_manifest_exists": false,
+  "vite_manifest_path": "D:\\files\\project\\tmp\\bias_core\\frontend\\dist\\.vite\\manifest.json"
+}

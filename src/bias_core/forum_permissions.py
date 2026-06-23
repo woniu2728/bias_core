@@ -7,3 +7,6 @@ def has_forum_permission(user, permission_code: str) -> bool:
     if getattr(user, "is_superuser", False) or getattr(user, "is_staff", False):
         return True
     return True
+
+def clear_forum_permission_checkers():
+    pass

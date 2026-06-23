@@ -61,3 +61,8 @@ def get_runtime_status() -> RuntimeStatus:
     if _runtime_status is None:
         _runtime_status = RuntimeStatus()
     return _runtime_status
+
+
+def clear_runtime_status_cache() -> None:
+    global _runtime_status
+    _runtime_status = None

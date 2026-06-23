@@ -76,3 +76,10 @@ BOOTSTRAP = SimpleNamespace(
     email_backend="django.core.mail.backends.console.EmailBackend",
 )
 SITE_SCHEME = "http"
+
+NINJA_JWT = {
+    "ALGORITHM": "HS256",
+    "SIGNING_KEY": "test-jwt-secret-key-for-bias-core",
+    "ACCESS_TOKEN_LIFETIME": 900,
+    "REFRESH_TOKEN_LIFETIME": 86400,
+}

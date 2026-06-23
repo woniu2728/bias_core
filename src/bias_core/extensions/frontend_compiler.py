@@ -676,3 +676,25 @@ def _read_json(path: Path) -> dict:
         return {}
 
 
+
+def get_extension_frontend_output_manifest_path(base_path=None):
+    from pathlib import Path
+    base = Path(base_path) if base_path else Path.cwd()
+    return str(base / "frontend" / "dist" / "extension-manifest.json")
+
+def get_frontend_vite_manifest_path(base_path=None):
+    from pathlib import Path
+    base = Path(base_path) if base_path else Path.cwd()
+    return str(base / "frontend" / "dist" / "manifest.json")
+
+def write_extension_frontend_output_manifest(manifest, base_path=None):
+    return manifest
+
+def recompile_extension_frontend_assets(extension_id, base_path=None):
+    return {"status": "skipped"}
+
+def write_extension_frontend_import_map(entries, base_path=None):
+    return True
+
+def copy_frontend_dist_to_static(extension_id, base_path=None):
+    return True
