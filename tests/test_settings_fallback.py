@@ -5,7 +5,7 @@ from django.db import OperationalError
 from django.test import TestCase, override_settings
 from types import SimpleNamespace
 
-from bias_core.services import SettingsService, get_setting_value
+from bias_core.settings_service import SettingsService, get_setting_value
 
 
 def clear_runtime_setting_caches():
@@ -115,4 +115,5 @@ class SettingsServiceFallbackTests(TestCase):
 
         self.assertEqual(settings_data["queue_driver"], "redis")
         self.assertFalse(settings_data["queue_enabled"])
+
 

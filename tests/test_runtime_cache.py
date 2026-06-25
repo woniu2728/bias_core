@@ -42,3 +42,4 @@ class RuntimeStatusCacheTests(TestCase):
 
         self.assertEqual(status.state, "ready")
 
+

@@ -27,7 +27,7 @@ from django.utils import timezone
 from ninja_jwt.tokens import RefreshToken
 from unittest.mock import Mock, patch
 
-from bias_core.services.domain_events import DomainEvent, DomainEventBus, get_forum_event_bus
+from bias_core.domain_events import DomainEvent, DomainEventBus, get_forum_event_bus
 from bias_core.extensions.backend import run_extension_backend_hook
 from bias_core.extensions.exceptions import ExtensionStateError
 from bias_core.extensions.manifest import ExtensionManifestLoader
@@ -67,7 +67,7 @@ from bias_core.extensions.runtime_access import (
     evaluate_runtime_extension_policy,
     evaluate_runtime_model_policy,
 )
-from bias_core.services.forum_permissions import has_forum_permission
+from bias_core.forum_permissions import has_forum_permission
 from bias_core.extensions.lifecycle import reset_extension_runtime_state
 from bias_core.extensions.types import (
     ExtensionAdminActionDefinition,
@@ -91,7 +91,7 @@ from bias_core.extension_diagnostics import classify_extension_diagnostics, summ
 from bias_core.extension_django_apps import discover_extension_django_apps, discover_extension_django_migration_modules
 from bias_core.extension_service import ExtensionService
 from bias_core.middleware import ExtensionRequestMiddleware
-from bias_core.api.runtime import build_api_application
+from bias_core.api_runtime import build_api_application
 from bias_core.forum_registry import (
     ForumRegistry,
     get_forum_registry,
@@ -107,8 +107,8 @@ from bias_core.extensions.forum_registry_types import (
     SearchFilterDefinition,
     UserPreferenceDefinition,
 )
-from bias_core.resources.registry import get_resource_registry
-from bias_core.resources.registry import (
+from bias_core.resource_registry import get_resource_registry
+from bias_core.resource_registry import (
     ResourceEndpointDefinition,
     ResourceDefinition,
     ResourceFilterDefinition,
@@ -118,7 +118,7 @@ from bias_core.resources.registry import (
     ResourceRegistry,
     ResourceSortDefinition,
 )
-from bias_core.resources.objects import (
+from bias_core.resource_objects import (
     DatabaseResource,
     Resource,
     ResourceEndpoint,
@@ -129,15 +129,15 @@ from bias_core.resources.objects import (
     ResourceSearchResults,
     ResourceSort,
 )
-from bias_core.resources.dispatcher import dispatch_resource_endpoint
-from bias_core.resources.routes import build_resource_path_route_definitions, build_resource_route_definitions
-from bias_core.resources.search import ResourceSearchFilter, ResourceSearchManager, ResourceSearchState
-from bias_core.resources.serializer import ResourceSerializer
-from bias_core.resources.context import ResourceContext
-from bias_core.resources.validation import ResourceValidationError, ResourceValidator, ResourceValidatorFactory
+from bias_core.resource_dispatcher import dispatch_resource_endpoint
+from bias_core.resource_routes import build_resource_path_route_definitions, build_resource_route_definitions
+from bias_core.resource_search import ResourceSearchFilter, ResourceSearchManager, ResourceSearchState
+from bias_core.resource_serializer import ResourceSerializer
+from bias_core.resource_context import ResourceContext
+from bias_core.resource_validation import ResourceValidationError, ResourceValidator, ResourceValidatorFactory
 from bias_core.conf.bootstrap import SiteBootstrapConfig, load_site_bootstrap
 from bias_core.models import AuditLog, ExtensionInstallation, Setting
-from bias_core.services.settings import (
+from bias_core.settings_service import (
     clear_runtime_setting_caches,
     get_advanced_settings,
     get_extension_setting_group_defaults,
@@ -390,6 +390,7 @@ class AlphaStringEvent(DomainEvent):
     value: str
     def event_type(self) -> str:
         return "alpha.string"
+
 
 
 
