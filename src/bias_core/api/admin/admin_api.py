@@ -1,0 +1,20 @@
+"""管理后台 API 路由聚合。"""
+from ninja import Router
+
+from bias_core.api.admin.audit_api import router as audit_router
+from bias_core.api.admin.admin_content_api import router as content_router
+from bias_core.api.admin.extension_recovery_api import router as extension_recovery_router
+from bias_core.api.admin.admin_settings_api import router as settings_router
+from bias_core.api.admin.admin_stats_api import router as stats_router
+
+
+router = Router()
+router.add_router("", audit_router)
+router.add_router("", content_router)
+router.add_router("", extension_recovery_router)
+router.add_router("", settings_router)
+router.add_router("", stats_router)
+
+
+
+
