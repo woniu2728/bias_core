@@ -43,7 +43,7 @@ def _register_admin_routes(api: NinjaAPI) -> None:
     try:
         from bias_core.admin_api import router as admin_router
         _add_router_once(api, "/admin", admin_router, tags=["Admin"])
-    except ImportError:
+    except Exception:
         pass
 
 
@@ -54,7 +54,7 @@ def _register_resource_routes(api: NinjaAPI) -> None:
         registry = get_resource_registry()
         resource_router = build_resource_endpoint_router(registry)
         _add_router_once(api, "", resource_router, tags=["Resources"])
-    except ImportError:
+    except Exception:
         pass
 
 
@@ -69,50 +69,18 @@ def _register_frontend_manifest_route(api: NinjaAPI) -> None:
 def _register_extension_routes(api: NinjaAPI, *, extension_host=None) -> None:
     """Register routes from installed extensions.
 
-    Discovers extensions via entry points when no extension_host is provided.
+    Extension routes are discovered and mounted by the site project (bias_site),
+    not by bias_core. This function is a no-op unless bias_site calls it
+    with a proper extension_host.
     """
-    host = extension_host
-    if host is None:
-        try:
-            from bias_core.extensions.bootstrap import get_extension_host
-            host = get_extension_host()
-        except (ImportError, Exception):
-            pass
+    if extension_host is None:
+        return
 
-    if host is not None:
-        try:
-            routes = host.make("routes")
-            for mount in routes.get_mounts():
-                _add_router_once(api, mount.prefix, mount.router, tags=list(mount.tags))
-            return
-        except (AttributeError, Exception):
-            pass
-
-    # Fallback: discover extension routes directly from entry points
-    _discover_extension_routes(api)
-
-
-def _discover_extension_routes(api: NinjaAPI) -> None:
-    """Scan bias.extensions entry points and mount their API routes."""
-    import importlib.metadata
     try:
-        for ep in importlib.metadata.entry_points(group="bias.extensions"):
-            ext_name = ep.name
-            try:
-                mod = importlib.import_module(f"bias_ext_{ext_name}.backend.api")
-                router = getattr(mod, "router", None)
-                if router is not None:
-                    _add_router_once(api, f"/{ext_name}", router, tags=[ext_name.title()])
-            except (ImportError, ModuleNotFoundError, AttributeError, Exception):
-                pass
-            try:
-                mod = importlib.import_module(f"bias_ext_{ext_name}.backend.admin_api")
-                router = getattr(mod, "router", None)
-                if router is not None:
-                    _add_router_once(api, "/admin", router, tags=[ext_name.title()])
-            except (ImportError, ModuleNotFoundError, AttributeError, Exception):
-                pass
-    except Exception:
+        routes = extension_host.make("routes")
+        for mount in routes.get_mounts():
+            _add_router_once(api, mount.prefix, mount.router, tags=list(mount.tags))
+    except (AttributeError, Exception):
         pass
 
 
