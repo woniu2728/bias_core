@@ -3,5 +3,6 @@ from bias_core.version import APP_VERSION
 
 
 __version__ = APP_VERSION
-__all__ = ["__version__", "default_app_config"]
+__all__ = ["__version__"]
+
 
