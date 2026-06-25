@@ -1,0 +1,1 @@
+from bias_core.api.admin.admin_extension_detail import *  # noqa
