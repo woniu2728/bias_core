@@ -1,6 +1,6 @@
 [project]
 name = "bias-core"
-version = "0.1.0"
+version = "0.1.1"
 description = "Bias forum backend core platform"
 requires-python = ">=3.11"
 
