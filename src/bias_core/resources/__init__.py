@@ -1,8 +1,7 @@
-from __future__ import annotations
+"""
+bias_core.resources — Resource API runtime.
 
-from bias_core.resources.registry import get_resource_registry, register_resource
-
-__all__ = [
-    "get_resource_registry",
-    "register_resource",
-]
+Usage:
+    from bias_core.resources.registry import ResourceRegistry
+    from bias_core.resources.serializer import ResourceSerializer
+"""
