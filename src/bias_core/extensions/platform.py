@@ -67,7 +67,7 @@ from bias_core.resource_errors import (
 from bias_core.mail_drivers import can_mail_driver_send, send_with_extension_mail_driver
 from bias_core.markdown_service import MarkdownService
 from bias_core.queue_service import QueueService
-from bias_core.services import PaginationService
+from bias_core.services.pagination import PaginationService
 from bias_core.settings_service import (
     get_advanced_settings,
     get_advanced_settings_defaults,
@@ -168,5 +168,6 @@ __all__ = [
     "set_access_token_cookie",
     "set_refresh_token_cookie",
 ]
+
 
 
