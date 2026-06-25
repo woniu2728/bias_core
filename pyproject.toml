@@ -53,3 +53,31 @@ filterwarnings = [
   "ignore::DeprecationWarning:pydantic",
   "ignore::UserWarning:django.test.utils",
 ]
+
+[tool.importlinter]
+root_packages = ["bias_core"]
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "bias_core_must_not_import_extensions"
+type = "forbidden"
+source_modules = ["bias_core"]
+forbidden_modules = ["bias_ext_"]
+
+[[tool.importlinter.contracts]]
+name = "extensions_must_not_import_core_internals"
+type = "forbidden"
+source_modules = ["bias_ext_users.backend"]
+forbidden_modules = [
+    "bias_core.models",
+    "bias_core.resource_registry",
+    "bias_core.resource_objects",
+    "bias_core.resource_serializer",
+    "bias_core.settings_service",
+    "bias_core.services",
+    "bias_core.conf",
+    "bias_core.release",
+    "bias_core.middleware",
+    "bias_core.db",
+    "bias_core.schemas",
+]

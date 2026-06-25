@@ -35,7 +35,7 @@ def build_api_application(*, extension_host=None, urls_namespace: str | None = N
 
 
 def _register_core_routes(api: NinjaAPI) -> None:
-    from bias_core.api import router as core_router
+    from bias_core.api_main import router as core_router
     _add_router_once(api, "", core_router, tags=["System"])
 
 
