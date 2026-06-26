@@ -25,12 +25,12 @@ def build_api_application(*, extension_host=None, urls_namespace: str | None = N
         urls_namespace=urls_namespace or next_api_urls_namespace(),
     )
 
-    _register_core_routes(api)
     _register_admin_routes(api)
+    _register_extension_routes(api, extension_host=extension_host)
     _register_resource_routes(api)
+    _register_core_routes(api)
     _register_frontend_manifest_route(api)
     _register_health_route(api)
-    _register_extension_routes(api, extension_host=extension_host)
     return api
 
 

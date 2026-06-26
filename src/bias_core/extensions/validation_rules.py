@@ -13,7 +13,7 @@ VERSION_RANGE_PATTERN = re.compile(r"^(?:(?:\^|~|>=|<=|>|<)?\d+\.\d+\.\d+)(?:\s+
 API_VERSION_PATTERN = re.compile(r"^\d+\.\d+$")
 MIGRATION_FILE_PATTERN = re.compile(r"^\d{4}_[a-z0-9_]+\.py$")
 EXTENSION_SOURCE_SUFFIXES = {".json", ".js", ".jsx", ".ts", ".tsx", ".vue", ".py", ".md", ".css", ".scss", ".less"}
-SKIPPED_SOURCE_DIRS = {"__pycache__", ".pytest_cache", "node_modules", "dist", "build", ".venv", "venv"}
+SKIPPED_SOURCE_DIRS = {"__pycache__", ".pytest_cache", "node_modules", "dist", "build", ".venv", "venv", "tests"}
 EXTERNAL_PROJECT_NAME_PATTERN = re.compile(r"\b" + "fla" + "rum" + r"\b", re.IGNORECASE)
 PYTHON_EXTENSION_IMPORT_PATTERN = re.compile(
     r"^(?:from\s+(?:extensions\.([A-Za-z0-9_]+)|bias_ext_([A-Za-z0-9_]+))([A-Za-z0-9_\.]*)\b|import\s+(?:extensions\.([A-Za-z0-9_]+)|bias_ext_([A-Za-z0-9_]+))([A-Za-z0-9_\.]*)\b)",

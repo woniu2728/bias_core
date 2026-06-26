@@ -8,6 +8,7 @@ from django.core.exceptions import PermissionDenied
 from django.http import HttpResponse, JsonResponse, RawPostDataException
 
 from bias_core.auth import get_optional_user
+from bias_core.jwt_auth import resolve_authenticated_user
 from bias_core.extensions.runtime import get_runtime_resource_registry
 from bias_core.forum_permissions import has_forum_permission
 from bias_core.resource_api import parse_resource_query_options
@@ -48,7 +49,7 @@ def dispatch_resource_endpoint(
     object_id: str | None = None,
 ):
     registry = get_runtime_resource_registry()
-    user = get_optional_user(request)
+    user = get_optional_user(request) or resolve_authenticated_user(request)
     if user is not None and getattr(user, "is_authenticated", False):
         request.auth = user
     method = str(getattr(request, "method", "GET") or "GET").upper()

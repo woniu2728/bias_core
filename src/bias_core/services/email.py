@@ -9,7 +9,7 @@ from typing import Optional
 from django.conf import settings
 from django.core.mail import EmailMultiAlternatives, get_connection
 
-from bias_core.mail_drivers import can_mail_driver_send, normalize_mail_driver, send_with_extension_mail_driver
+from bias_core.mail_drivers import can_mail_driver_send, normalize_mail_driver, parse_mail_from, send_with_extension_mail_driver
 from bias_core.settings_service import BASIC_SETTINGS_DEFAULTS, get_mail_settings, get_setting_group
 
 logger = logging.getLogger(__name__)
@@ -23,6 +23,19 @@ class EmailService:
         mail_settings = get_mail_settings()
         if not mail_settings["mail_password"]:
             mail_settings["mail_password"] = getattr(settings, "EMAIL_HOST_PASSWORD", "")
+        from_address, from_name = _normalize_mail_from(
+            mail_settings.get("mail_from_address"),
+            mail_settings.get("mail_from_name"),
+        )
+        if from_address:
+            mail_settings["mail_from_address"] = from_address
+            mail_settings["mail_from_name"] = from_name
+        else:
+            mail_settings["mail_from_address"], mail_settings["mail_from_name"] = _default_mail_from()
+        if not mail_settings.get("mail_username"):
+            mail_settings["mail_username"] = getattr(settings, "EMAIL_HOST_USER", "")
+        if not mail_settings.get("mail_host"):
+            mail_settings["mail_host"] = getattr(settings, "EMAIL_HOST", "")
         return mail_settings
 
     @staticmethod
@@ -142,3 +155,14 @@ class EmailService:
             return False
 
 
+def _default_mail_from() -> tuple[str, str]:
+    default_from_email = getattr(settings, "DEFAULT_FROM_EMAIL", "") or getattr(settings, "EMAIL_HOST_USER", "")
+    address, name = parse_mail_from(default_from_email)
+    return address, name
+
+
+def _normalize_mail_from(address: str | None, name: str | None) -> tuple[str, str]:
+    parsed_address, parsed_name = parse_mail_from(address)
+    if parsed_address and parsed_address != str(address or "").strip():
+        return parsed_address, parsed_name or str(name or "").strip()
+    return str(address or "").strip(), str(name or "").strip()

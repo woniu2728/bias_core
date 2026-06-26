@@ -79,7 +79,7 @@ def inspect_extension_backend_module(definition) -> dict:
 
 
 def load_extension_backend_module(definition) -> ModuleType | None:
-    backend_entry = module_path(str(definition.manifest.backend_entry or "").strip())
+    backend_entry = module_path(str(definition.manifest.backend_entry or "").strip()).split(":", 1)[0]
     if definition.source == "python-package" or backend_entry.startswith("bias_ext_"):
         if not backend_entry:
             return None

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from django.db import OperationalError, ProgrammingError
+
 from bias_core.extensions.exceptions import ExtensionNotFoundError
 from bias_core.extensions.bootstrap import get_extension_host
 from bias_core.extensions.manager import get_extension_manager
@@ -52,9 +54,12 @@ def get_enabled_extension_settings_definitions(*, include_disabled: bool = True)
         }
         runtime_extension_ids.add(runtime_view.extension_id)
 
-    for extension_id, definition in _build_registry_settings_definitions(
-        include_disabled=include_disabled,
-    ).items():
+    try:
+        registry_definitions = _build_registry_settings_definitions(include_disabled=include_disabled)
+    except (OperationalError, ProgrammingError):
+        registry_definitions = {}
+
+    for extension_id, definition in registry_definitions.items():
         if extension_id not in runtime_extension_ids:
             definitions[extension_id] = definition
     return definitions

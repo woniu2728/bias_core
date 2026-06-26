@@ -59,6 +59,20 @@ def _iter_extension_manifest_paths(base_dir=None):
     if base_path is not None:
         roots.append(base_path / "extensions")
         roots.append(base_path)
+        try:
+            from django.conf import settings
+
+            configured = str(getattr(settings, "BIAS_EXTENSION_WORKSPACE_ROOT", "") or "").strip()
+            if configured:
+                configured_path = Path(configured).resolve()
+                try:
+                    resolved_base = base_path.resolve()
+                except OSError:
+                    resolved_base = base_path
+                if resolved_base == configured_path or resolved_base.parent == configured_path:
+                    roots.append(configured_path)
+        except Exception:
+            pass
     else:
         try:
             from django.conf import settings

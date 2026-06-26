@@ -35,6 +35,14 @@ def clear_bootstrapped_extension_host() -> None:
     clear_bootstrapped_extension_application()
 
 
+def set_bootstrapped_extension_host(application) -> None:
+    global _extension_application
+    global _extension_application_base_dir
+    _extension_application = application
+    _extension_application_base_dir = _current_base_dir()
+    mark_extension_host_bootstrapped()
+
+
 def reset_extension_application_bootstrap() -> None:
     reset_extension_host_bootstrap()
 
