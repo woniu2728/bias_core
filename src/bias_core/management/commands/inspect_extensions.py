@@ -5,6 +5,7 @@ import json
 from django.conf import settings
 from django.core.management import BaseCommand, CommandError
 from django.core.management.base import CommandParser
+from django.db import OperationalError, ProgrammingError
 
 from bias_core.extension_diagnostics import (
     classify_extension_diagnostics,
@@ -58,8 +59,22 @@ class Command(BaseCommand):
         only_blocking = bool(options.get("only_blocking"))
         include_permissions = bool(options.get("include_permissions"))
 
-        registry = get_extension_registry()
-        registry.load(force=True)
+        try:
+            registry = get_extension_registry()
+            registry.load(force=True)
+        except (OperationalError, ProgrammingError) as exc:
+            self.stdout.write(json.dumps(
+                _build_database_unavailable_payload(
+                    error=exc,
+                    extension_id=extension_id,
+                    only_attention=only_attention,
+                    only_blocking=only_blocking,
+                    include_permissions=include_permissions,
+                ),
+                ensure_ascii=False,
+                indent=2,
+            ))
+            return
 
         if extension_id:
             try:
@@ -138,7 +153,15 @@ class Command(BaseCommand):
             "only_blocking": only_blocking,
             "include_permissions": include_permissions,
         }
-        payload["package_lock"] = registry.inspect_extension_packages(force=True)
+        try:
+            payload["package_lock"] = registry.inspect_extension_packages(force=True)
+        except (OperationalError, ProgrammingError) as exc:
+            payload["package_lock"] = {
+                "status": "blocked",
+                "code": "database_migrations_unapplied",
+                "message": "Django 数据库迁移尚未应用，无法读取扩展安装状态。请先执行 python manage.py migrate。",
+                "error": str(exc),
+            }
         self.stdout.write(json.dumps(payload, ensure_ascii=False, indent=2))
 
 
@@ -171,4 +194,51 @@ def _resolve_core_module_extension(extension_id: str):
     if module is None:
         return None
     return resolve_module_extension_definition(module)
+
+
+def _build_database_unavailable_payload(
+    *,
+    error: Exception,
+    extension_id: str,
+    only_attention: bool,
+    only_blocking: bool,
+    include_permissions: bool,
+) -> dict:
+    diagnostic = {
+        "code": "database_migrations_unapplied",
+        "message": "Django 数据库迁移尚未应用，无法读取扩展安装状态。请先执行 python manage.py migrate。",
+        "blocking": True,
+        "has_attention": True,
+        "severity": "error",
+    }
+    return {
+        "extensions": [],
+        "summary": {
+            "extension_count": 0,
+            "enabled_count": 0,
+            "healthy_count": 0,
+            "filesystem_count": 0,
+            "attention_count": 1,
+            "blocking_count": 1,
+            "warning_count": 0,
+            "frontend_bundle_count": 0,
+            "migration_bundle_count": 0,
+            "status": "blocked",
+        },
+        "diagnostics": [diagnostic],
+        "meta": {
+            "base_dir": str(settings.BASE_DIR),
+            "extension_id": extension_id,
+            "only_attention": only_attention,
+            "only_blocking": only_blocking,
+            "include_permissions": include_permissions,
+            "database_ready": False,
+            "error": str(error),
+        },
+        "package_lock": {
+            "status": "blocked",
+            "code": diagnostic["code"],
+            "message": diagnostic["message"],
+        },
+    }
 

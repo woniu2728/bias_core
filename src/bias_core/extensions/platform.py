@@ -90,6 +90,35 @@ def get_frontend_url() -> str:
     return str(getattr(settings, "FRONTEND_URL", "") or "")
 
 
+def get_enabled_theme() -> dict:
+    theme_settings = get_theme_settings()
+    theme_id = str(theme_settings.get("theme_id") or "default").strip() or "default"
+    return {
+        "id": theme_id,
+        "name": str(theme_settings.get("theme_name") or "Default").strip() or "Default",
+        "className": str(theme_settings.get("theme_class") or f"bias-theme-{theme_id}").strip() or f"bias-theme-{theme_id}",
+        "colorScheme": str(theme_settings.get("color_scheme") or "light").strip() or "light",
+        "settings": theme_settings,
+    }
+
+
+def get_theme_settings() -> dict:
+    from django.db import OperationalError, ProgrammingError
+    from bias_core.models import Setting
+
+    try:
+        records = Setting.objects.filter(key__startswith="theme.").values("key", "value")
+    except (OperationalError, ProgrammingError):
+        return {}
+
+    output = {}
+    for record in records:
+        key = str(record.get("key") or "").removeprefix("theme.").strip()
+        if key:
+            output[key] = record.get("value")
+    return output
+
+
 def require_forum_permission(request, permission_code, message: str):
     denied = require_staff(request)
     if denied:
@@ -146,12 +175,14 @@ __all__ = [
     "get_extension_settings",
     "get_advanced_settings",
     "get_advanced_settings_defaults",
+    "get_enabled_theme",
     "get_frontend_url",
     "get_forum_event_bus",
     "get_mail_settings_defaults",
     "get_optional_user",
     "get_setting_group",
     "get_storage_backend",
+    "get_theme_settings",
     "has_forum_permission",
     "is_debug_mode",
     "jsonapi_error_response",

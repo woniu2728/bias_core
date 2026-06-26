@@ -3,6 +3,7 @@ from ninja import Router
 
 from bias_core.api.auth import get_optional_user
 from bias_core.api.jwt_auth import AccessTokenAuth
+from bias_core.extensions.platform import get_enabled_theme
 from bias_core.markdown_service import MarkdownService
 from bias_core.runtime_state import get_runtime_status
 from bias_core.schemas import MarkdownPreviewInSchema, MarkdownPreviewOutSchema
@@ -40,6 +41,11 @@ def get_csrf_token(request):
 @router.get("/forum", tags=["Forum"])
 def get_forum_settings(request):
     return get_public_forum_settings(user=get_optional_user(request))
+
+
+@router.get("/forum/theme", tags=["Forum"])
+def get_forum_theme(request):
+    return {"theme": get_enabled_theme()}
 
 
 @router.post("/preview", response=MarkdownPreviewOutSchema, tags=["Forum"])

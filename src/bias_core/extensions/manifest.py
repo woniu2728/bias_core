@@ -272,6 +272,10 @@ class ExtensionManifestLoader:
             or filename.endswith("/bias_extension.json")
             or filename == "bias_extension/extension.json"
             or filename.endswith("/bias_extension/extension.json")
+            or (
+                "/bias_extensions/" in f"/{filename}"
+                and filename.endswith("/extension.json")
+            )
         )
 
     def _build_admin_action(self, payload: dict) -> ExtensionAdminActionDefinition:

@@ -713,6 +713,32 @@ class ExtensionManagementCommandTests(TestCase):
         self.assertGreaterEqual(payload["summary"]["blocking_count"], 1)
         self.assertTrue(all(item["diagnostics"]["blocking"] for item in payload["extensions"]))
 
+    def test_inspect_extensions_command_reports_unmigrated_database_as_blocking_json(self):
+        stdout = StringIO()
+        with patch(
+            "bias_core.management.commands.inspect_extensions.get_extension_registry",
+            side_effect=OperationalError("no such table: extension_installations"),
+        ):
+            call_command("inspect_extensions", "--format", "json", "--only-blocking", stdout=stdout)
+
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual(payload["summary"]["status"], "blocked")
+        self.assertEqual(payload["summary"]["blocking_count"], 1)
+        self.assertEqual(payload["diagnostics"][0]["code"], "database_migrations_unapplied")
+        self.assertFalse(payload["meta"]["database_ready"])
+        self.assertEqual(payload["extensions"], [])
+
+    def test_distribution_manifest_loader_detects_packaged_extension_data_files(self):
+        from bias_core.extensions.manifest import ExtensionManifestLoader
+
+        loader = ExtensionManifestLoader(Path(settings.BASE_DIR) / "extensions")
+        self.assertTrue(loader._is_distribution_manifest_file(
+            "bias_ext_users-0.1.0.data/data/bias_extensions/users/extension.json"
+        ))
+        self.assertTrue(loader._is_distribution_manifest_file(
+            "bias_extensions/users/extension.json"
+        ))
+
     def test_inspect_extensions_command_reports_missing_extension(self):
         with self.assertRaisesMessage(CommandError, "扩展不存在: missing-extension"):
             call_command("inspect_extensions", "--extension-id", "missing-extension")

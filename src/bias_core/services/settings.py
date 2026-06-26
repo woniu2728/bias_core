@@ -555,6 +555,9 @@ def get_public_forum_settings(user=None) -> dict:
 
     forum_settings["extension_locales"] = get_enabled_extension_locales()
     forum_settings["extension_document"] = build_enabled_frontend_document_payload()
+    from bias_core.extensions.platform import get_enabled_theme
+
+    forum_settings["theme"] = get_enabled_theme()
     forum_settings.update(_serialize_forum_resource_fields(forum_settings, user=user))
 
     if cache_lifetime > 0:

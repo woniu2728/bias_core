@@ -98,6 +98,7 @@ from bias_core.extensions.sdk import (
     runtime_action,
     setting_field,
 )
+from bias_core.extensions.platform import get_enabled_theme, get_theme_settings
 
 __all__ = [
     'AdminNavigationExtender',
@@ -201,6 +202,8 @@ __all__ = [
     'event_listener',
     'force_allow',
     'force_deny',
+    'get_enabled_theme',
+    'get_theme_settings',
     'runtime_action',
     'setting_field',
 ]
