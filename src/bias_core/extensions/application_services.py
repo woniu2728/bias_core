@@ -169,6 +169,11 @@ class ApplicationViewService:
         return get_template(template_name)
 
     def render(self, template_name: str, context: dict | None = None, *, request: Any = None) -> str:
+        if "::" in str(template_name or ""):
+            from django.template import Context, Template
+
+            path = self.resolve_template_path(template_name)
+            return Template(path.read_text(encoding="utf-8")).render(Context(dict(context or {})))
         return self.get_template(template_name).render(context=dict(context or {}), request=request)
 
     def _normalize_hint(self, hint: str, *, extension_id: str) -> str:

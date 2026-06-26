@@ -36,6 +36,12 @@ from bias_core.extensions.validation_inspection import (
     resolve_admin_surface_implementation,
     resolve_surface_from_export_name,
 )
+from bias_core.extensions.paths import (
+    extension_backend_dir,
+    extension_django_migration_dir,
+    extension_python_package,
+    legacy_extension_python_package,
+)
 from bias_core.extensions.version_compatibility import resolve_bias_version_compatibility
 
 
@@ -208,13 +214,14 @@ def _validate_backend_entry(
     if debug_payload["entry_type"] == "external":
         collector.add_warning(
             "backend_entry_outside_extensions",
-            "backend_entry 建议使用 extensions.<extension_id>.backend.ext 形式的扩展入口",
+            "backend_entry 建议使用 bias_ext_<extension_id>.backend.ext 形式的扩展入口",
             extension_id=manifest.id,
             field="backend_entry",
         )
         return
-    expected_backend_prefix = f"extensions.{manifest.id.replace('-', '_')}.backend."
-    if not entry.startswith(expected_backend_prefix):
+    expected_backend_prefix = f"{extension_python_package(manifest.id)}.backend."
+    legacy_backend_prefix = f"{legacy_extension_python_package(manifest.id)}.backend."
+    if not entry.startswith(expected_backend_prefix) and not entry.startswith(legacy_backend_prefix):
         collector.add_error(
             "invalid_backend_entry_namespace",
             f"backend_entry 必须归属当前扩展命名空间，建议使用 {expected_backend_prefix}...",
@@ -276,13 +283,13 @@ def _validate_frontend_admin_entry(
     if debug_payload["entry_type"] == "external":
         collector.add_warning(
             "frontend_admin_entry_outside_extensions",
-            "frontend_admin_entry 建议使用 extensions/... 相对仓库根目录的路径",
+            "frontend_admin_entry 建议使用相对当前扩展根目录的路径，例如 frontend/admin/index.js 或 frontend/dist/admin/index.js",
             extension_id=manifest.id,
             field="frontend_admin_entry",
         )
         return
     expected_entry = expected_frontend_entry(manifest, base_path, "admin")
-    if entry != expected_entry:
+    if entry != expected_entry and not bool(debug_payload["exists"]):
         collector.add_error(
             "invalid_frontend_admin_entry_path",
             f"frontend_admin_entry 必须指向当前扩展的标准后台入口: {expected_entry}",
@@ -336,13 +343,13 @@ def _validate_frontend_forum_entry(
     if debug_payload["entry_type"] == "external":
         collector.add_warning(
             "frontend_forum_entry_outside_extensions",
-            "frontend_forum_entry 建议使用 extensions/... 相对仓库根目录的路径",
+            "frontend_forum_entry 建议使用相对当前扩展根目录的路径，例如 frontend/forum/index.js 或 frontend/dist/forum/index.js",
             extension_id=manifest.id,
             field="frontend_forum_entry",
         )
         return
     expected_entry = expected_frontend_entry(manifest, base_path, "forum")
-    if entry != expected_entry:
+    if entry != expected_entry and not bool(debug_payload["exists"]):
         collector.add_error(
             "invalid_frontend_forum_entry_path",
             f"frontend_forum_entry 必须指向当前扩展的标准前台入口: {expected_entry}",
@@ -378,7 +385,8 @@ def _validate_migration_files(
     base_path: Path,
 ) -> None:
     extension_root = extension_root_path(manifest, base_path)
-    legacy_migration_dir = extension_root / "backend" / "migrations"
+    backend_dir = extension_backend_dir(extension_root, manifest.id)
+    legacy_migration_dir = backend_dir / "migrations"
     if legacy_migration_dir.exists():
         collector.add_error(
             "legacy_extension_migration_dir",
@@ -388,7 +396,7 @@ def _validate_migration_files(
         )
 
     django_app_config = str(manifest.django_app_config or "").strip()
-    migration_dir = extension_root / "backend" / "django_migrations"
+    migration_dir = extension_django_migration_dir(extension_root, manifest.id)
     if not django_app_config:
         if migration_dir.exists():
             collector.add_error(

@@ -20,7 +20,7 @@ ALLOWED_EXTENSION_SETTING_TYPES = {
 def build_extension_settings_defaults(extension_id: str) -> dict[str, Any]:
     try:
         definition = get_extension_settings_definition(extension_id)
-    except ExtensionNotFoundError:
+    except Exception:
         return {}
     return dict(definition["defaults"])
 
@@ -81,7 +81,7 @@ def save_extension_settings(extension_id: str, payload: dict[str, Any]) -> dict[
 def serialize_extension_settings_schema(extension_id: str) -> list[dict[str, Any]]:
     try:
         definition = get_extension_settings_definition(extension_id)
-    except ExtensionNotFoundError:
+    except Exception:
         return []
     return [
         {

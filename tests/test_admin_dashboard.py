@@ -1,8 +1,9 @@
 from tests.common import *
+from django.contrib.auth import get_user_model
 
 class AdminDashboardStatsApiTests(TestCase):
     def setUp(self):
-        self.admin = User.objects.create_superuser(
+        self.admin = get_user_model().objects.create_superuser(
             username="dashboard-admin",
             email="dashboard-admin@example.com",
             password="password123",

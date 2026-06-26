@@ -1,13 +1,15 @@
 from tests.common import *
+from django.contrib.auth import get_user_model
 
 class AdminAuditLogApiTests(TestCase):
     def setUp(self):
-        self.admin = User.objects.create_superuser(
+        user_model = get_user_model()
+        self.admin = user_model.objects.create_superuser(
             username="audit-admin",
             email="audit-admin@example.com",
             password="password123",
         )
-        self.member = User.objects.create_user(
+        self.member = user_model.objects.create_user(
             username="audit-member",
             email="audit-member@example.com",
             password="password123",

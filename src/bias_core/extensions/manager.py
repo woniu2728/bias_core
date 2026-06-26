@@ -66,8 +66,18 @@ EXTENSION_ENABLED_ORDER_SETTING = "extensions_enabled_order"
 
 class ExtensionManager:
     def __init__(self, *, extensions_path: Path | None = None):
-        self._uses_default_extensions_path = extensions_path is None
-        self.extensions_path = Path(extensions_path or Path(settings.BASE_DIR) / "extensions")
+        default_path = Path(settings.BASE_DIR) / "extensions"
+        self.extensions_path = Path(extensions_path or default_path)
+        try:
+            self._uses_default_extensions_path = (
+                extensions_path is None
+                or self.extensions_path.resolve() == default_path.resolve()
+            )
+        except OSError:
+            self._uses_default_extensions_path = (
+                extensions_path is None
+                or self.extensions_path == default_path
+            )
         self._extensions: dict[str, Extension] = {}
         self._loaded = False
         self._loading = False
@@ -85,7 +95,12 @@ class ExtensionManager:
             return
 
         self._loading = True
-        loader = ExtensionManifestLoader(self.extensions_path)
+        if force and self._uses_default_extensions_path:
+            self.extensions_path = Path(settings.BASE_DIR) / "extensions"
+        loader = ExtensionManifestLoader(
+            self.extensions_path,
+            include_workspace=self._uses_default_extensions_path,
+        )
         extensions: dict[str, Extension] = {}
 
         try:
@@ -1317,6 +1332,6 @@ def get_extension_manager() -> ExtensionManager:
     if _manager is None:
         _manager = ExtensionManager()
     elif _manager.extensions_path != default_path:
-        _manager = ExtensionManager(extensions_path=default_path)
+        _manager = ExtensionManager()
     return _manager
 

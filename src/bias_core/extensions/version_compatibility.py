@@ -50,6 +50,13 @@ def resolve_bias_version_compatibility(manifest: ExtensionManifest, *, current_v
 
 def matches_simple_version_range(version: str, version_range: str) -> bool:
     normalized = version_range.strip()
+    if " " in normalized:
+        return all(
+            matches_simple_version_range(version, part)
+            for part in normalized.split()
+            if part
+        )
+
     operator = ""
     for candidate in ("^", "~", ">=", "<=", ">", "<"):
         if normalized.startswith(candidate):

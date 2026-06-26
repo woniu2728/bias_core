@@ -433,7 +433,10 @@ def _serialize_extension_admin_actions(extension, *, runtime_record=None):
     )
 
 def _resolve_extension_runtime_record(extension):
-    host = get_extension_host()
+    try:
+        host = get_extension_host()
+    except Exception:
+        return None
     if host is None:
         return None
     return host.get_runtime_view(extension.id)

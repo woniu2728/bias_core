@@ -163,7 +163,15 @@ class AccessTokenAuth(HttpBearer):
     """JWT auth that accepts bearer header or HttpOnly access token cookie."""
 
     def __call__(self, request: HttpRequest):
-        return resolve_authenticated_user(request)
+        user = super().__call__(request)
+        if getattr(user, "is_authenticated", False):
+            return user
+
+        cookie_token = request.COOKIES.get(ACCESS_TOKEN_COOKIE_NAME)
+        user = resolve_user_from_access_token(cookie_token or "")
+        if getattr(user, "is_authenticated", False):
+            return user
+        return None
 
     def authenticate(self, request: HttpRequest, token: str):
         return resolve_user_from_access_token(token)

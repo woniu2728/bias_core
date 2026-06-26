@@ -6,6 +6,7 @@ from pathlib import Path
 
 from django.conf import settings
 
+from bias_core.version import APP_VERSION
 from bias_core.extensions.definition_assembler import resolve_extension_discovery_result
 from bias_core.extensions.exceptions import ExtensionManifestError
 from bias_core.extensions.types import (
@@ -27,8 +28,18 @@ _distribution_manifest_cache: list[ExtensionManifest] | None = None
 
 
 class ExtensionManifestLoader:
-    def __init__(self, base_path: Path):
+    def __init__(
+        self,
+        base_path: Path,
+        *,
+        include_workspace: bool = False,
+        include_distributions: bool | None = None,
+        workspace_root: Path | None = None,
+    ):
         self.base_path = Path(base_path)
+        self.include_workspace = include_workspace
+        self.include_distributions = include_distributions
+        self.workspace_root = Path(workspace_root) if workspace_root is not None else None
 
     def discover(self) -> list[ExtensionDiscoveryResult]:
         return [
@@ -39,18 +50,35 @@ class ExtensionManifestLoader:
     def discover_manifests(self) -> list[ExtensionManifest]:
         results: list[ExtensionManifest] = []
 
-        if not self.base_path.exists():
-            results.extend(self.discover_distribution_manifests())
-            return self._deduplicate_manifests(results)
-
-        for manifest_path in sorted(self.base_path.glob("*/extension.json")):
-            results.append(self.load_manifest_only(manifest_path))
+        if self.base_path.exists():
+            for manifest_path in sorted(self.base_path.glob("*/extension.json")):
+                results.append(self.load_manifest_only(manifest_path))
+        results.extend(self.discover_workspace_manifests())
         results.extend(self.discover_distribution_manifests())
         return self._deduplicate_manifests(results)
 
+    def discover_workspace_manifests(self) -> list[ExtensionManifest]:
+        if not self.include_workspace:
+            return []
+        workspace_root = self._resolve_workspace_root()
+        if workspace_root is None:
+            return []
+
+        manifests: list[ExtensionManifest] = []
+        for manifest_path in sorted(workspace_root.glob("bias-ext-*/extension.json")):
+            try:
+                manifests.append(self.load_manifest_only(manifest_path))
+            except ExtensionManifestError:
+                continue
+        return manifests
+
     def discover_distribution_manifests(self) -> list[ExtensionManifest]:
         global _distribution_manifest_cache
-        if not getattr(settings, "BIAS_EXTENSION_PACKAGE_DISCOVERY", True):
+        if self.include_distributions is None:
+            include_distributions = bool(getattr(settings, "BIAS_EXTENSION_PACKAGE_DISCOVERY", True))
+        else:
+            include_distributions = bool(self.include_distributions)
+        if not include_distributions:
             return []
         if _distribution_manifest_cache is not None:
             return list(_distribution_manifest_cache)
@@ -60,7 +88,7 @@ class ExtensionManifestLoader:
             extension_files = [
                 file
                 for file in (distribution.files or ())
-                if self._is_distribution_manifest_file(str(file).replace("", "/"))
+                if self._is_distribution_manifest_file(str(file).replace("\\", "/"))
             ]
             for file in extension_files:
                 manifest_path = Path(str(distribution.locate_file(file)))
@@ -108,6 +136,30 @@ class ExtensionManifestLoader:
         if not SEMVER_PATTERN.match(version):
             raise ExtensionManifestError(f"扩展清单 version 非法: {manifest_path}")
 
+        backend_payload = payload.get("backend") if isinstance(payload.get("backend"), dict) else {}
+        frontend_payload = payload.get("frontend") if isinstance(payload.get("frontend"), dict) else {}
+        django_payload = payload.get("django") if isinstance(payload.get("django"), dict) else {}
+        backend_entry = str(payload.get("backend_entry") or backend_payload.get("entry") or "").strip()
+        frontend_admin_entry = str(
+            payload.get("frontend_admin_entry")
+            or frontend_payload.get("admin_entry")
+            or frontend_payload.get("admin")
+            or ""
+        ).strip()
+        frontend_forum_entry = str(
+            payload.get("frontend_forum_entry")
+            or frontend_payload.get("forum_entry")
+            or frontend_payload.get("forum")
+            or ""
+        ).strip()
+        django_app_config = str(payload.get("django_app_config") or django_payload.get("app_config") or "").strip()
+        django_app_label = str(payload.get("django_app_label") or django_payload.get("app_label") or "").strip()
+        django_migration_module = str(
+            payload.get("django_migration_module")
+            or django_payload.get("migration_module")
+            or ""
+        ).strip()
+
         manifest = ExtensionManifest(
             id=extension_id,
             name=name,
@@ -122,9 +174,9 @@ class ExtensionManifestLoader:
             optional_dependencies=tuple(str(item).strip() for item in payload.get("optional_dependencies", []) if str(item).strip()),
             conflicts=tuple(str(item).strip() for item in payload.get("conflicts", []) if str(item).strip()),
             provides=tuple(str(item).strip() for item in payload.get("provides", []) if str(item).strip()),
-            backend_entry=str(payload.get("backend_entry") or "").strip(),
-            frontend_admin_entry=str(payload.get("frontend_admin_entry") or "").strip(),
-            frontend_forum_entry=str(payload.get("frontend_forum_entry") or "").strip(),
+            backend_entry=backend_entry,
+            frontend_admin_entry=frontend_admin_entry,
+            frontend_forum_entry=frontend_forum_entry,
             settings_pages=tuple(str(item).strip() for item in payload.get("settings_pages", []) if str(item).strip()),
             permissions_pages=tuple(str(item).strip() for item in payload.get("permissions_pages", []) if str(item).strip()),
             operations_pages=tuple(str(item).strip() for item in payload.get("operations_pages", []) if str(item).strip()),
@@ -135,8 +187,9 @@ class ExtensionManifestLoader:
             distribution=self._build_distribution(payload.get("distribution"), manifest_payload=payload),
             runtime_actions=tuple(self._build_runtime_action(item) for item in payload.get("runtime_actions", []) if isinstance(item, dict)),
             settings_schema=tuple(self._build_settings_field(item) for item in payload.get("settings_schema", []) if isinstance(item, dict)),
-            django_app_config=str(payload.get("django_app_config") or "").strip(),
-            django_app_label=str(payload.get("django_app_label") or "").strip(),
+            django_app_config=django_app_config,
+            django_app_label=django_app_label,
+            django_migration_module=django_migration_module,
             source="filesystem",
             path=str(manifest_path.parent),
             extra=dict(payload.get("extra") or {}),
@@ -173,6 +226,45 @@ class ExtensionManifestLoader:
                 continue
             by_id[manifest.id] = manifest
         return [by_id[key] for key in sorted(by_id.keys())]
+
+    def _resolve_workspace_root(self) -> Path | None:
+        if self.workspace_root is not None:
+            return self.workspace_root if self.workspace_root.exists() else None
+
+        configured = str(getattr(settings, "BIAS_EXTENSION_WORKSPACE_ROOT", "") or "").strip()
+        if configured:
+            root = Path(configured)
+            if root.exists() and _path_is_relative_to(self.base_path, root):
+                return root
+            return None
+
+        default_extensions_path = Path(settings.BASE_DIR) / "extensions"
+        try:
+            is_default_path = self.base_path.resolve() == default_extensions_path.resolve()
+        except OSError:
+            is_default_path = self.base_path == default_extensions_path
+
+        if self.base_path.exists() and any(self.base_path.glob("bias-ext-*/extension.json")):
+            return self.base_path
+        if (
+            is_default_path
+            and Path(settings.BASE_DIR).name in {"bias_site", "site"}
+            and self.base_path.parent.exists()
+            and any(self.base_path.parent.glob("bias-ext-*/extension.json"))
+        ):
+            return self.base_path.parent
+
+        if not is_default_path:
+            return None
+
+        for candidate in (self.base_path.parent, *self.base_path.parents):
+            if candidate.exists() and any(candidate.glob("bias-ext-*/extension.json")):
+                return candidate
+
+        cwd = Path.cwd()
+        if cwd.exists() and any(cwd.glob("bias-ext-*/extension.json")):
+            return cwd
+        return None
 
     def _is_distribution_manifest_file(self, filename: str) -> bool:
         return (
@@ -219,8 +311,9 @@ class ExtensionManifestLoader:
     def _build_compatibility(self, payload: dict | None) -> ExtensionCompatibilityDefinition:
         data = payload if isinstance(payload, dict) else {}
         defaults = ExtensionCompatibilityDefinition()
+        default_bias_version = defaults.bias_version or _default_bias_version_range()
         return ExtensionCompatibilityDefinition(
-            bias_version=str(data.get("bias_version") or defaults.bias_version).strip() or defaults.bias_version,
+            bias_version=str(data.get("bias_version") or default_bias_version).strip() or default_bias_version,
             api_version=str(data.get("api_version") or defaults.api_version).strip() or defaults.api_version,
             api_stability=str(data.get("api_stability") or defaults.api_stability).strip() or defaults.api_stability,
             api_stability_label=str(data.get("api_stability_label") or defaults.api_stability_label).strip(),
@@ -299,5 +392,23 @@ class ExtensionManifestLoader:
             multiline=bool(payload.get("multiline", False)),
             order=int(payload.get("order", 100) or 100),
         )
+
+
+def _default_bias_version_range() -> str:
+    parts = str(APP_VERSION or "0.1.0").split(".")
+    try:
+        major = int(parts[0])
+        minor = int(parts[1])
+    except (IndexError, TypeError, ValueError):
+        return ""
+    return f">={major}.{minor}.0 <{major}.{minor + 1}.0"
+
+
+def _path_is_relative_to(path: Path, parent: Path) -> bool:
+    try:
+        path.resolve().relative_to(parent.resolve())
+    except (OSError, ValueError):
+        return False
+    return True
 
 

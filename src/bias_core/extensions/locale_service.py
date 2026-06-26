@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from bias_core.extensions.bootstrap import get_extension_host
 from bias_core.extensions.runtime import get_runtime_locale_service
 
 
@@ -21,10 +20,20 @@ def get_enabled_extension_locales() -> list[dict]:
         return list(_extension_locale_cache)
 
     locales: list[dict] = []
+    from bias_core.extensions.frontend_runtime_service import get_extension_host
+
     host = get_extension_host()
     if host is None:
         return locales
-    locale_service = get_runtime_locale_service()
+    try:
+        locale_service = host.make("locales", None)
+    except Exception:
+        locale_service = None
+    if locale_service is None:
+        try:
+            locale_service = get_runtime_locale_service()
+        except Exception:
+            locale_service = None
     paths_by_extension = {
         extension.extension_id: list(extension.locale_paths)
         for extension in host.get_extension_views()

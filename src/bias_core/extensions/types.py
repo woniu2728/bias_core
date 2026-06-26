@@ -538,7 +538,7 @@ class ExtensionLifecycleDefinition:
 
 @dataclass(frozen=True)
 class ExtensionCompatibilityDefinition:
-    bias_version: str = "^1.0.0"
+    bias_version: str = ""
     api_version: str = "1.0"
     api_stability: str = "experimental"
     api_stability_label: str = "实验性"
@@ -599,6 +599,7 @@ class ExtensionManifest:
     settings_schema: Tuple[ExtensionManifestSettingFieldDefinition, ...] = ()
     django_app_config: str = ""
     django_app_label: str = ""
+    django_migration_module: str = ""
     source: str = "filesystem"
     path: str = ""
     extra: dict[str, Any] = field(default_factory=dict)

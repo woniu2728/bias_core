@@ -63,7 +63,7 @@ class ExtensionManifestLoaderTests(TestCase):
             loader = ExtensionManifestLoader(Path(temp_dir) / "extensions")
             manifest = loader.discover_manifests()[0]
 
-            self.assertEqual(manifest.compatibility.bias_version, "^1.0.0")
+            self.assertEqual(manifest.compatibility.bias_version, ">=0.1.0 <0.2.0")
             self.assertEqual(manifest.compatibility.api_version, "1.0")
             self.assertEqual(manifest.compatibility.api_stability, "experimental")
             self.assertEqual(manifest.compatibility.api_stability_label, "实验性")
@@ -154,6 +154,63 @@ class ExtensionManifestLoaderTests(TestCase):
             self.assertEqual(results[0].manifest.compatibility.api_version, "1.0")
             self.assertEqual(results[0].manifest.compatibility.api_stability, "experimental")
             self.assertEqual(results[0].manifest.distribution.channel, "private")
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_loader_reads_split_package_manifest_sections(self):
+        temp_dir = make_workspace_temp_dir()
+        try:
+            manifest_dir = Path(temp_dir) / "extensions" / "split-users"
+            manifest_dir.mkdir(parents=True, exist_ok=False)
+            (manifest_dir / "extension.json").write_text(json.dumps({
+                "id": "split-users",
+                "name": "Split Users",
+                "version": "1.0.0",
+                "backend": {
+                    "entry": "bias_ext_users.backend.ext:extend",
+                },
+                "frontend": {
+                    "admin_entry": "frontend/dist/admin/index.js",
+                    "forum_entry": "frontend/dist/forum/index.js",
+                },
+                "django": {
+                    "app_config": "bias_ext_users.backend.apps.UsersExtensionConfig",
+                    "app_label": "users",
+                    "migration_module": "bias_ext_users.backend.django_migrations",
+                },
+            }, ensure_ascii=False), encoding="utf-8")
+
+            manifest = ExtensionManifestLoader(Path(temp_dir) / "extensions").discover_manifests()[0]
+
+            self.assertEqual(manifest.backend_entry, "bias_ext_users.backend.ext:extend")
+            self.assertEqual(manifest.frontend_admin_entry, "frontend/dist/admin/index.js")
+            self.assertEqual(manifest.frontend_forum_entry, "frontend/dist/forum/index.js")
+            self.assertEqual(manifest.django_app_config, "bias_ext_users.backend.apps.UsersExtensionConfig")
+            self.assertEqual(manifest.django_app_label, "users")
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_loader_discovers_split_workspace_extension_packages(self):
+        temp_dir = make_workspace_temp_dir()
+        try:
+            workspace_root = Path(temp_dir)
+            extensions_dir = workspace_root / "site" / "extensions"
+            extensions_dir.mkdir(parents=True, exist_ok=False)
+            manifest_dir = workspace_root / "bias-ext-alpha"
+            manifest_dir.mkdir(parents=True, exist_ok=False)
+            (manifest_dir / "extension.json").write_text(json.dumps({
+                "id": "alpha",
+                "name": "Alpha",
+                "version": "1.0.0",
+                "backend": {"entry": "bias_ext_alpha.backend.ext:extend"},
+            }, ensure_ascii=False), encoding="utf-8")
+
+            with override_settings(BIAS_EXTENSION_WORKSPACE_ROOT=workspace_root):
+                loader = ExtensionManifestLoader(extensions_dir, include_workspace=True)
+                manifests = loader.discover_manifests()
+
+            self.assertEqual([manifest.id for manifest in manifests], ["alpha"])
+            self.assertEqual(manifests[0].path, str(manifest_dir))
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
@@ -2557,8 +2614,8 @@ class ExtensionManifestLoaderTests(TestCase):
                 self.assertTrue(installation.meta["sync"]["missing"])
                 lock = json.loads(Setting.objects.get(key=EXTENSION_PACKAGE_LOCK_SETTING).value)
                 self.assertEqual(lock["schema"], 1)
-                self.assertEqual(lock["packages"][0]["id"], "missing-package")
-                self.assertTrue(lock["packages"][0]["missing"])
+                missing_package = next(item for item in lock["packages"] if item["id"] == "missing-package")
+                self.assertTrue(missing_package["missing"])
                 self.assertIn("包锁定:", stdout.getvalue())
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
@@ -3674,6 +3731,74 @@ class ExtensionManifestLoaderTests(TestCase):
                     "site",
                     {module.module_id for module in application.forum.get_modules()},
                 )
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_bootstrap_extension_application_returns_booted_application(self):
+        temp_dir = make_workspace_temp_dir()
+        try:
+            with override_settings(BASE_DIR=Path(temp_dir)):
+                extensions_dir = Path(temp_dir) / "extensions"
+                extensions_dir.mkdir(parents=True, exist_ok=False)
+                (Path(temp_dir) / "extend.py").write_text(
+                    "from bias_core.extensions import SettingsExtender\n"
+                    "\n"
+                    "def extend():\n"
+                    "    return [SettingsExtender().default('site.bootstrap_enabled', True)]\n",
+                    encoding="utf-8",
+                )
+                registry = ExtensionRegistry(extensions_path=extensions_dir)
+                forum_registry = ForumRegistry()
+                event_bus = DomainEventBus()
+                resource_registry = ResourceRegistry()
+
+                with patch("bias_core.extensions.bootstrap.get_extension_registry", return_value=registry), patch(
+                    "bias_core.forum_registry.get_forum_registry",
+                    return_value=forum_registry,
+                ), patch(
+                    "bias_core.domain_events.get_forum_event_bus",
+                    return_value=event_bus,
+                ), patch(
+                    "bias_core.resource_registry.get_resource_registry",
+                    return_value=resource_registry,
+                ):
+                    application = bootstrap_extension_application(force=True)
+
+                self.assertIsInstance(application, ExtensionApplication)
+                self.assertTrue(application.is_booted())
+                application.make("settings")
+                site_view = application.get_runtime_view("site")
+                self.assertIsNotNone(site_view)
+                self.assertTrue(any(
+                    item.key == "site.bootstrap_enabled"
+                    and item.value is True
+                    and item.module_id == "site"
+                    for item in site_view.settings_defaults
+                ))
+        finally:
+            reset_extension_application_bootstrap_state()
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_site_extend_file_errors_are_not_silently_ignored(self):
+        temp_dir = make_workspace_temp_dir()
+        try:
+            with override_settings(BASE_DIR=Path(temp_dir)):
+                extensions_dir = Path(temp_dir) / "extensions"
+                extensions_dir.mkdir(parents=True, exist_ok=False)
+                (Path(temp_dir) / "extend.py").write_text(
+                    "def extend():\n"
+                    "    raise RuntimeError('broken site extension')\n",
+                    encoding="utf-8",
+                )
+
+                with self.assertRaisesMessage(RuntimeError, "broken site extension"):
+                    build_extension_application(
+                        manager=ExtensionRegistry(extensions_path=extensions_dir),
+                        forum_registry=ForumRegistry(),
+                        event_bus=DomainEventBus(),
+                        resource_registry=ResourceRegistry(),
+                        force=True,
+                    )
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 

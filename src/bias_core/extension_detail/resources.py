@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from bias_core.extensions.runtime import get_runtime_resource_registry
 from bias_core.forum_registry import get_forum_registry
+from bias_core.resource_registry import get_resource_registry
 
 def _build_extension_resource_definitions(extension):
     module_ids = set(extension.module_ids or ())
@@ -14,7 +14,7 @@ def _build_extension_resource_definitions(extension):
             "module_id": item.module_id,
             "description": item.description,
         }
-        for item in get_runtime_resource_registry().get_resources()
+        for item in _resource_registry().get_resources()
         if item.module_id in module_ids
     ]
 
@@ -30,7 +30,7 @@ def _build_extension_resource_relationships(extension):
             "module_id": item.module_id,
             "description": item.description,
         }
-        for item in get_runtime_resource_registry().get_all_relationships()
+        for item in _resource_registry().get_all_relationships()
         if item.module_id in module_ids
     ]
 
@@ -48,7 +48,7 @@ def _build_extension_resource_endpoints(extension):
             "anchor": getattr(item, "anchor", ""),
             "description": item.description,
         }
-        for item in get_runtime_resource_registry().get_all_endpoints()
+        for item in _resource_registry().get_all_endpoints()
         if item.module_id in module_ids
     ]
 
@@ -66,7 +66,7 @@ def _build_extension_resource_sorts(extension):
             "anchor": getattr(item, "anchor", ""),
             "description": item.description,
         }
-        for item in get_runtime_resource_registry().get_all_sorts()
+        for item in _resource_registry().get_all_sorts()
         if item.module_id in module_ids
     ]
 
@@ -84,7 +84,7 @@ def _build_extension_resource_filters(extension):
             "anchor": getattr(item, "anchor", ""),
             "description": item.description,
         }
-        for item in get_runtime_resource_registry().get_all_filters()
+        for item in _resource_registry().get_all_filters()
         if item.module_id in module_ids
     ]
 
@@ -102,7 +102,7 @@ def _build_extension_resource_fields(extension):
             "anchor": "",
             "description": item.description,
         }
-        for item in get_runtime_resource_registry().get_all_fields()
+        for item in _resource_registry().get_all_fields()
         if item.module_id in module_ids
     ]
     fields.extend([
@@ -114,7 +114,7 @@ def _build_extension_resource_fields(extension):
             "anchor": getattr(item, "anchor", ""),
             "description": item.description,
         }
-        for item in get_runtime_resource_registry().get_all_field_mutators()
+        for item in _resource_registry().get_all_field_mutators()
         if item.module_id in module_ids
     ])
     return fields
@@ -149,4 +149,8 @@ def _build_extension_search_filters(extension):
         for item in get_forum_registry().get_search_filters()
         if item.module_id in module_ids
     ]
+
+
+def _resource_registry():
+    return get_resource_registry()
 

@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from bias_core.extensions.backend import inspect_extension_backend_entry
+from bias_core.extensions.paths import frontend_entry_key, frontend_entry_path
 from bias_core.extensions.types import ExtensionManifest
 from bias_core.extensions.validation_rules import EXPORT_DECLARATION_PATTERN, EXPORT_FUNCTION_PATTERN
 
@@ -22,15 +23,27 @@ def resolve_frontend_forum_entry(target: ExtensionManifest) -> str:
     return str(getattr(target, "frontend_forum_entry", "") or "").strip()
 
 
+def _target_extension_id(target) -> str:
+    return str(
+        getattr(target, "id", "")
+        or getattr(target, "extension_id", "")
+        or getattr(target, "module_id", "")
+        or ""
+    ).strip()
+
+
 def expected_frontend_entry(manifest: ExtensionManifest, base_path: Path, frontend: str) -> str:
     manifest_path = str(getattr(manifest, "path", "") or "").strip()
     if manifest_path:
-        try:
-            relative_path = (Path(manifest_path) / "frontend" / frontend / "index.js").relative_to(Path(base_path).parent)
-            return relative_path.as_posix()
-        except ValueError:
-            pass
-    return f"extensions/{manifest.id}/frontend/{frontend}/index.js"
+        root_path = Path(manifest_path)
+        source_entry = root_path / "frontend" / frontend / "index.js"
+        dist_entry = root_path / "frontend" / "dist" / frontend / "index.js"
+        if dist_entry.exists():
+            return dist_entry.relative_to(root_path).as_posix()
+        if source_entry.exists():
+            return source_entry.relative_to(root_path).as_posix()
+        return f"frontend/{frontend}/index.js"
+    return f"extensions/{_target_extension_id(manifest)}/frontend/{frontend}/index.js"
 
 
 def inspect_frontend_admin_entry(
@@ -53,13 +66,6 @@ def inspect_frontend_admin_entry(
     if not entry:
         return payload
 
-    if not entry.startswith("extensions/"):
-        payload.update({
-            "entry_type": "external",
-            "exists": False,
-        })
-        return payload
-
     if extensions_base_path is None:
         payload.update({
             "entry_type": "filesystem",
@@ -67,14 +73,17 @@ def inspect_frontend_admin_entry(
         })
         return payload
 
-    absolute_path = Path(extensions_base_path).parent / entry
+    extension_id = _target_extension_id(manifest)
+    root_path = Path(str(getattr(manifest, "path", "") or "")) if str(getattr(manifest, "path", "") or "").strip() else Path(extensions_base_path) / extension_id
+    absolute_path = frontend_entry_path(root_path, entry, extension_id)
     payload.update({
         "entry_type": "filesystem",
-        "exists": absolute_path.exists(),
+        "exists": bool(absolute_path and absolute_path.exists()),
         "resolved_path": _path_for_payload(absolute_path),
+        "entry_key": frontend_entry_key(root_path, entry, extension_id),
     })
 
-    if not absolute_path.exists():
+    if absolute_path is None or not absolute_path.exists():
         return payload
 
     source = absolute_path.read_text(encoding="utf-8")
@@ -172,13 +181,6 @@ def inspect_frontend_forum_entry(
     if not entry:
         return payload
 
-    if not entry.startswith("extensions/"):
-        payload.update({
-            "entry_type": "external",
-            "exists": False,
-        })
-        return payload
-
     if extensions_base_path is None:
         payload.update({
             "entry_type": "filesystem",
@@ -186,14 +188,17 @@ def inspect_frontend_forum_entry(
         })
         return payload
 
-    absolute_path = Path(extensions_base_path).parent / entry
+    extension_id = _target_extension_id(manifest)
+    root_path = Path(str(getattr(manifest, "path", "") or "")) if str(getattr(manifest, "path", "") or "").strip() else Path(extensions_base_path) / extension_id
+    absolute_path = frontend_entry_path(root_path, entry, extension_id)
     payload.update({
         "entry_type": "filesystem",
-        "exists": absolute_path.exists(),
+        "exists": bool(absolute_path and absolute_path.exists()),
         "resolved_path": _path_for_payload(absolute_path),
+        "entry_key": frontend_entry_key(root_path, entry, extension_id),
     })
 
-    if not absolute_path.exists():
+    if absolute_path is None or not absolute_path.exists():
         return payload
 
     source = absolute_path.read_text(encoding="utf-8")
@@ -218,7 +223,7 @@ def inspect_backend_entry(
     if not entry:
         return payload
 
-    if not entry.startswith("extensions."):
+    if not entry.startswith(("extensions.", "bias_ext_")):
         payload.update({
             "entry_type": "external",
             "exists": False,

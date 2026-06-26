@@ -114,6 +114,7 @@ def get_setting_group(prefix: str, defaults: dict) -> dict:
 def get_mail_settings_defaults() -> dict:
     mail_defaults = MAIL_SETTINGS_STATIC_DEFAULTS.copy()
     mail_defaults.update(get_extension_mail_setting_defaults())
+    bootstrap = getattr(settings, "BOOTSTRAP", None)
 
     site_config = None
     try:
@@ -130,6 +131,14 @@ def get_mail_settings_defaults() -> dict:
             "mail_encryption": "tls" if site_config.email_use_tls else "",
             "mail_username": site_config.email_host_user or "",
             "mail_from_address": site_config.default_from_email or "",
+        })
+    elif bootstrap is not None:
+        mail_defaults.update({
+            "mail_host": getattr(bootstrap, "email_host", None) or "smtp.gmail.com",
+            "mail_port": getattr(bootstrap, "email_port", None) or 587,
+            "mail_encryption": "tls" if getattr(bootstrap, "email_use_tls", True) else "",
+            "mail_username": getattr(bootstrap, "email_host_user", None) or "",
+            "mail_from_address": getattr(bootstrap, "default_from_email", None) or "",
         })
     else:
         mail_defaults.update({
@@ -580,9 +589,9 @@ def _serialize_extension_runtime_stamp() -> dict:
 
 
 def _serialize_forum_resource_fields(forum_settings: dict, *, user=None) -> dict:
-    from bias_core.extensions.runtime import get_runtime_resource_registry
+    from bias_core.resource_registry import get_resource_registry
 
-    return get_runtime_resource_registry().serialize(
+    return get_resource_registry().serialize(
         "forum",
         SimpleNamespace(settings=forum_settings),
         {"user": user},

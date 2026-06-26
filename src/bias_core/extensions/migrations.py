@@ -6,6 +6,8 @@ from typing import Any
 from django.db import DEFAULT_DB_ALIAS, connections
 from django.db.migrations.recorder import MigrationRecorder
 
+from bias_core.extensions.paths import extension_django_migration_dir, resolve_manifest_migration_module
+
 
 def has_django_extension_migrations(extension_definition) -> bool:
     return bool(resolve_django_extension_migration_dir(extension_definition))
@@ -17,14 +19,12 @@ def resolve_django_extension_app_label(extension_definition) -> str:
 
 
 def resolve_django_extension_migration_module(extension_definition) -> str:
-    if not str(extension_definition.manifest.django_app_config or "").strip():
-        return ""
-    return f"extensions.{extension_definition.id.replace('-', '_')}.backend.django_migrations"
+    return resolve_manifest_migration_module(extension_definition.manifest, extension_definition.id)
 
 
 def resolve_django_extension_migration_dir(extension_definition) -> Path | None:
     root_path = Path(str(extension_definition.manifest.path or "").strip())
-    migration_dir = root_path / "backend" / "django_migrations"
+    migration_dir = extension_django_migration_dir(root_path, extension_definition.id)
     if not migration_dir.exists():
         return None
     return migration_dir

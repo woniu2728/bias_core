@@ -6,6 +6,8 @@ import re
 from pathlib import Path
 from types import ModuleType
 
+from bias_core.extensions.paths import module_file_from_entry, module_path
+
 
 BACKEND_FUNCTION_PATTERN = re.compile(r"^(?:async\s+)?def\s+([A-Za-z0-9_]+)\s*\(", re.MULTILINE)
 
@@ -20,32 +22,18 @@ def resolve_extension_backend_file(definition) -> Path | None:
     if definition.source == "python-package":
         return None
 
-    backend_entry = str(definition.manifest.backend_entry or "").strip()
+    backend_entry = module_path(str(definition.manifest.backend_entry or "").strip())
     root_path = str(definition.manifest.path or "").strip()
     if not backend_entry or not root_path:
         return None
 
     extension_root = Path(root_path)
     extension_id = str(getattr(definition, "id", "") or getattr(definition.manifest, "id", "") or "").strip()
-    extension_package = extension_id.replace("-", "_")
-    expected_prefix = f"extensions.{extension_package}."
-    if not backend_entry.startswith(expected_prefix):
-        return None
-
-    relative_module = backend_entry[len(expected_prefix):]
-    relative_parts = [
-        part
-        for part in relative_module.split(".")
-        if part
-    ]
-    if not relative_parts:
-        return None
-
-    return extension_root.joinpath(*relative_parts).with_suffix(".py")
+    return module_file_from_entry(extension_root, backend_entry, extension_id)
 
 
 def inspect_extension_backend_module(definition) -> dict:
-    entry = str(definition.manifest.backend_entry or "").strip()
+    entry = module_path(str(definition.manifest.backend_entry or "").strip())
     root_path = str(definition.manifest.path or "").strip()
     payload: dict = {
         "entry": entry,
@@ -91,8 +79,8 @@ def inspect_extension_backend_module(definition) -> dict:
 
 
 def load_extension_backend_module(definition) -> ModuleType | None:
-    backend_entry = str(definition.manifest.backend_entry or "").strip()
-    if definition.source == "python-package":
+    backend_entry = module_path(str(definition.manifest.backend_entry or "").strip())
+    if definition.source == "python-package" or backend_entry.startswith("bias_ext_"):
         if not backend_entry:
             return None
         try:
@@ -128,4 +116,6 @@ def _can_import_module(module_name: str) -> bool:
     except Exception:
         return False
     return True
+
+
 

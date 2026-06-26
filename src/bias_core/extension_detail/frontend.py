@@ -55,7 +55,7 @@ def _build_extension_frontend_document(runtime_record=None) -> dict:
     return build_frontend_document_payload(runtime_record, settings_values=settings_values)
 
 def _resolve_extension_frontend_admin_entry(extension, runtime_record=None) -> str:
-    host = get_extension_host()
+    host = _safe_extension_host()
     if host is not None:
         frontend = host.get_frontend_extension(extension.id)
         if frontend is not None and str(frontend.admin_entry or "").strip():
@@ -65,7 +65,7 @@ def _resolve_extension_frontend_admin_entry(extension, runtime_record=None) -> s
     return extension.frontend_admin_entry
 
 def _resolve_extension_frontend_forum_entry(extension, runtime_record=None) -> str:
-    host = get_extension_host()
+    host = _safe_extension_host()
     if host is not None:
         frontend = host.get_frontend_extension(extension.id)
         if frontend is not None and str(frontend.forum_entry or "").strip():
@@ -80,7 +80,7 @@ def _resolve_extension_frontend_outputs(extension_id: str, *, frontend_output_ma
     return dict(payload.get("outputs") or {})
 
 def _resolve_extension_settings_pages(extension, runtime_record=None) -> tuple[str, ...]:
-    host = get_extension_host()
+    host = _safe_extension_host()
     if host is not None:
         frontend = host.get_frontend_extension(extension.id)
         if frontend is not None and frontend.settings_pages:
@@ -90,7 +90,7 @@ def _resolve_extension_settings_pages(extension, runtime_record=None) -> tuple[s
     return tuple(extension.settings_pages)
 
 def _resolve_extension_permissions_pages(extension, runtime_record=None) -> tuple[str, ...]:
-    host = get_extension_host()
+    host = _safe_extension_host()
     if host is not None:
         frontend = host.get_frontend_extension(extension.id)
         if frontend is not None and frontend.permissions_pages:
@@ -100,7 +100,7 @@ def _resolve_extension_permissions_pages(extension, runtime_record=None) -> tupl
     return tuple(extension.permissions_pages)
 
 def _resolve_extension_operations_pages(extension, runtime_record=None) -> tuple[str, ...]:
-    host = get_extension_host()
+    host = _safe_extension_host()
     if host is not None:
         frontend = host.get_frontend_extension(extension.id)
         if frontend is not None and frontend.operations_pages:
@@ -172,4 +172,11 @@ def _serialize_extension_frontend_asset_state_for_extension(extension):
         resolve_admin_entry=_resolve_extension_frontend_admin_entry,
         resolve_forum_entry=_resolve_extension_frontend_forum_entry,
     )
+
+
+def _safe_extension_host():
+    try:
+        return get_extension_host()
+    except Exception:
+        return None
 

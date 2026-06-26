@@ -29,7 +29,7 @@ def get_extension_frontend_build_manifest_path() -> Path:
 
 def get_extension_asset_url(extension_id: str, file_path: str) -> str:
     base_url = str(settings.STATIC_URL or "/static/").rstrip("/")
-    normalized_file_path = str(file_path or "").strip().lstrip("/").replace("", "/")
+    normalized_file_path = str(file_path or "").strip().lstrip("/").replace("\\", "/")
     return f"{base_url}/extensions/{extension_id}/{normalized_file_path}"
 
 
@@ -161,7 +161,7 @@ def _write_manifest(payload: dict) -> None:
 
 
 def _build_asset_file_record(extension_id: str, root: Path, path: Path) -> dict:
-    relative_path = str(path.relative_to(root)).replace("", "/")
+    relative_path = str(path.relative_to(root)).replace("\\", "/")
     digest = hashlib.sha256(path.read_bytes()).hexdigest()
     return {
         "path": relative_path,

@@ -9,18 +9,18 @@ PACKAGE_NAME_PATTERN = re.compile(r"^[a-z0-9_.-]+/[a-z0-9_.-]+$")
 DJANGO_APP_LABEL_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 EXPORT_FUNCTION_PATTERN = re.compile(r"export\s+(?:async\s+)?function\s+([A-Za-z0-9_]+)\s*\(")
 EXPORT_DECLARATION_PATTERN = re.compile(r"export\s+(?:const|let|var|class)\s+([A-Za-z0-9_]+)\b")
-VERSION_RANGE_PATTERN = re.compile(r"^(?:\^|~|>=|<=|>|<)?\d+\.\d+\.\d+$")
+VERSION_RANGE_PATTERN = re.compile(r"^(?:(?:\^|~|>=|<=|>|<)?\d+\.\d+\.\d+)(?:\s+<\d+\.\d+\.\d+)?$")
 API_VERSION_PATTERN = re.compile(r"^\d+\.\d+$")
 MIGRATION_FILE_PATTERN = re.compile(r"^\d{4}_[a-z0-9_]+\.py$")
 EXTENSION_SOURCE_SUFFIXES = {".json", ".js", ".jsx", ".ts", ".tsx", ".vue", ".py", ".md", ".css", ".scss", ".less"}
 SKIPPED_SOURCE_DIRS = {"__pycache__", ".pytest_cache", "node_modules", "dist", "build", ".venv", "venv"}
 EXTERNAL_PROJECT_NAME_PATTERN = re.compile(r"\b" + "fla" + "rum" + r"\b", re.IGNORECASE)
 PYTHON_EXTENSION_IMPORT_PATTERN = re.compile(
-    r"^(?:from\s+extensions\.([A-Za-z0-9_]+)([A-Za-z0-9_\.]*)\b|import\s+extensions\.([A-Za-z0-9_]+)([A-Za-z0-9_\.]*)\b)",
+    r"^(?:from\s+(?:extensions\.([A-Za-z0-9_]+)|bias_ext_([A-Za-z0-9_]+))([A-Za-z0-9_\.]*)\b|import\s+(?:extensions\.([A-Za-z0-9_]+)|bias_ext_([A-Za-z0-9_]+))([A-Za-z0-9_\.]*)\b)",
     re.MULTILINE,
 )
 PYTHON_EXTENSION_INTERNAL_IMPORT_PATTERN = re.compile(
-    r"^\s*(?:from\s+extensions\.([A-Za-z0-9_]+)([A-Za-z0-9_\.]*)\b|import\s+extensions\.([A-Za-z0-9_]+)([A-Za-z0-9_\.]*)\b)",
+    r"^\s*(?:from\s+(?:extensions\.([A-Za-z0-9_]+)|bias_ext_([A-Za-z0-9_]+))([A-Za-z0-9_\.]*)\b|import\s+(?:extensions\.([A-Za-z0-9_]+)|bias_ext_([A-Za-z0-9_]+))([A-Za-z0-9_\.]*)\b)",
     re.MULTILINE,
 )
 PUBLIC_EXTENSION_IMPORT_MODULES = {
@@ -57,11 +57,6 @@ FORBIDDEN_EXTENSION_SOURCE_PATTERNS = (
     ),
 )
 FORBIDDEN_EXTENSION_MANIFEST_FIELD_PATTERNS = (
-    (
-        "forbidden_django_migration_module_manifest_field",
-        re.compile(r'"django_migration_module"\s*:'),
-        "扩展清单不能声明 django_migration_module；Django migration 模块由 Bias 根据扩展 ID 内部推导。",
-    ),
     (
         "forbidden_migration_namespace_manifest_field",
         re.compile(r'"migration_namespace"\s*:'),

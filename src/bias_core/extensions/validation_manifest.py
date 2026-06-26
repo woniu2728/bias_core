@@ -8,6 +8,7 @@ from bias_core.extensions.validation_rules import (
     PACKAGE_NAME_PATTERN,
     VERSION_RANGE_PATTERN,
 )
+from bias_core.extensions.paths import extension_python_package, legacy_extension_python_package
 from bias_core.extensions.validation_types import ExtensionValidationCollector
 
 
@@ -30,8 +31,9 @@ def validate_django_app_config(collector: ExtensionValidationCollector, manifest
             extension_id=manifest.id,
             field="django_app_label",
         )
-    expected_prefix = f"extensions.{manifest.id.replace('-', '_')}.backend.apps."
-    if not app_config.startswith(expected_prefix):
+    expected_prefix = f"{extension_python_package(manifest.id)}.backend.apps."
+    legacy_prefix = f"{legacy_extension_python_package(manifest.id)}.backend.apps."
+    if not app_config.startswith(expected_prefix) and not app_config.startswith(legacy_prefix):
         collector.add_error(
             "invalid_django_app_config_namespace",
             f"django_app_config 必须归属当前扩展命名空间，建议使用 {expected_prefix}...AppConfig",

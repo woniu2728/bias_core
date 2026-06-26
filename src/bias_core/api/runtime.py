@@ -67,12 +67,6 @@ def _register_frontend_manifest_route(api: NinjaAPI) -> None:
 
 
 def _register_extension_routes(api: NinjaAPI, *, extension_host=None) -> None:
-    """Register routes from installed extensions.
-
-    Extension routes are discovered and mounted by the site project (bias_site),
-    not by bias_core. This function is a no-op unless bias_site calls it
-    with a proper extension_host.
-    """
     if extension_host is None:
         return
 
@@ -80,6 +74,8 @@ def _register_extension_routes(api: NinjaAPI, *, extension_host=None) -> None:
         routes = extension_host.make("routes")
         for mount in routes.get_mounts():
             _add_router_once(api, mount.prefix, mount.router, tags=list(mount.tags))
+        for route in routes.get_routes(app_name="api"):
+            _register_named_route(api, route)
     except (AttributeError, Exception):
         pass
 
@@ -103,6 +99,29 @@ def _add_router_once(api: NinjaAPI, prefix, router, *, tags=None) -> None:
     if getattr(router, "api", None) is not None:
         _detach_router_from_api(router)
     api.add_router(prefix, router, tags=tags or [])
+
+
+def _register_named_route(api: NinjaAPI, route) -> None:
+    method = str(getattr(route, "method", "GET") or "GET").strip().upper()
+    path = str(getattr(route, "path", "") or "").strip()
+    handler = getattr(route, "handler", None)
+    if not path or handler is None:
+        return
+    router = Router()
+    tags = list(getattr(route, "tags", ()) or ())
+    operation_id = str(getattr(route, "name", "") or "").strip().replace(".", "_").replace("-", "_")
+
+    decorator = {
+        "DELETE": router.delete,
+        "PATCH": router.patch,
+        "POST": router.post,
+        "PUT": router.put,
+    }.get(method, router.get)
+    kwargs = {"tags": tags} if tags else {}
+    if operation_id:
+        kwargs["operation_id"] = operation_id
+    decorator("", **kwargs)(handler)
+    _add_router_once(api, path, router, tags=tags)
 
 
 def _detach_router_from_api(router) -> None:

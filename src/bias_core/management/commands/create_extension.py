@@ -8,6 +8,17 @@ from django.core.management import BaseCommand, CommandError
 from django.core.management.base import CommandParser
 
 from bias_core.version import APP_VERSION
+from bias_core.extensions.paths import extension_python_package, extension_workspace_dir_name
+
+
+def _default_bias_version_range() -> str:
+    parts = str(APP_VERSION or "0.1.0").split(".")
+    try:
+        major = int(parts[0])
+        minor = int(parts[1])
+    except (IndexError, TypeError, ValueError):
+        return ""
+    return f">={major}.{minor}.0 <{major}.{minor + 1}.0"
 from bias_core.extensions.validation import EXTENSION_ID_PATTERN
 
 
@@ -36,15 +47,18 @@ class Command(BaseCommand):
         version = str(options.get("extension_version") or "0.1.0").strip() or "0.1.0"
         force = bool(options.get("force"))
         extension_package = self._build_extension_package(extension_id)
+        python_package = extension_python_package(extension_id)
         app_config_class = self._build_app_config_class(extension_package)
 
-        extension_dir = Path(settings.BASE_DIR) / "extensions" / extension_package
+        workspace_root = self._resolve_workspace_root()
+        extension_dir = workspace_root / extension_workspace_dir_name(extension_id)
         if extension_dir.exists() and not force:
             raise CommandError(f"扩展目录已存在: {extension_dir}。如需覆盖，请传 --force")
 
         frontend_admin_dir = extension_dir / "frontend" / "admin"
         frontend_forum_dir = extension_dir / "frontend" / "forum"
-        backend_dir = extension_dir / "backend"
+        python_package_dir = extension_dir / python_package
+        backend_dir = python_package_dir / "backend"
         django_migrations_dir = backend_dir / "django_migrations"
         docs_dir = extension_dir / "docs"
         locale_dir = extension_dir / "locale"
@@ -54,7 +68,7 @@ class Command(BaseCommand):
 
         self._write_json(
             extension_dir / "extension.json",
-            self._build_manifest(extension_id, extension_package, app_config_class, name, description, author, category, version),
+            self._build_manifest(extension_id, extension_package, python_package, app_config_class, name, description, author, category, version),
         )
         self._write_text(
             frontend_admin_dir / "index.js",
@@ -65,12 +79,16 @@ class Command(BaseCommand):
             self._build_forum_index_source(extension_id, name),
         )
         self._write_text(
+            python_package_dir / "__init__.py",
+            "",
+        )
+        self._write_text(
             backend_dir / "__init__.py",
             "",
         )
         self._write_text(
             backend_dir / "apps.py",
-            self._build_app_config_source(extension_package, app_config_class, name),
+            self._build_app_config_source(extension_package, python_package, app_config_class, name),
         )
         self._write_text(
             backend_dir / "ext.py",
@@ -114,10 +132,24 @@ class Command(BaseCommand):
     def _build_app_config_class(self, extension_package: str) -> str:
         return "".join(part.capitalize() for part in extension_package.split("_") if part) + "ExtensionConfig"
 
+    def _resolve_workspace_root(self) -> Path:
+        configured = str(getattr(settings, "BIAS_EXTENSION_WORKSPACE_ROOT", "") or "").strip()
+        if configured:
+            root = Path(configured)
+            base_dir = Path(settings.BASE_DIR)
+            if base_dir.name in {"bias_site", "site"} or root == base_dir.parent:
+                return root
+
+        base_dir = Path(settings.BASE_DIR)
+        if base_dir.name in {"bias_site", "site"}:
+            return base_dir.parent
+        return base_dir
+
     def _build_manifest(
         self,
         extension_id: str,
         extension_package: str,
+        python_package: str,
         app_config_class: str,
         name: str,
         description: str,
@@ -136,11 +168,12 @@ class Command(BaseCommand):
             "documentation_url": f"/admin.html#/admin/docs?guide=extension-system-roadmap&extension={extension_id}",
             "dependencies": ["core"],
             "provides": [f"{extension_id}-panel"],
-            "backend_entry": f"extensions.{extension_package}.backend.ext",
-            "django_app_config": f"extensions.{extension_package}.backend.apps.{app_config_class}",
+            "backend_entry": f"{python_package}.backend.ext",
+            "django_app_config": f"{python_package}.backend.apps.{app_config_class}",
             "django_app_label": extension_package,
+            "django_migration_module": f"{python_package}.backend.django_migrations",
             "compatibility": {
-                "bias_version": f"^{APP_VERSION}",
+                "bias_version": _default_bias_version_range(),
                 "api_version": "1.0",
                 "api_stability": "experimental",
                 "api_stability_label": "实验性",
@@ -164,7 +197,7 @@ class Command(BaseCommand):
 
     def _build_admin_index_source(self, extension_id: str) -> str:
         return (
-            "import { extendAdmin } from '@bias/admin'\n"
+            "import { extendAdmin } from '@bias/core/admin'\n"
             "\n"
             "export const extend = [\n"
             "  extendAdmin(admin => admin),\n"
@@ -176,7 +209,7 @@ class Command(BaseCommand):
 
     def _build_forum_index_source(self, extension_id: str, name: str) -> str:
         return (
-            "import { extendForum } from '@bias/forum'\n\n"
+            "import { extendForum } from '@bias/core/forum'\n\n"
             "export const extend = [\n"
             "  extendForum(forum => forum),\n"
             "]\n"
@@ -192,19 +225,19 @@ class Command(BaseCommand):
             "def extend():\n"
             "    return [\n"
             "        (FrontendExtender()\n"
-            f"            .admin('extensions/{extension_package}/frontend/admin/index.js')\n"
-            f"            .forum('extensions/{extension_package}/frontend/forum/index.js')),\n"
+            "            .admin('frontend/admin/index.js')\n"
+            "            .forum('frontend/forum/index.js')),\n"
             "    ]\n\n"
         )
 
-    def _build_app_config_source(self, extension_package: str, app_config_class: str, name: str) -> str:
+    def _build_app_config_source(self, extension_package: str, python_package: str, app_config_class: str, name: str) -> str:
         verbose_name = name.replace('"', '"')
         return (
             "from django.apps import AppConfig\n\n\n"
             f"class {app_config_class}(AppConfig):\n"
             "    default_auto_field = \"django.db.models.BigAutoField\"\n"
             f"    label = \"{extension_package}\"\n"
-            f"    name = \"extensions.{extension_package}.backend\"\n"
+            f"    name = \"{python_package}.backend\"\n"
             f"    verbose_name = \"Bias {verbose_name} Extension\"\n"
         )
 

@@ -16,7 +16,7 @@ def get_extension_registry() -> ExtensionRegistry:
     default_path = Path(settings.BASE_DIR) / "extensions"
     if isinstance(manager, ExtensionRegistry):
         if manager.extensions_path != default_path:
-            registry = ExtensionRegistry(extensions_path=default_path)
+            registry = ExtensionRegistry()
 
             from bias_core.extensions import manager as manager_module
 
@@ -25,7 +25,7 @@ def get_extension_registry() -> ExtensionRegistry:
             return registry
         return manager
 
-    registry = ExtensionRegistry(extensions_path=manager.extensions_path)
+    registry = ExtensionRegistry() if manager._uses_default_extensions_path else ExtensionRegistry(extensions_path=manager.extensions_path)
     registry.load(force=True)
 
     from bias_core.extensions import manager as manager_module

@@ -61,9 +61,20 @@ def clear_extension_template_caches() -> None:
 
     for engine in engines.all():
         backend = getattr(engine, "engine", None)
+        _ensure_extension_loader(backend)
         for loader in getattr(backend, "template_loaders", ()):
             reset = getattr(loader, "reset", None)
             if callable(reset):
                 reset()
+
+
+def _ensure_extension_loader(backend) -> None:
+    if backend is None:
+        return
+    loaders = list(getattr(backend, "template_loaders", ()) or ())
+    if any(isinstance(loader, ExtensionNamespaceLoader) for loader in loaders):
+        return
+    extension_loader = ExtensionNamespaceLoader(backend)
+    backend.template_loaders = [extension_loader, *loaders]
 
 

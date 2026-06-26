@@ -495,31 +495,35 @@ class ExtensionRegistryTests(TestCase):
         self.assertEqual(emoji_extension.runtime.status_key, "active")
 
     def test_runtime_probe_prefers_contract_frontend_entries(self):
-        manifest = ExtensionManifest(
-            id="contract-first",
-            name="Contract First",
-            version="1.0.0",
-            frontend_admin_entry="",
-            frontend_forum_entry="",
-            path=str(Path.cwd() / "extensions" / "alpha-tools"),
-        )
-        extension = Extension(
-            manifest=ExtensionManifest(
-                id="contract-first",
-                name="Contract First",
-                version="1.0.0",
-                frontend_admin_entry="extensions/contract-first/frontend/admin/index.js",
-                frontend_forum_entry="extensions/contract-first/frontend/forum/index.js",
-                path=str(Path.cwd() / "extensions" / "tags"),
-            ),
-            source="filesystem",
-        )
+        temp_dir = make_workspace_temp_dir()
+        try:
+            contract_dir = Path(temp_dir) / "bias-ext-contract-first"
+            admin_dir = contract_dir / "frontend" / "admin"
+            forum_dir = contract_dir / "frontend" / "forum"
+            admin_dir.mkdir(parents=True, exist_ok=True)
+            forum_dir.mkdir(parents=True, exist_ok=True)
+            (admin_dir / "index.js").write_text("export function resolveDetailPage() { return null }\n", encoding="utf-8")
+            (forum_dir / "index.js").write_text("export const extend = () => []\n", encoding="utf-8")
 
-        payload = inspect_extension_runtime(extension)
+            extension = Extension(
+                manifest=ExtensionManifest(
+                    id="contract-first",
+                    name="Contract First",
+                    version="1.0.0",
+                    frontend_admin_entry="extensions/contract-first/frontend/admin/index.js",
+                    frontend_forum_entry="extensions/contract-first/frontend/forum/index.js",
+                    path=str(Path(temp_dir) / "bias-ext-tags"),
+                ),
+                source="filesystem",
+            )
 
-        checks = {item.key: item for item in payload["delivery_checks"]}
-        self.assertEqual(checks["frontend-admin-entry"].status, "ready")
-        self.assertEqual(checks["frontend-forum-entry"].status, "ready")
+            payload = inspect_extension_runtime(extension)
+
+            checks = {item.key: item for item in payload["delivery_checks"]}
+            self.assertEqual(checks["frontend-admin-entry"].status, "ready")
+            self.assertEqual(checks["frontend-forum-entry"].status, "ready")
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
 
     def test_registry_applies_persisted_installation_state(self):
         ExtensionInstallation.objects.create(
@@ -582,12 +586,12 @@ class ExtensionRegistryTests(TestCase):
     def test_extension_runtime_state_refreshes_after_enable_toggle(self):
         reset_extension_runtime_state()
         entries = get_enabled_extension_runtime_entries(product_visible_only=True)
-        self.assertTrue(any(item["id"] == "ai" for item in entries))
+        self.assertTrue(any(item["id"] == "emoji" for item in entries))
 
         with patch("bias_core.extension_service.reset_extension_runtime_state") as reset_runtime_mock, patch(
             "bias_core.extension_service.rebuild_runtime_urlconf"
         ) as rebuild_urlconf_mock:
-            ExtensionService.set_extension_enabled("ai", False)
+            ExtensionService.set_extension_enabled("emoji", False)
 
         reset_runtime_mock.assert_called_once()
         rebuild_urlconf_mock.assert_called_once()

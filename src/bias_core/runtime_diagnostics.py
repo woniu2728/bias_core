@@ -41,7 +41,8 @@ def detect_cache_driver(*, settings_obj=settings) -> str:
 
 
 def detect_realtime_driver(*, settings_obj=settings) -> str:
-    backend = (settings_obj.CHANNEL_LAYERS.get("default", {}).get("BACKEND") or "").lower()
+    channel_layers = getattr(settings_obj, "CHANNEL_LAYERS", {}) or {}
+    backend = (channel_layers.get("default", {}).get("BACKEND") or "").lower()
     if "channels_redis" in backend or "redis" in backend:
         return "Redis"
     if "inmemory" in backend:
@@ -59,7 +60,8 @@ def detect_queue_driver_label(queue_enabled: bool, queue_driver: str) -> str:
 
 def is_redis_enabled(*, queue_enabled: bool = False, queue_driver: str = "", settings_obj=settings) -> bool:
     cache_backend = (settings_obj.CACHES.get("default", {}).get("BACKEND") or "").lower()
-    channel_backend = (settings_obj.CHANNEL_LAYERS.get("default", {}).get("BACKEND") or "").lower()
+    channel_layers = getattr(settings_obj, "CHANNEL_LAYERS", {}) or {}
+    channel_backend = (channel_layers.get("default", {}).get("BACKEND") or "").lower()
     broker = getattr(settings_obj, "CELERY_BROKER_URL", "").lower()
 
     cache_uses_redis = "redis" in cache_backend
@@ -196,7 +198,8 @@ def probe_redis_ping(
 
 
 def probe_realtime_connection(*, settings_obj, redis_probe) -> dict[str, Any]:
-    channel_config = settings_obj.CHANNEL_LAYERS.get("default", {})
+    channel_layers = getattr(settings_obj, "CHANNEL_LAYERS", {}) or {}
+    channel_config = channel_layers.get("default", {})
     backend = (channel_config.get("BACKEND") or "").lower()
     if "channels_redis" not in backend and "redis" not in backend:
         return {

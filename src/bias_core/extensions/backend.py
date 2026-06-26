@@ -10,6 +10,7 @@ from bias_core.extensions.module_loader import (
     inspect_extension_backend_module,
     load_extension_backend_module,
 )
+from bias_core.extensions.paths import resolve_manifest_migration_module
 from bias_core.extensions.extension_runtime import Extension
 from bias_core.extensions.types import (
     ExtensionAdminActionDefinition,
@@ -63,9 +64,7 @@ def build_backend_context(
 
 
 def _resolve_django_migration_module(definition: Extension) -> str:
-    if not str(definition.manifest.django_app_config or "").strip():
-        return ""
-    return f"extensions.{definition.id.replace('-', '_')}.backend.django_migrations"
+    return resolve_manifest_migration_module(definition.manifest, definition.id)
 
 
 def inspect_extension_backend_entry(definition: Extension) -> dict[str, Any]:

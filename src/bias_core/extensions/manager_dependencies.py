@@ -22,18 +22,12 @@ def resolve_extension_order(extensions: list[Extension], *, satisfied_dependency
 
     for extension in sorted_extensions:
         dependencies = list(extension.manifest.dependencies)
-        optional_dependencies = [
-            dependency_id
-            for dependency_id in extension.manifest.optional_dependencies
-            if dependency_id in extension_map
-        ]
         graph.setdefault(extension.id, [])
-        for dependency_id in [*dependencies, *optional_dependencies]:
+        for dependency_id in dependencies:
             if dependency_id in satisfied_dependency_ids:
                 continue
             if dependency_id not in extension_map:
-                if dependency_id in dependencies:
-                    missing_dependencies.setdefault(extension.id, []).append(dependency_id)
+                missing_dependencies.setdefault(extension.id, []).append(dependency_id)
                 continue
             graph.setdefault(dependency_id, [])
             graph[dependency_id].append(extension.id)

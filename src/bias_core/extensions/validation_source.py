@@ -17,6 +17,17 @@ from bias_core.extensions.validation_rules import (
 from bias_core.extensions.validation_types import ExtensionValidationCollector
 
 
+def _extension_import_match_parts(match) -> tuple[str, str]:
+    groups = match.groups()
+    if len(groups) >= 6:
+        imported_module = groups[0] or groups[1] or groups[3] or groups[4] or ""
+        imported_tail = groups[2] or groups[5] or ""
+        return str(imported_module or "").strip(), str(imported_tail or "").strip()
+    imported_module = str(match.group(1) or match.group(3) or "").strip()
+    imported_tail = str(match.group(2) or match.group(4) or "").strip()
+    return imported_module, imported_tail
+
+
 def validate_distribution_signature(
     collector: ExtensionValidationCollector,
     manifest: ExtensionManifest,
@@ -109,8 +120,7 @@ def validate_cross_extension_imports(
         relative_path = file_path.relative_to(base_path.parent).as_posix()
         internal_import_spans: set[tuple[int, int]] = set()
         for match in PYTHON_EXTENSION_INTERNAL_IMPORT_PATTERN.finditer(source):
-            imported_module = str(match.group(1) or match.group(3) or "").strip()
-            imported_tail = str(match.group(2) or match.group(4) or "").strip()
+            imported_module, imported_tail = _extension_import_match_parts(match)
             imported_extension_id = imported_module.replace("_", "-")
             if (
                 not imported_extension_id
@@ -131,7 +141,7 @@ def validate_cross_extension_imports(
         for match in PYTHON_EXTENSION_IMPORT_PATTERN.finditer(source):
             if match.span() in internal_import_spans:
                 continue
-            imported_module = str(match.group(1) or match.group(3) or "").strip()
+            imported_module, _imported_tail = _extension_import_match_parts(match)
             imported_extension_id = imported_module.replace("_", "-")
             if (
                 not imported_extension_id
@@ -211,10 +221,12 @@ def iter_core_import_paths(tree: ast.AST):
 
 def normalize_core_public_import_path(module: str) -> str:
     parts = str(module or "").strip().split(".")
+    if parts[:2] == ["bias_core", "extensions"]:
+        if len(parts) <= 3:
+            return ".".join(parts[:2])
+        return ".".join(parts[:4])
     if len(parts) <= 2:
         return "bias_core"
-    if parts[:2] == ["bias_core", "extensions"] and len(parts) >= 4:
-        return ".".join(parts[:4])
     return ".".join(parts[:3])
 
 

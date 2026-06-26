@@ -11,9 +11,25 @@ def resolve_event_type(event_type: Any):
         try:
             resolved = import_string(event_type)
         except Exception:
-            return None
+            resolved = _resolve_legacy_extension_event_type(event_type)
+            if resolved is None:
+                return None
         return resolved if isinstance(resolved, type) else None
     return event_type if isinstance(event_type, type) else None
+
+
+def _resolve_legacy_extension_event_type(event_type: str):
+    raw = str(event_type or "").strip()
+    prefix = "extensions."
+    marker = ".backend."
+    if not raw.startswith(prefix) or marker not in raw:
+        return None
+    extension_id, suffix = raw[len(prefix):].split(marker, 1)
+    module_path = f"bias_ext_{extension_id.replace('-', '_')}.backend.{suffix}"
+    try:
+        return import_string(module_path)
+    except Exception:
+        return None
 
 
 def build_forum_event_listener_definition(extension_id: str, definition) -> EventListenerDefinition:

@@ -11,6 +11,7 @@ from typing import Any
 from django.conf import settings
 from django.utils import timezone
 
+from bias_core.extensions.paths import extension_workspace_dir_name
 from bias_core.extensions.assets import (
     get_extension_assets_root,
     get_extension_frontend_build_manifest_path,
@@ -270,8 +271,8 @@ def build_extension_frontend_output_manifest(manifest: dict) -> dict:
             **dict(payload),
             "revision": revision,
             "outputs": {
-                "admin": _resolve_vite_entry(vite_manifest, admin_entry, extra_chunks=admin_routes, revision=revision),
-                "forum": _resolve_vite_entry(vite_manifest, forum_entry, extra_chunks=forum_routes, revision=revision),
+                "admin": _resolve_vite_entry(vite_manifest, admin_entry, extension_id=extension_id, extra_chunks=admin_routes, revision=revision),
+                "forum": _resolve_vite_entry(vite_manifest, forum_entry, extension_id=extension_id, extra_chunks=forum_routes, revision=revision),
             },
         }
     return output
@@ -366,9 +367,9 @@ def _build_import_map_source_from_manifest(manifest: dict) -> str:
     for extension_id, payload in sorted((manifest.get("extensions") or {}).items()):
         entry = str(payload.get("admin_entry") or payload.get("inputs", {}).get("admin") or "").strip()
         if entry:
-            import_path = _frontend_import_path(entry)
+            import_path = _frontend_import_path(entry, extension_id=extension_id)
             loader_key = _admin_loader_key(entry)
-            css_importers = _frontend_css_importers(payload, extension_id)
+            css_importers = _frontend_css_importers(payload, extension_id, entry=entry)
             importer = _frontend_loader_source(import_path, css_importers)
             for key in _frontend_loader_keys(loader_key, import_path):
                 append_module(lines, seen_admin_keys, key, importer)
@@ -384,9 +385,9 @@ def _build_import_map_source_from_manifest(manifest: dict) -> str:
     for extension_id, payload in sorted((manifest.get("extensions") or {}).items()):
         entry = str(payload.get("forum_entry") or payload.get("inputs", {}).get("forum") or "").strip()
         if entry:
-            import_path = _frontend_import_path(entry)
+            import_path = _frontend_import_path(entry, extension_id=extension_id)
             loader_key = _forum_loader_key(entry)
-            css_importers = _frontend_css_importers(payload, extension_id)
+            css_importers = _frontend_css_importers(payload, extension_id, entry=entry)
             importer = _frontend_loader_source(import_path, css_importers)
             for key in _frontend_loader_keys(loader_key, import_path):
                 append_module(lines, seen_forum_keys, key, importer)
@@ -407,10 +408,10 @@ def _frontend_loader_source(import_path: str, css_importers: list[str]) -> str:
     return f"() => loadExtensionModule(() => import({json.dumps(import_path)}), [{css_source}])"
 
 
-def _frontend_css_importers(payload: dict, extension_id: str) -> list[str]:
+def _frontend_css_importers(payload: dict, extension_id: str, *, entry: str = "") -> list[str]:
     paths = []
     for css_path in payload.get("css") or []:
-        import_path = _frontend_extension_asset_import_path(str(css_path or ""), extension_id)
+        import_path = _frontend_extension_asset_import_path(str(css_path or ""), extension_id, entry=entry)
         if import_path and _is_vite_style_import(import_path):
             paths.append(import_path)
     return _dedupe(paths)
@@ -450,24 +451,26 @@ def _frontend_route_component_chunk_keys(payload: dict, extension_id: str, front
 
 
 def _frontend_route_component_import_path(component: str, extension_id: str, frontend: str, entry: str) -> str:
-    normalized = str(component or "").strip().replace("", "/")
+    normalized = str(component or "").strip().replace("\\", "/")
     if not normalized:
         return ""
     if normalized.startswith("extensions/"):
-        return _frontend_import_path(normalized)
+        return _frontend_import_path(normalized, extension_id=extension_id)
+    if normalized.startswith("frontend/"):
+        return _frontend_import_path(normalized, extension_id=extension_id)
     if normalized.startswith("./") or normalized.startswith("../"):
-        entry_dir = "/".join(str(entry or "").strip().replace("", "/").split("/")[:-1])
+        entry_dir = "/".join(str(entry or "").strip().replace("\\", "/").split("/")[:-1])
         if entry_dir:
-            return _frontend_import_path(_normalize_frontend_path(f"{entry_dir}/{normalized}"))
-        return _frontend_import_path(_normalize_frontend_path(f"extensions/{extension_id}/frontend/{frontend}/{normalized}"))
+            return _frontend_import_path(_normalize_frontend_path(f"{entry_dir}/{normalized}"), extension_id=extension_id)
+        return _frontend_import_path(_normalize_frontend_path(f"extensions/{extension_id}/frontend/{frontend}/{normalized}"), extension_id=extension_id)
     if "/" in normalized:
-        return _frontend_import_path(_normalize_frontend_path(f"extensions/{extension_id}/{normalized}"))
-    return _frontend_import_path(_normalize_frontend_path(f"extensions/{extension_id}/frontend/{frontend}/{normalized}"))
+        return _frontend_import_path(_normalize_frontend_path(normalized), extension_id=extension_id)
+    return _frontend_import_path(_normalize_frontend_path(f"frontend/{frontend}/{normalized}"), extension_id=extension_id)
 
 
 def _frontend_route_component_keys(component: str, extension_id: str, frontend: str, entry: str, import_path: str) -> list[str]:
-    normalized = str(component or "").strip().replace("", "/")
-    entry_dir = "/".join(str(entry or "").strip().replace("", "/").split("/")[:-1])
+    normalized = str(component or "").strip().replace("\\", "/")
+    entry_dir = "/".join(str(entry or "").strip().replace("\\", "/").split("/")[:-1])
     canonical = ""
     if normalized.startswith(("./", "../")):
         canonical = _normalize_frontend_path(
@@ -475,13 +478,15 @@ def _frontend_route_component_keys(component: str, extension_id: str, frontend: 
         )
     elif normalized.startswith("extensions/"):
         canonical = _normalize_frontend_path(normalized)
+    elif normalized.startswith("frontend/"):
+        canonical = _normalize_frontend_path(normalized)
     elif "/" in normalized:
-        canonical = _normalize_frontend_path(f"extensions/{extension_id}/{normalized}")
+        canonical = _normalize_frontend_path(normalized)
     else:
         canonical = _normalize_frontend_path(f"extensions/{extension_id}/frontend/{frontend}/{normalized}")
     keys = [
         canonical,
-        _frontend_import_path(canonical),
+        _frontend_import_path(canonical, extension_id=extension_id),
         import_path,
         f"{extension_id}:{normalized}",
         f"{extension_id}:{canonical}",
@@ -491,13 +496,17 @@ def _frontend_route_component_keys(component: str, extension_id: str, frontend: 
     return _frontend_loader_keys(*keys)
 
 
-def _frontend_extension_asset_import_path(path: str, extension_id: str) -> str:
-    normalized = str(path or "").strip().replace("", "/")
+def _frontend_extension_asset_import_path(path: str, extension_id: str, *, entry: str = "") -> str:
+    normalized = str(path or "").strip().replace("\\", "/")
     if not normalized or normalized.startswith(("http://", "https://", "/")):
         return ""
     if normalized.startswith("extensions/") or normalized.startswith("../"):
-        return _frontend_import_path(normalized)
-    return _frontend_import_path(f"extensions/{extension_id}/{normalized}")
+        return _frontend_import_path(normalized, extension_id=extension_id)
+    if normalized.startswith("frontend/"):
+        if str(entry or "").strip().replace("\\", "/").startswith("extensions/"):
+            return _frontend_import_path(f"extensions/{extension_id}/{normalized}", extension_id=extension_id)
+        return _frontend_import_path(normalized, extension_id=extension_id)
+    return _frontend_import_path(normalized, extension_id=extension_id)
 
 
 def _is_vite_style_import(path: str) -> bool:
@@ -537,7 +546,7 @@ def _dedupe(values: list[str]) -> list[str]:
 
 def _normalize_frontend_path(path: str) -> str:
     parts = []
-    for part in str(path or "").replace("", "/").split("/"):
+    for part in str(path or "").replace("\\", "/").split("/"):
         if not part or part == ".":
             continue
         if part == ".." and parts and parts[-1] != "..":
@@ -551,7 +560,7 @@ def _frontend_loader_keys(*keys: str) -> list[str]:
     seen = set()
     normalized_keys = []
     for key in keys:
-        normalized = str(key or "").strip().replace("", "/")
+        normalized = str(key or "").strip().replace("\\", "/")
         if not normalized or normalized in seen:
             continue
         seen.add(normalized)
@@ -559,41 +568,50 @@ def _frontend_loader_keys(*keys: str) -> list[str]:
     return normalized_keys
 
 
-def _frontend_import_path(entry: str) -> str:
-    normalized = str(entry or "").strip().replace("", "/")
+def _frontend_import_path(entry: str, *, extension_id: str = "") -> str:
+    normalized = str(entry or "").strip().replace("\\", "/")
     if normalized.startswith("extensions/"):
         return f"../../../{normalized}"
+    if normalized.startswith("bias-ext-"):
+        return f"../../../{normalized}"
+    if extension_id and not normalized.startswith((".", "/", "http://", "https://")):
+        return f"../../../{extension_workspace_dir_name(extension_id)}/{normalized}"
     return normalized
 
 
 def _admin_loader_key(entry: str) -> str:
-    normalized = str(entry or "").strip().replace("", "/")
+    normalized = str(entry or "").strip().replace("\\", "/")
     if normalized.startswith("extensions/"):
+        return f"../../../{normalized}"
+    if normalized.startswith("bias-ext-"):
         return f"../../../{normalized}"
     return normalized
 
 
 def _forum_loader_key(entry: str) -> str:
-    normalized = str(entry or "").strip().replace("", "/")
+    normalized = str(entry or "").strip().replace("\\", "/")
     if normalized.startswith("extensions/"):
+        return f"../../../{normalized}"
+    if normalized.startswith("bias-ext-"):
         return f"../../../{normalized}"
     return normalized
 
 
-def _resolve_vite_entry(vite_manifest: dict, entry: str, *, extra_chunks: list[str] | None = None, revision: str = "") -> dict:
-    normalized = str(entry or "").strip().replace("", "/")
-    extra_dynamic_imports = _dedupe([str(item or "").strip().replace("", "/") for item in extra_chunks or []])
+def _resolve_vite_entry(vite_manifest: dict, entry: str, *, extension_id: str = "", extra_chunks: list[str] | None = None, revision: str = "") -> dict:
+    normalized = str(entry or "").strip().replace("\\", "/")
+    extra_dynamic_imports = _dedupe([str(item or "").strip().replace("\\", "/") for item in extra_chunks or []])
     if not normalized:
         return {
             "revision": revision,
             "chunks": _resolve_vite_chunks(vite_manifest, extra_dynamic_imports, revision=revision),
         } if extra_dynamic_imports else {}
+    import_path = _frontend_import_path(normalized, extension_id=extension_id)
     candidates = [
         normalized,
         f"../{normalized}",
         f"../../{normalized}",
-        f"../{_frontend_import_path(normalized)}",
-        _frontend_import_path(normalized).lstrip("./"),
+        f"../{import_path}",
+        import_path.lstrip("./"),
     ]
     for key in candidates:
         payload = vite_manifest.get(key)
@@ -616,7 +634,7 @@ def _resolve_vite_entry(vite_manifest: dict, entry: str, *, extra_chunks: list[s
 def _resolve_vite_chunks(vite_manifest: dict, dynamic_imports: list[str], *, revision: str = "") -> list[dict]:
     chunks = []
     for key in dynamic_imports:
-        normalized_key = str(key or "").strip().replace("", "/")
+        normalized_key = str(key or "").strip().replace("\\", "/")
         if not normalized_key:
             continue
         payload = vite_manifest.get(normalized_key)
@@ -657,10 +675,16 @@ def _build_extension_input_revision(manifest: dict) -> str:
 
 
 def _resolve_vite_module_id(key: str) -> str:
-    normalized = str(key or "").strip().replace("", "/").lstrip("./")
-    marker = "extensions/"
-    if marker in normalized:
+    normalized = str(key or "").strip().replace("\\", "/").lstrip("./")
+    for marker in ("bias-ext-", "extensions/"):
+        if marker not in normalized:
+            continue
         suffix = normalized.split(marker, 1)[1]
+        if marker == "bias-ext-":
+            parts = suffix.split("/", 1)
+            if len(parts) == 2:
+                return parts[1]
+            continue
         parts = suffix.split("/", 1)
         if len(parts) == 2:
             return parts[1]
@@ -674,27 +698,3 @@ def _read_json(path: Path) -> dict:
         return json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError:
         return {}
-
-
-
-def get_extension_frontend_output_manifest_path(base_path=None):
-    from pathlib import Path
-    base = Path(base_path) if base_path else Path.cwd()
-    return str(base / "frontend" / "dist" / "extension-manifest.json")
-
-def get_frontend_vite_manifest_path(base_path=None):
-    from pathlib import Path
-    base = Path(base_path) if base_path else Path.cwd()
-    return str(base / "frontend" / "dist" / "manifest.json")
-
-def write_extension_frontend_output_manifest(manifest, base_path=None):
-    return manifest
-
-def recompile_extension_frontend_assets(extension_id, base_path=None):
-    return {"status": "skipped"}
-
-def write_extension_frontend_import_map(entries, base_path=None):
-    return True
-
-def copy_frontend_dist_to_static(extension_id, base_path=None):
-    return True

@@ -1,4 +1,5 @@
 from tests.common import *
+from django.contrib.auth import get_user_model
 
 @override_settings(BIAS_EXTENSION_PACKAGE_DISCOVERY=False)
 class AdminExtensionsApiTests(TestCase):
@@ -8,7 +9,7 @@ class AdminExtensionsApiTests(TestCase):
         self.settings_override.enable()
         reset_extension_runtime_state()
         self.addCleanup(self._cleanup_extension_base_dir)
-        self.admin = User.objects.create_superuser(
+        self.admin = get_user_model().objects.create_superuser(
             username="admin-extensions",
             email="admin-extensions@example.com",
             password="password123",
@@ -87,7 +88,7 @@ class AdminExtensionsApiTests(TestCase):
         self.assertEqual(sample_extension["frontend_admin_entry"], "extensions/alpha-tools/frontend/admin/index.js")
         self.assertIn("/admin/extensions/alpha-tools/settings", sample_extension["settings_pages"])
         self.assertIn("/admin/extensions/alpha-tools/permissions", sample_extension["permissions_pages"])
-        self.assertEqual(sample_extension["compatibility"]["bias_version"], "^1.0.0")
+        self.assertEqual(sample_extension["compatibility"]["bias_version"], ">=0.1.0 <0.2.0")
         self.assertEqual(sample_extension["compatibility"]["api_stability"], "experimental")
         self.assertEqual(sample_extension["distribution"]["channel"], "private")
         self.assertTrue(sample_extension["distribution"]["abandoned"])
@@ -281,7 +282,7 @@ class AdminExtensionsApiTests(TestCase):
         self.assertEqual(payload["admin_actions"][0]["key"], "details")
         self.assertEqual(payload["runtime_status"]["key"], "pending_install")
         self.assertEqual(payload["runtime_actions"][0]["action"], "install")
-        self.assertEqual(payload["compatibility"]["bias_version"], "^1.0.0")
+        self.assertEqual(payload["compatibility"]["bias_version"], ">=0.1.0 <0.2.0")
         self.assertEqual(payload["compatibility"]["api_stability_label"], "实验性")
         self.assertEqual(payload["distribution"]["channel_label"], "私有分发")
         self.assertTrue(payload["distribution"]["abandoned"])

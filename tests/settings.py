@@ -3,8 +3,10 @@ Django settings for bias_core test suite.
 """
 
 from pathlib import Path
+from bias_core.conf.defaults import CORE_REQUIRED_MIDDLEWARE
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+BIAS_EXTENSION_WORKSPACE_ROOT = BASE_DIR.parent
 
 SECRET_KEY = "test-secret-key-for-bias-core"
 DEBUG = True
@@ -19,14 +21,14 @@ INSTALLED_APPS = [
     "bias_core",
 ]
 
-MIDDLEWARE = [
-    "django.middleware.security.SecurityMiddleware",
-    "django.contrib.sessions.middleware.SessionMiddleware",
-    "django.middleware.common.CommonMiddleware",
-    "django.middleware.csrf.CsrfViewMiddleware",
-    "django.contrib.auth.middleware.AuthenticationMiddleware",
-    "django.contrib.messages.middleware.MessageMiddleware",
-]
+try:
+    from bias_core.conf import discover_installed_extension_django_apps
+
+    INSTALLED_APPS.extend(discover_installed_extension_django_apps())
+except Exception:
+    pass
+
+MIDDLEWARE = CORE_REQUIRED_MIDDLEWARE
 
 ROOT_URLCONF = "tests.urls"
 
@@ -65,6 +67,7 @@ AUTH_USER_MODEL = "auth.User"
 from types import SimpleNamespace
 ALLOWED_HOSTS = ["*"]
 BOOTSTRAP = SimpleNamespace(
+    source="test",
     installed=False,
     debug=True,
     secret_key="test-secret-key-for-bias-core",
@@ -75,6 +78,11 @@ BOOTSTRAP = SimpleNamespace(
     database_mode="sqlite",
     use_redis=False,
     email_backend="django.core.mail.backends.console.EmailBackend",
+    email_host="smtp.gmail.com",
+    email_port=587,
+    email_use_tls=True,
+    email_host_user="",
+    default_from_email="noreply@bias.local",
 )
 SITE_SCHEME = "http"
 

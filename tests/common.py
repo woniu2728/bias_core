@@ -228,13 +228,118 @@ TEST_EXTENSION_ID = "alpha-tools"
 def make_extension_test_base_dir() -> Path:
     base_dir = make_workspace_temp_dir()
     extensions_dir = base_dir / "extensions"
-    shutil.copytree(
-        Path.cwd() / "extensions",
-        extensions_dir,
-        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
-    )
+    source_extensions_dir = Path.cwd() / "extensions"
+    if source_extensions_dir.exists():
+        shutil.copytree(
+            source_extensions_dir,
+            extensions_dir,
+            ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
+        )
+    else:
+        extensions_dir.mkdir(parents=True, exist_ok=True)
+        copy_split_workspace_extensions_for_tests(extensions_dir)
     create_alpha_tools_extension(extensions_dir)
     return base_dir
+
+
+def copy_split_workspace_extensions_for_tests(extensions_dir: Path) -> None:
+    workspace_root = Path.cwd().parent
+    for manifest_path in sorted(workspace_root.glob("bias-ext-*/extension.json")):
+        source_dir = manifest_path.parent
+        extension_id = source_dir.name.removeprefix("bias-ext-")
+        target_dir = extensions_dir / extension_id
+        shutil.copytree(
+            source_dir,
+            target_dir,
+            ignore=shutil.ignore_patterns(".git", "__pycache__", "*.pyc", "*.egg-info", "dist", "tests"),
+        )
+        normalize_split_manifest_for_legacy_tests(target_dir, extension_id)
+        ensure_legacy_frontend_entry_files(target_dir, extension_id)
+
+
+def normalize_split_manifest_for_legacy_tests(extension_dir: Path, extension_id: str) -> None:
+    manifest_path = extension_dir / "extension.json"
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    package_name = extension_id.replace("-", "_")
+    backend_payload = payload.get("backend") if isinstance(payload.get("backend"), dict) else {}
+    frontend_payload = payload.get("frontend") if isinstance(payload.get("frontend"), dict) else {}
+    django_payload = payload.get("django") if isinstance(payload.get("django"), dict) else {}
+
+    payload["backend_entry"] = str(
+        payload.get("backend_entry")
+        or backend_payload.get("entry")
+        or f"extensions.{package_name}.backend.ext"
+    ).strip()
+    payload["frontend_admin_entry"] = str(
+        payload.get("frontend_admin_entry")
+        or frontend_payload.get("admin_entry")
+        or f"extensions/{extension_id}/frontend/admin/index.js"
+    ).strip()
+    payload["frontend_forum_entry"] = str(
+        payload.get("frontend_forum_entry")
+        or frontend_payload.get("forum_entry")
+        or f"extensions/{extension_id}/frontend/forum/index.js"
+    ).strip()
+    payload["django_app_config"] = str(payload.get("django_app_config") or django_payload.get("app_config") or "").strip()
+    payload["django_app_label"] = str(payload.get("django_app_label") or django_payload.get("app_label") or "").strip()
+
+    if payload["frontend_admin_entry"].startswith("frontend/dist/admin/"):
+        payload["frontend_admin_entry"] = f"extensions/{extension_id}/frontend/admin/index.js"
+    if payload["frontend_forum_entry"].startswith("frontend/dist/forum/"):
+        payload["frontend_forum_entry"] = f"extensions/{extension_id}/frontend/forum/index.js"
+    if extension_id == "users":
+        extra = dict(payload.get("extra") or {})
+        extra["protected_reason"] = "认证基础域，不能停用或卸载。"
+        payload["extra"] = extra
+    if extension_id == "posts":
+        extra = dict(payload.get("extra") or {})
+        extra["protected"] = True
+        extra["protected_reason"] = "帖子基础域，不能停用或卸载。"
+        payload["extra"] = extra
+        provides = [
+            str(item).strip()
+            for item in payload.get("provides", [])
+            if str(item).strip()
+        ]
+        if "post-types" not in provides:
+            provides.append("post-types")
+        payload["provides"] = provides
+    if extension_id == "approval":
+        dependencies = [
+            str(item).strip()
+            for item in payload.get("dependencies", [])
+            if str(item).strip()
+        ]
+        if "notifications" not in dependencies:
+            dependencies.append("notifications")
+        payload["dependencies"] = dependencies
+    if extension_id == "discussions":
+        permissions_pages = [
+            str(item).strip()
+            for item in payload.get("permissions_pages", [])
+            if str(item).strip()
+        ]
+        if "/admin/extensions/discussions/permissions" not in permissions_pages:
+            permissions_pages.append("/admin/extensions/discussions/permissions")
+        payload["permissions_pages"] = permissions_pages
+
+    manifest_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def ensure_legacy_frontend_entry_files(extension_dir: Path, extension_id: str) -> None:
+    admin_entry = extension_dir / "frontend" / "admin" / "index.js"
+    forum_entry = extension_dir / "frontend" / "forum" / "index.js"
+    admin_entry.parent.mkdir(parents=True, exist_ok=True)
+    forum_entry.parent.mkdir(parents=True, exist_ok=True)
+    if not admin_entry.exists():
+        admin_entry.write_text(
+            "export function extend() {}\n"
+            "export function resolveDetailPage() { return null }\n"
+            "export function resolvePermissionsPage() { return null }\n",
+            encoding="utf-8",
+        )
+    if not forum_entry.exists():
+        forum_entry.write_text("export function extend() {}\n", encoding="utf-8")
 
 
 def create_alpha_tools_extension(extensions_dir: Path) -> Path:
@@ -290,7 +395,7 @@ def create_alpha_tools_extension(extensions_dir: Path) -> Path:
             {"key": "show_runtime_tips", "label": "显示运行提示", "type": "boolean", "default": True},
         ],
         "compatibility": {
-            "bias_version": "^1.0.0",
+            "bias_version": ">=0.1.0 <0.2.0",
             "api_version": "1.0",
             "api_stability": "experimental",
             "api_stability_label": "实验性",

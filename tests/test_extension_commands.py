@@ -63,7 +63,7 @@ class ExtensionManagementCommandTests(TestCase):
             with override_settings(BASE_DIR=Path(temp_dir)):
                 call_command_quietly("create_extension", "alpha-tools")
                 call_command_quietly("create_extension", "beta-tools")
-                beta_manifest_path = Path(temp_dir) / "extensions" / "beta_tools" / "extension.json"
+                beta_manifest_path = Path(temp_dir) / "bias-ext-beta-tools" / "extension.json"
                 beta_manifest = json.loads(beta_manifest_path.read_text(encoding="utf-8"))
                 beta_manifest["dependencies"] = ["alpha-tools"]
                 beta_manifest_path.write_text(json.dumps(beta_manifest, ensure_ascii=False), encoding="utf-8")
@@ -91,20 +91,21 @@ class ExtensionManagementCommandTests(TestCase):
                     "用于测试脚手架",
                 )
 
-                extension_dir = Path(temp_dir) / "extensions" / "alpha_tools"
+                extension_dir = Path(temp_dir) / "bias-ext-alpha-tools"
                 manifest = json.loads((extension_dir / "extension.json").read_text(encoding="utf-8"))
                 self.assertEqual(manifest["id"], "alpha-tools")
                 self.assertEqual(manifest["name"], "Alpha Tools")
-                self.assertEqual(manifest["backend_entry"], "extensions.alpha_tools.backend.ext")
+                self.assertEqual(manifest["backend_entry"], "bias_ext_alpha_tools.backend.ext")
                 self.assertEqual(
                     manifest["django_app_config"],
-                    "extensions.alpha_tools.backend.apps.AlphaToolsExtensionConfig",
+                    "bias_ext_alpha_tools.backend.apps.AlphaToolsExtensionConfig",
                 )
                 self.assertEqual(manifest["django_app_label"], "alpha_tools")
+                self.assertEqual(manifest["django_migration_module"], "bias_ext_alpha_tools.backend.django_migrations")
                 self.assertNotIn("frontend_admin_entry", manifest)
                 self.assertNotIn("frontend_forum_entry", manifest)
                 self.assertNotIn("migration_namespace", manifest)
-                self.assertEqual(manifest["compatibility"]["bias_version"], "^1.0.0")
+                self.assertEqual(manifest["compatibility"]["bias_version"], ">=0.1.0 <0.2.0")
                 self.assertEqual(manifest["compatibility"]["api_stability"], "experimental")
                 self.assertEqual(manifest["distribution"]["channel"], "private")
                 self.assertEqual(manifest["security"]["support_email"], "security@example.com")
@@ -114,19 +115,20 @@ class ExtensionManagementCommandTests(TestCase):
                 self.assertFalse((extension_dir / "frontend" / "admin" / "PermissionsPage.vue").exists())
                 self.assertFalse((extension_dir / "frontend" / "admin" / "OperationsPage.vue").exists())
                 self.assertTrue((extension_dir / "frontend" / "forum" / "index.js").exists())
-                self.assertTrue((extension_dir / "backend" / "ext.py").exists())
-                self.assertTrue((extension_dir / "backend" / "apps.py").exists())
-                self.assertTrue((extension_dir / "backend" / "django_migrations" / "__init__.py").exists())
-                self.assertFalse((extension_dir / "backend" / "migrations").exists())
+                backend_dir = extension_dir / "bias_ext_alpha_tools" / "backend"
+                self.assertTrue((backend_dir / "ext.py").exists())
+                self.assertTrue((backend_dir / "apps.py").exists())
+                self.assertTrue((backend_dir / "django_migrations" / "__init__.py").exists())
+                self.assertFalse((backend_dir / "migrations").exists())
                 self.assertTrue((extension_dir / "README.md").exists())
                 self.assertTrue((extension_dir / "docs" / "README.md").exists())
                 self.assertTrue((extension_dir / "locale" / "zh-CN.json").exists())
-                backend_source = (extension_dir / "backend" / "ext.py").read_text(encoding="utf-8")
+                backend_source = (backend_dir / "ext.py").read_text(encoding="utf-8")
                 self.assertIn("def extend():", backend_source)
                 self.assertIn("FrontendExtender()", backend_source)
-                self.assertIn("extensions/alpha_tools/frontend/admin/index.js", backend_source)
+                self.assertIn("frontend/admin/index.js", backend_source)
                 self.assertNotIn("from bias_core.", backend_source.replace("from bias_core.extensions", ""))
-                apps_source = (extension_dir / "backend" / "apps.py").read_text(encoding="utf-8")
+                apps_source = (backend_dir / "apps.py").read_text(encoding="utf-8")
                 self.assertIn("class AlphaToolsExtensionConfig(AppConfig):", apps_source)
                 self.assertIn('label = "alpha_tools"', apps_source)
                 self.assertNotIn("LifecycleExtender", backend_source)
@@ -140,13 +142,13 @@ class ExtensionManagementCommandTests(TestCase):
                 self.assertNotIn("AdminNavigationExtender", backend_source)
                 admin_source = (extension_dir / "frontend" / "admin" / "index.js").read_text(encoding="utf-8")
                 forum_source = (extension_dir / "frontend" / "forum" / "index.js").read_text(encoding="utf-8")
-                self.assertIn("from '@bias/admin'", admin_source)
+                self.assertIn("from '@bias/core/admin'", admin_source)
                 self.assertIn("export const extend", admin_source)
                 self.assertIn("extendAdmin(admin => admin", admin_source)
                 self.assertIn("export function resolveDetailPage()", admin_source)
                 self.assertIn("return null", admin_source)
                 self.assertNotIn(".page({", admin_source)
-                self.assertIn("from '@bias/forum'", forum_source)
+                self.assertIn("from '@bias/core/forum'", forum_source)
                 self.assertIn("extendForum(forum => forum", forum_source)
                 self.assertNotIn(".navItem({", forum_source)
                 readme_source = (extension_dir / "README.md").read_text(encoding="utf-8")
@@ -170,11 +172,11 @@ class ExtensionManagementCommandTests(TestCase):
 
                 self.assertEqual(
                     discover_extension_django_apps(Path(temp_dir)),
-                    ["extensions.alpha_tools.backend.apps.AlphaToolsExtensionConfig"],
+                    ["bias_ext_alpha_tools.backend.apps.AlphaToolsExtensionConfig"],
                 )
                 self.assertEqual(
                     discover_extension_django_migration_modules(Path(temp_dir)),
-                    {"alpha_tools": "extensions.alpha_tools.backend.django_migrations"},
+                    {"alpha_tools": "bias_ext_alpha_tools.backend.django_migrations"},
                 )
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
@@ -185,13 +187,13 @@ class ExtensionManagementCommandTests(TestCase):
             with override_settings(BASE_DIR=Path(temp_dir)):
                 call_command_quietly("create_extension", "alpha-tools")
 
-                entry_source = (Path(temp_dir) / "extensions" / "alpha_tools" / "frontend" / "admin" / "index.js").read_text(encoding="utf-8")
+                entry_source = (Path(temp_dir) / "bias-ext-alpha-tools" / "frontend" / "admin" / "index.js").read_text(encoding="utf-8")
                 self.assertIn("export function resolveDetailPage()", entry_source)
                 self.assertIn("return null", entry_source)
                 self.assertNotIn("import DetailPage", entry_source)
                 self.assertNotIn("export function resolvePermissionsPage()", entry_source)
                 self.assertIn("extendAdmin(admin => admin", entry_source)
-                forum_entry_source = (Path(temp_dir) / "extensions" / "alpha_tools" / "frontend" / "forum" / "index.js").read_text(encoding="utf-8")
+                forum_entry_source = (Path(temp_dir) / "bias-ext-alpha-tools" / "frontend" / "forum" / "index.js").read_text(encoding="utf-8")
                 self.assertIn("export const extend", forum_entry_source)
                 self.assertIn("extendForum(forum => forum", forum_entry_source)
                 self.assertNotIn(".navItem({", forum_entry_source)
@@ -201,7 +203,7 @@ class ExtensionManagementCommandTests(TestCase):
     def test_create_extension_command_rejects_existing_directory_without_force(self):
         temp_dir = make_workspace_temp_dir()
         try:
-            extension_dir = Path(temp_dir) / "extensions" / "alpha_tools"
+            extension_dir = Path(temp_dir) / "bias-ext-alpha-tools"
             extension_dir.mkdir(parents=True, exist_ok=False)
             with override_settings(BASE_DIR=Path(temp_dir)):
                 with self.assertRaisesMessage(CommandError, f"扩展目录已存在: {extension_dir}。如需覆盖，请传 --force"):
@@ -247,7 +249,7 @@ class ExtensionManagementCommandTests(TestCase):
         try:
             with override_settings(BASE_DIR=Path(temp_dir)):
                 call_command_quietly("create_extension", "alpha-tools")
-                backend_path = Path(temp_dir) / "extensions" / "alpha_tools" / "backend" / "ext.py"
+                backend_path = Path(temp_dir) / "bias-ext-alpha-tools" / "bias_ext_alpha_tools" / "backend" / "ext.py"
                 backend_path.write_text(
                     backend_path.read_text(encoding="utf-8")
                     + "\nfrom bias_core.extensions.extenders import ResourceExtender\n",
@@ -311,7 +313,7 @@ class ExtensionManagementCommandTests(TestCase):
         try:
             with override_settings(BASE_DIR=Path(temp_dir)):
                 call_command_quietly("create_extension", "alpha-tools")
-                backend_path = Path(temp_dir) / "extensions" / "alpha_tools" / "backend" / "ext.py"
+                backend_path = Path(temp_dir) / "bias-ext-alpha-tools" / "bias_ext_alpha_tools" / "backend" / "ext.py"
                 external_project_name = "fla" + "rum"
                 backend_path.write_text(
                     backend_path.read_text(encoding="utf-8")
@@ -333,7 +335,7 @@ class ExtensionManagementCommandTests(TestCase):
         try:
             with override_settings(BASE_DIR=Path(temp_dir)):
                 call_command_quietly("create_extension", "alpha-tools")
-                admin_path = Path(temp_dir) / "extensions" / "alpha_tools" / "frontend" / "admin" / "index.js"
+                admin_path = Path(temp_dir) / "bias-ext-alpha-tools" / "frontend" / "admin" / "index.js"
                 admin_path.write_text(
                     "export const extend = [\n"
                     "  new AdminExtender().page({ path: '/admin/direct' }),\n"
