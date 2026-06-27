@@ -14,7 +14,7 @@ def is_product_visible_extension(definition) -> bool:
 
 
 def is_extension_auto_installed(definition) -> bool:
-    if definition is None or definition.source != "filesystem":
+    if definition is None:
         return False
     extra = dict(getattr(definition.manifest, "extra", {}) or {})
     return bool(extra.get("auto_install", False))

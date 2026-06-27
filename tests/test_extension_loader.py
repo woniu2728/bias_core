@@ -2690,6 +2690,34 @@ class ExtensionManifestLoaderTests(TestCase):
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
+    def test_sync_extension_packages_preserves_packaged_auto_install_runtime_state(self):
+        from bias_core.extensions.extension_runtime import Extension
+        from bias_core.extensions.manager import ExtensionManager
+        from bias_core.extensions.types import ExtensionManifest
+
+        manifest = ExtensionManifest(
+            id="users",
+            name="Users",
+            version="1.0.0",
+            source="python-package",
+            path="/site-packages/bias_extensions/users",
+            extra={
+                "auto_install": True,
+                "auto_enable": True,
+            },
+        )
+        manager = ExtensionManager(extensions_path=Path(settings.BASE_DIR) / "extensions")
+        with patch.object(manager, "get_extensions", return_value=[Extension.from_manifest(manifest)]):
+            result = manager.sync_extension_packages()
+            installation = ExtensionInstallation.objects.get(extension_id="users")
+
+        self.assertEqual(result["created"], ["users"])
+        self.assertEqual(result["package_inspection"]["summary"]["unmanaged_discovered_count"], 0)
+        self.assertTrue(installation.installed)
+        self.assertTrue(installation.enabled)
+        self.assertTrue(installation.booted)
+        self.assertEqual(installation.source, "python-package")
+
     def test_protected_auto_enabled_extension_loads_enabled_from_stale_disabled_record(self):
         temp_dir = make_workspace_temp_dir()
         try:

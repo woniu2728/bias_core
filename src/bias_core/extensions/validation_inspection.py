@@ -223,6 +223,21 @@ def inspect_backend_entry(
     if not entry:
         return payload
 
+    source = str(getattr(manifest, "source", "") or "").strip()
+    if source == "python-package":
+        debug_definition = type("_DebugExtensionDefinition", (), {
+            "manifest": type("_DebugManifest", (), {
+                "id": manifest.id,
+                "backend_entry": entry,
+                "path": str(getattr(manifest, "path", "") or ""),
+            })(),
+            "source": source,
+        })()
+        inspection = inspect_extension_backend_entry(debug_definition)
+        payload.update(inspection)
+        payload["resolved_path"] = _path_for_payload(payload.get("resolved_path"))
+        return payload
+
     if not entry.startswith(("extensions.", "bias_ext_")):
         payload.update({
             "entry_type": "external",
@@ -242,7 +257,7 @@ def inspect_backend_entry(
             "backend_entry": entry,
             "path": str(extension_dir),
         })(),
-        "source": "filesystem",
+        "source": source or "filesystem",
     })()
     inspection = inspect_extension_backend_entry(debug_definition)
     payload.update(inspection)

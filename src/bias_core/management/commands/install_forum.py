@@ -208,8 +208,9 @@ class Command(BaseCommand):
 
             if not options["skip_sync_extensions"]:
                 self._run_manage_step("扩展状态同步", ["sync_extensions"], command_env)
+                self._run_manage_step("扩展启用顺序同步", ["sync_extension_order"], command_env)
             else:
-                self.stdout.write("[SKIP] 已跳过 sync_extensions")
+                self.stdout.write("[SKIP] 已跳过 sync_extensions / sync_extension_order")
 
             if not options["skip_extension_migrations"]:
                 self._run_manage_step("扩展迁移摘要同步", ["migrate_extensions", "--all"], command_env)

@@ -45,7 +45,13 @@ def get_forum_settings(request):
 
 @router.get("/forum/theme", tags=["Forum"])
 def get_forum_theme(request):
-    return {"theme": get_enabled_theme()}
+    settings_payload = get_public_forum_settings(user=get_optional_user(request))
+    document = dict(settings_payload.get("extension_document") or {})
+    return {
+        "theme": settings_payload.get("theme") or get_enabled_theme(),
+        "head_tags": list(document.get("head_tags") or []),
+        "theme_variables": dict(document.get("theme_variables") or {}),
+    }
 
 
 @router.post("/preview", response=MarkdownPreviewOutSchema, tags=["Forum"])

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
+import importlib.util
 
 from bias_core.extensions.extension_runtime import Extension
 from bias_core.extensions.migrations import (
@@ -66,6 +67,16 @@ def resolve_extension_frontend_forum_entry(extension: Extension) -> str:
 
 
 def _build_root_check(root_path: Path | None) -> ExtensionDeliveryCheckDefinition:
+    if root_path is None:
+        return ExtensionDeliveryCheckDefinition(
+            key="root",
+            label="扩展目录",
+            status="ready",
+            status_label="已就绪",
+            message="扩展由 Python 发行包提供。",
+            path="",
+            optional=True,
+        )
     if root_path and root_path.exists():
         return ExtensionDeliveryCheckDefinition(
             key="root",
@@ -96,6 +107,25 @@ def _build_backend_entry_check(root_path: Path | None, extension: Extension) -> 
             status_label="未声明",
             message="当前扩展未声明后端入口。",
             optional=True,
+        )
+    if extension.source == "python-package":
+        module_name = backend_entry.split(":", 1)[0]
+        if _module_exists(module_name):
+            return ExtensionDeliveryCheckDefinition(
+                key="backend-entry",
+                label="后端入口",
+                status="ready",
+                status_label="已就绪",
+                message="后端入口模块可导入。",
+                path=module_name,
+            )
+        return ExtensionDeliveryCheckDefinition(
+            key="backend-entry",
+            label="后端入口",
+            status="attention",
+            status_label="缺失",
+            message="manifest 已声明 backend_entry，但对应 Python 模块不可导入。",
+            path=module_name,
         )
     if backend_file and backend_file.exists():
         return ExtensionDeliveryCheckDefinition(
@@ -171,6 +201,24 @@ def _build_migration_check(root_path: Path | None, extension: Extension) -> Exte
             status_label="已就绪",
             message="已发现扩展 Django 迁移目录。",
             path=str(migration_dir),
+        )
+    if extension.source == "python-package" and migration_module:
+        if _module_exists(migration_module):
+            return ExtensionDeliveryCheckDefinition(
+                key="migrations",
+                label="迁移资源",
+                status="ready",
+                status_label="已就绪",
+                message="已发现扩展 Django 迁移模块。",
+                path=migration_module,
+            )
+        return ExtensionDeliveryCheckDefinition(
+            key="migrations",
+            label="迁移资源",
+            status="attention",
+            status_label="缺失",
+            message="manifest 已声明 Django AppConfig，但迁移模块不可导入。",
+            path=migration_module,
         )
     if migration_module and not has_migration_dir:
         return ExtensionDeliveryCheckDefinition(
@@ -395,6 +443,10 @@ def _build_migration_summary(root_path: Path | None, extension: Extension) -> tu
 
     if migration_module and has_migration_dir:
         return "ready", "已发现迁移"
+    if extension.source == "python-package" and migration_module:
+        if _module_exists(migration_module):
+            return "ready", "已发现迁移"
+        return "attention", "迁移模块缺失"
     if migration_module and not has_migration_dir:
         return "attention", "迁移目录缺失"
     if has_migration_dir:
@@ -459,4 +511,13 @@ def _build_migration_plan_summary(root_path: Path | None, extension: Extension) 
         "applied_files": applied_files,
         "pending_files": pending_files,
     }
+
+
+def _module_exists(module_name: str) -> bool:
+    if not module_name:
+        return False
+    try:
+        return importlib.util.find_spec(module_name) is not None
+    except (ImportError, AttributeError, ValueError):
+        return False
 

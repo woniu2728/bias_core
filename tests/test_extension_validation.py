@@ -52,6 +52,24 @@ class ExtensionValidationTests(TestCase):
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
+    def test_inspect_backend_entry_reports_python_package_entry(self):
+        manifest = ExtensionManifest(
+            id="users",
+            name="Users",
+            version="1.0.0",
+            backend_entry="json:loads",
+            source="python-package",
+        )
+
+        payload = inspect_backend_entry(
+            manifest,
+            extensions_base_path=Path(settings.BASE_DIR) / "extensions",
+        )
+
+        self.assertEqual(payload["entry_type"], "python-package")
+        self.assertTrue(payload["exists"])
+        self.assertEqual(payload["resolved_path"], "json")
+
     def test_inspect_frontend_forum_entry_reports_available_exports(self):
         temp_dir = make_extension_test_base_dir()
         try:

@@ -739,6 +739,44 @@ class ExtensionManagementCommandTests(TestCase):
             "bias_extensions/users/extension.json"
         ))
 
+    def test_extension_django_app_discovery_reads_packaged_distribution_manifests(self):
+        from bias_core.conf.extension_discovery import (
+            discover_extension_migration_modules,
+            discover_installed_extension_django_apps,
+        )
+
+        temp_dir = make_workspace_temp_dir()
+        try:
+            manifest_path = temp_dir / "bias_ext_users-0.1.0.data" / "data" / "bias_extensions" / "users" / "extension.json"
+            manifest_path.parent.mkdir(parents=True, exist_ok=True)
+            manifest_path.write_text(json.dumps({
+                "id": "users",
+                "name": "Users",
+                "version": "0.1.0",
+                "django": {
+                    "app_config": "bias_ext_users.backend.apps.UsersExtensionConfig",
+                    "app_label": "users",
+                    "migration_module": "bias_ext_users.backend.django_migrations",
+                },
+            }, ensure_ascii=False), encoding="utf-8")
+
+            distribution = SimpleNamespace(
+                files=["bias_ext_users-0.1.0.data/data/bias_extensions/users/extension.json"],
+                metadata={"Name": "bias-ext-users"},
+                locate_file=lambda file: temp_dir / str(file),
+            )
+            with patch("bias_core.conf.extension_discovery.metadata.distributions", return_value=[distribution]):
+                self.assertIn(
+                    "bias_ext_users.backend.apps.UsersExtensionConfig",
+                    discover_installed_extension_django_apps(temp_dir / "empty"),
+                )
+                self.assertEqual(
+                    discover_extension_migration_modules(temp_dir / "empty")["users"],
+                    "bias_ext_users.backend.django_migrations",
+                )
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
     def test_inspect_extensions_command_reports_missing_extension(self):
         with self.assertRaisesMessage(CommandError, "扩展不存在: missing-extension"):
             call_command("inspect_extensions", "--extension-id", "missing-extension")

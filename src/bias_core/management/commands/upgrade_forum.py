@@ -61,6 +61,7 @@ class Command(BaseCommand):
             steps.append(("数据库迁移", ["migrate", "--noinput"]))
         if not options["skip_sync_extensions"]:
             steps.append(("扩展状态同步", ["sync_extensions"]))
+            steps.append(("扩展启用顺序同步", ["sync_extension_order"]))
         if not options["skip_extension_migrations"]:
             steps.append(("扩展迁移摘要同步", ["migrate_extensions", "--all"]))
         if not options["skip_init_groups"]:
