@@ -557,6 +557,57 @@ class ExtensionManifestLoaderTests(TestCase):
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
+    def test_realtime_routing_builds_extension_websocket_urlpatterns(self):
+        temp_dir = make_workspace_temp_dir()
+        try:
+            extensions_dir = Path(temp_dir) / "extensions"
+            manifest_dir = extensions_dir / "alpha-tools"
+            backend_dir = manifest_dir / "backend"
+            manifest_dir.mkdir(parents=True, exist_ok=False)
+            backend_dir.mkdir(parents=True, exist_ok=False)
+            (manifest_dir / "extension.json").write_text(json.dumps({
+                "id": "alpha-tools",
+                "name": "Alpha Tools",
+                "version": "1.0.0",
+                "backend_entry": "extensions.alpha_tools.backend.ext",
+            }, ensure_ascii=False), encoding="utf-8")
+            (backend_dir / "ext.py").write_text(
+                "from channels.generic.websocket import AsyncWebsocketConsumer\n"
+                "from bias_core.extensions import WebSocketRoutesExtender\n"
+                "\n"
+                "class AlphaConsumer(AsyncWebsocketConsumer):\n"
+                "    pass\n"
+                "\n"
+                "def extend():\n"
+                "    return [\n"
+                "        WebSocketRoutesExtender().route(r'ws/alpha/$', 'alpha.websocket', AlphaConsumer),\n"
+                "    ]\n",
+                encoding="utf-8",
+            )
+
+            ExtensionInstallation.objects.create(
+                extension_id="alpha-tools",
+                version="1.0.0",
+                source="filesystem",
+                enabled=True,
+                installed=True,
+                booted=True,
+            )
+
+            registry = ExtensionRegistry(extensions_path=extensions_dir)
+            application = build_extension_application(manager=registry, force=True)
+
+            from bias_core.realtime.routing import build_websocket_urlpatterns
+
+            with patch("bias_core.realtime.routing.get_extension_host", return_value=application):
+                patterns = build_websocket_urlpatterns()
+
+            self.assertEqual(len(patterns), 1)
+            self.assertEqual(str(patterns[0].pattern), "ws/alpha/$")
+            self.assertEqual(patterns[0].name, "alpha.websocket")
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
     def test_frontend_extender_aliases_match_runtime_registration(self):
         temp_dir = make_workspace_temp_dir()
         try:
