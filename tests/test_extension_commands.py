@@ -181,6 +181,21 @@ class ExtensionManagementCommandTests(TestCase):
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
+    def test_create_extension_command_places_split_package_next_to_bias_site_host(self):
+        temp_dir = make_workspace_temp_dir()
+        try:
+            workspace_root = Path(temp_dir)
+            site_host = workspace_root / "bias"
+            site_host.mkdir(parents=True, exist_ok=False)
+
+            with override_settings(BASE_DIR=site_host, BIAS_EXTENSION_WORKSPACE_ROOT=workspace_root):
+                call_command_quietly("create_extension", "alpha-tools")
+
+            self.assertTrue((workspace_root / "bias-ext-alpha-tools" / "extension.json").exists())
+            self.assertFalse((site_host / "bias-ext-alpha-tools").exists())
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
     def test_create_extension_command_frontend_entries_use_public_sdks(self):
         temp_dir = make_workspace_temp_dir()
         try:

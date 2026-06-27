@@ -9,6 +9,7 @@ from django.core.management.base import CommandParser
 
 from bias_core.version import APP_VERSION
 from bias_core.extensions.paths import extension_python_package, extension_workspace_dir_name
+from bias_core.extensions.manifest import SITE_HOST_DIRECTORY_NAMES
 
 
 def _default_bias_version_range() -> str:
@@ -20,6 +21,14 @@ def _default_bias_version_range() -> str:
         return ""
     return f">={major}.{minor}.0 <{major}.{minor + 1}.0"
 from bias_core.extensions.validation import EXTENSION_ID_PATTERN
+
+
+def _path_is_relative_to(path: Path, parent: Path) -> bool:
+    try:
+        path.resolve().relative_to(parent.resolve())
+        return True
+    except (OSError, ValueError):
+        return False
 
 
 class Command(BaseCommand):
@@ -137,11 +146,11 @@ class Command(BaseCommand):
         if configured:
             root = Path(configured)
             base_dir = Path(settings.BASE_DIR)
-            if base_dir.name in {"bias_site", "site"} or root == base_dir.parent:
+            if root == base_dir.parent or _path_is_relative_to(base_dir, root):
                 return root
 
         base_dir = Path(settings.BASE_DIR)
-        if base_dir.name in {"bias_site", "site"}:
+        if base_dir.name in SITE_HOST_DIRECTORY_NAMES:
             return base_dir.parent
         return base_dir
 

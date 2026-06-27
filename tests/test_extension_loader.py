@@ -214,6 +214,30 @@ class ExtensionManifestLoaderTests(TestCase):
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
+    def test_loader_discovers_split_workspace_extension_packages_from_bias_site_host(self):
+        temp_dir = make_workspace_temp_dir()
+        try:
+            workspace_root = Path(temp_dir)
+            extensions_dir = workspace_root / "bias" / "extensions"
+            extensions_dir.mkdir(parents=True, exist_ok=False)
+            manifest_dir = workspace_root / "bias-ext-alpha"
+            manifest_dir.mkdir(parents=True, exist_ok=False)
+            (manifest_dir / "extension.json").write_text(json.dumps({
+                "id": "alpha",
+                "name": "Alpha",
+                "version": "1.0.0",
+                "backend": {"entry": "bias_ext_alpha.backend.ext:extend"},
+            }, ensure_ascii=False), encoding="utf-8")
+
+            with override_settings(BASE_DIR=workspace_root / "bias", BIAS_EXTENSION_WORKSPACE_ROOT=workspace_root):
+                loader = ExtensionManifestLoader(extensions_dir, include_workspace=True)
+                manifests = loader.discover_manifests()
+
+            self.assertEqual([manifest.id for manifest in manifests], ["alpha"])
+            self.assertEqual(manifests[0].path, str(manifest_dir))
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
 
     def test_loader_merges_forum_setting_exposure_from_extenders(self):
         temp_dir = make_workspace_temp_dir()

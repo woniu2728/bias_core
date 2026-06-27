@@ -25,6 +25,7 @@ from bias_core.extensions.validation import EXTENSION_ID_PATTERN, SEMVER_PATTERN
 
 
 _distribution_manifest_cache: list[ExtensionManifest] | None = None
+SITE_HOST_DIRECTORY_NAMES = {"bias", "bias_site", "site"}
 
 
 class ExtensionManifestLoader:
@@ -248,7 +249,7 @@ class ExtensionManifestLoader:
             return self.base_path
         if (
             is_default_path
-            and Path(settings.BASE_DIR).name in {"bias_site", "site"}
+            and Path(settings.BASE_DIR).name in SITE_HOST_DIRECTORY_NAMES
             and self.base_path.parent.exists()
             and any(self.base_path.parent.glob("bias-ext-*/extension.json"))
         ):

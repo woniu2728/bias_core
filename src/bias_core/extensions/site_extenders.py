@@ -58,7 +58,7 @@ def build_site_extension(extenders: tuple[Any, ...]) -> Extension | None:
 
 
 def _load_site_extender_module(path: Path) -> ModuleType:
-    module_name = "bias_site_extend"
+    module_name = "bias_extend"
     spec = importlib.util.spec_from_file_location(module_name, path)
     if spec is None or spec.loader is None:
         raise RuntimeError(f"无法加载站点扩展入口: {path}")
