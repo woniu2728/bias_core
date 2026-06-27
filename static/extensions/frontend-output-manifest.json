@@ -1,7 +1,7 @@
 {
   "build": {
     "command": [],
-    "compiled_at": "2026-06-26T16:28:47.951843+00:00",
+    "compiled_at": "2026-06-27T05:57:10.380127+00:00",
     "published": {
       "message": "未请求发布前端 dist。",
       "source": "D:\\files\\project\\tmp\\bias_core\\frontend\\dist",
@@ -38,24 +38,92 @@
       "title_driver": ""
     },
     "discussions": {
-      "admin_entry": "frontend/dist/admin/index.js",
-      "cache_key": "c0d7c514aafa995c",
+      "admin_entry": "extensions/discussions/frontend/admin/index.js",
+      "cache_key": "ddb9bff9587c9db4",
       "css": [],
       "document_attributes": [],
       "extension_id": "discussions",
-      "forum_entry": "frontend/dist/forum/index.js",
+      "forum_entry": "extensions/discussions/frontend/forum/index.js",
       "inputs": {
-        "admin": "frontend/dist/admin/index.js",
-        "forum": "frontend/dist/forum/index.js"
+        "admin": "extensions/discussions/frontend/admin/index.js",
+        "forum": "extensions/discussions/frontend/forum/index.js"
       },
       "js_directories": [],
       "outputs": {
         "admin": {},
-        "forum": {}
+        "forum": {
+          "chunks": [
+            {
+              "css": [],
+              "dynamic_imports": [],
+              "file": "../../../extensions/discussions/frontend/forum/DiscussionListView.vue",
+              "imports": [],
+              "key": "../../../extensions/discussions/frontend/forum/DiscussionListView.vue",
+              "module_id": "frontend/forum/DiscussionListView.vue",
+              "revision": ""
+            },
+            {
+              "css": [],
+              "dynamic_imports": [],
+              "file": "../../../extensions/discussions/frontend/forum/DiscussionDetailView.vue",
+              "imports": [],
+              "key": "../../../extensions/discussions/frontend/forum/DiscussionDetailView.vue",
+              "module_id": "frontend/forum/DiscussionDetailView.vue",
+              "revision": ""
+            },
+            {
+              "css": [],
+              "dynamic_imports": [],
+              "file": "../../../extensions/discussions/frontend/forum/DiscussionCreateView.vue",
+              "imports": [],
+              "key": "../../../extensions/discussions/frontend/forum/DiscussionCreateView.vue",
+              "module_id": "frontend/forum/DiscussionCreateView.vue",
+              "revision": ""
+            }
+          ],
+          "revision": ""
+        }
       },
       "preloads": [],
       "revision": "",
-      "routes": [],
+      "routes": [
+        {
+          "component": "./DiscussionListView.vue",
+          "description": "浏览论坛最新讨论、热门主题和社区回复。",
+          "frontend": "forum",
+          "module_id": "discussions",
+          "name": "home",
+          "order": 0,
+          "path": "/",
+          "removed": false,
+          "requires_auth": false,
+          "title": "全部讨论"
+        },
+        {
+          "component": "./DiscussionDetailView.vue",
+          "description": "查看讨论内容和回复。",
+          "frontend": "forum",
+          "module_id": "discussions",
+          "name": "discussion-detail",
+          "order": 1,
+          "path": "/d/:id",
+          "removed": false,
+          "requires_auth": false,
+          "title": "讨论详情"
+        },
+        {
+          "component": "./DiscussionCreateView.vue",
+          "description": "创建新的论坛讨论。",
+          "frontend": "forum",
+          "module_id": "discussions",
+          "name": "discussion-create",
+          "order": 2,
+          "path": "/discussions/create",
+          "removed": false,
+          "requires_auth": true,
+          "title": "发起讨论"
+        }
+      ],
       "source": "filesystem",
       "title_driver": ""
     },
@@ -102,6 +170,27 @@
       "source": "filesystem",
       "title_driver": ""
     },
+    "likes": {
+      "admin_entry": "",
+      "cache_key": "46df4a67de087ada",
+      "css": [],
+      "document_attributes": [],
+      "extension_id": "likes",
+      "forum_entry": "extensions/likes/frontend/forum/index.js",
+      "inputs": {
+        "forum": "extensions/likes/frontend/forum/index.js"
+      },
+      "js_directories": [],
+      "outputs": {
+        "admin": {},
+        "forum": {}
+      },
+      "preloads": [],
+      "revision": "",
+      "routes": [],
+      "source": "filesystem",
+      "title_driver": ""
+    },
     "mentions": {
       "admin_entry": "extensions/mentions/frontend/admin/index.js",
       "cache_key": "dcd3c6a1b2c415fc",
@@ -121,6 +210,53 @@
       "preloads": [],
       "revision": "",
       "routes": [],
+      "source": "filesystem",
+      "title_driver": ""
+    },
+    "notifications": {
+      "admin_entry": "",
+      "cache_key": "75712940dea6f7c8",
+      "css": [],
+      "document_attributes": [],
+      "extension_id": "notifications",
+      "forum_entry": "extensions/notifications/frontend/forum/index.js",
+      "inputs": {
+        "forum": "extensions/notifications/frontend/forum/index.js"
+      },
+      "js_directories": [],
+      "outputs": {
+        "admin": {},
+        "forum": {
+          "chunks": [
+            {
+              "css": [],
+              "dynamic_imports": [],
+              "file": "../../../extensions/notifications/frontend/forum/NotificationView.vue",
+              "imports": [],
+              "key": "../../../extensions/notifications/frontend/forum/NotificationView.vue",
+              "module_id": "frontend/forum/NotificationView.vue",
+              "revision": ""
+            }
+          ],
+          "revision": ""
+        }
+      },
+      "preloads": [],
+      "revision": "",
+      "routes": [
+        {
+          "component": "./NotificationView.vue",
+          "description": "查看你的论坛通知、回复提醒和系统消息。",
+          "frontend": "forum",
+          "module_id": "notifications",
+          "name": "notifications",
+          "order": 40,
+          "path": "/notifications",
+          "removed": false,
+          "requires_auth": true,
+          "title": "通知"
+        }
+      ],
       "source": "filesystem",
       "title_driver": ""
     },
@@ -164,6 +300,76 @@
       "preloads": [],
       "revision": "",
       "routes": [],
+      "source": "filesystem",
+      "title_driver": ""
+    },
+    "realtime": {
+      "admin_entry": "extensions/realtime/frontend/admin/index.js",
+      "cache_key": "efd42fb009096684",
+      "css": [],
+      "document_attributes": [],
+      "extension_id": "realtime",
+      "forum_entry": "extensions/realtime/frontend/forum/index.js",
+      "inputs": {
+        "admin": "extensions/realtime/frontend/admin/index.js",
+        "forum": "extensions/realtime/frontend/forum/index.js"
+      },
+      "js_directories": [],
+      "outputs": {
+        "admin": {},
+        "forum": {}
+      },
+      "preloads": [],
+      "revision": "",
+      "routes": [],
+      "source": "filesystem",
+      "title_driver": ""
+    },
+    "search": {
+      "admin_entry": "extensions/search/frontend/admin/index.js",
+      "cache_key": "0d0fc256921150da",
+      "css": [],
+      "document_attributes": [],
+      "extension_id": "search",
+      "forum_entry": "extensions/search/frontend/forum/index.js",
+      "inputs": {
+        "admin": "extensions/search/frontend/admin/index.js",
+        "forum": "extensions/search/frontend/forum/index.js"
+      },
+      "js_directories": [],
+      "outputs": {
+        "admin": {},
+        "forum": {
+          "chunks": [
+            {
+              "css": [],
+              "dynamic_imports": [],
+              "file": "../../../extensions/search/frontend/forum/SearchResultsView.vue",
+              "imports": [],
+              "key": "../../../extensions/search/frontend/forum/SearchResultsView.vue",
+              "module_id": "frontend/forum/SearchResultsView.vue",
+              "revision": ""
+            }
+          ],
+          "revision": ""
+        }
+      },
+      "preloads": [],
+      "revision": "",
+      "routes": [
+        {
+          "component": "./SearchResultsView.vue",
+          "description": "搜索论坛中的讨论、回复和用户。",
+          "frontend": "forum",
+          "module_id": "search",
+          "name": "search",
+          "order": 40,
+          "path": "/search",
+          "removed": false,
+          "requires_auth": false,
+          "title": "搜索"
+        }
+      ],
       "source": "filesystem",
       "title_driver": ""
     },
@@ -233,6 +439,97 @@
           "title": "关注的讨论"
         }
       ],
+      "source": "filesystem",
+      "title_driver": ""
+    },
+    "tags": {
+      "admin_entry": "extensions/tags/frontend/admin/index.js",
+      "cache_key": "8ad1793e14c9560b",
+      "css": [],
+      "document_attributes": [],
+      "extension_id": "tags",
+      "forum_entry": "extensions/tags/frontend/forum/index.js",
+      "inputs": {
+        "admin": "extensions/tags/frontend/admin/index.js",
+        "forum": "extensions/tags/frontend/forum/index.js"
+      },
+      "js_directories": [],
+      "outputs": {
+        "admin": {},
+        "forum": {
+          "chunks": [
+            {
+              "css": [],
+              "dynamic_imports": [],
+              "file": "../../../extensions/tags/frontend/forum/TagsView.vue",
+              "imports": [],
+              "key": "../../../extensions/tags/frontend/forum/TagsView.vue",
+              "module_id": "frontend/forum/TagsView.vue",
+              "revision": ""
+            },
+            {
+              "css": [],
+              "dynamic_imports": [],
+              "file": "../../../extensions/discussions/frontend/forum/DiscussionListView.vue",
+              "imports": [],
+              "key": "../../../extensions/discussions/frontend/forum/DiscussionListView.vue",
+              "module_id": "frontend/forum/DiscussionListView.vue",
+              "revision": ""
+            }
+          ],
+          "revision": ""
+        }
+      },
+      "preloads": [],
+      "revision": "",
+      "routes": [
+        {
+          "component": "./TagsView.vue",
+          "description": "浏览论坛标签，按主题发现相关讨论。",
+          "frontend": "forum",
+          "module_id": "tags",
+          "name": "tags",
+          "order": 30,
+          "path": "/tags",
+          "removed": false,
+          "requires_auth": false,
+          "title": "全部标签"
+        },
+        {
+          "component": "extensions/discussions/frontend/forum/DiscussionListView.vue",
+          "description": "查看该标签下的论坛讨论。",
+          "frontend": "forum",
+          "module_id": "tags",
+          "name": "tag-detail",
+          "order": 31,
+          "path": "/t/:slug",
+          "removed": false,
+          "requires_auth": false,
+          "title": "标签讨论"
+        }
+      ],
+      "source": "filesystem",
+      "title_driver": ""
+    },
+    "uploads": {
+      "admin_entry": "extensions/uploads/frontend/admin/index.js",
+      "cache_key": "f8cd58ee99131cec",
+      "css": [],
+      "document_attributes": [],
+      "extension_id": "uploads",
+      "forum_entry": "extensions/uploads/frontend/forum/index.js",
+      "inputs": {
+        "admin": "extensions/uploads/frontend/admin/index.js",
+        "forum": "extensions/uploads/frontend/forum/index.js"
+      },
+      "js_directories": [],
+      "outputs": {
+        "admin": {},
+        "forum": {}
+      },
+      "preloads": [],
+      "revision": "",
+      "routes": [],
       "source": "filesystem",
       "title_driver": ""
     },
@@ -384,8 +681,8 @@
       "title_driver": ""
     }
   },
-  "generated_at": "2026-06-26T16:28:47.951843+00:00",
-  "input_revision": "d70448cc4e45df1e",
+  "generated_at": "2026-06-27T05:57:10.380127+00:00",
+  "input_revision": "bc1ce59f56f8e156",
   "revision": "",
   "vite_manifest_exists": false,
   "vite_manifest_path": "D:\\files\\project\\tmp\\bias_core\\frontend\\dist\\.vite\\manifest.json"

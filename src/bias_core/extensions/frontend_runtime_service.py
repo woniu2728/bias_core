@@ -376,18 +376,62 @@ def build_frontend_manifest() -> dict:
         entries = get_enabled_extension_runtime_entries()
         return {
             "extensions": [
-                {
-                    "id": e.get("id", ""),
-                    "name": e.get("name", ""),
-                    "version": e.get("version", ""),
-                    "frontend": {
-                        "forum": e.get("forum_entry", ""),
-                        "admin": e.get("admin_entry", ""),
-                    },
-                }
+                _build_frontend_manifest_entry(e)
                 for e in entries
-                if e.get("forum_entry") or e.get("admin_entry")
+                if (
+                    e.get("frontend_common_entry")
+                    or e.get("frontend_forum_entry")
+                    or e.get("frontend_admin_entry")
+                    or e.get("common_entry")
+                    or e.get("forum_entry")
+                    or e.get("admin_entry")
+                )
             ],
         }
     except Exception:
         return {"extensions": []}
+
+
+def _build_frontend_manifest_entry(entry: dict[str, Any]) -> dict[str, Any]:
+    common_entry = entry.get("frontend_common_entry") or entry.get("common_entry") or ""
+    forum_entry = entry.get("frontend_forum_entry") or entry.get("forum_entry") or ""
+    admin_entry = entry.get("frontend_admin_entry") or entry.get("admin_entry") or ""
+    return {
+        "id": entry.get("id", ""),
+        "name": entry.get("name", ""),
+        "source": entry.get("source", ""),
+        "module_ids": list(entry.get("module_ids") or []),
+        "frontend_common_entry": common_entry,
+        "frontend_forum_entry": forum_entry,
+        "frontend_admin_entry": admin_entry,
+        "frontend_outputs": dict(entry.get("frontend_outputs") or {}),
+        "frontend_routes": list(entry.get("frontend_routes") or []),
+        "frontend_document": dict(entry.get("frontend_document") or {}),
+        "settings_pages": list(entry.get("settings_pages") or []),
+        "permissions_pages": list(entry.get("permissions_pages") or []),
+        "operations_pages": list(entry.get("operations_pages") or []),
+        "locale_paths": list(entry.get("locale_paths") or []),
+        "formatter_pipeline": [
+            _serialize_frontend_manifest_value(item)
+            for item in (entry.get("formatter_pipeline") or [])
+        ],
+        "product_visible": bool(entry.get("product_visible")),
+        "frontend": {
+            "common": common_entry,
+            "forum": forum_entry,
+            "admin": admin_entry,
+        },
+    }
+
+
+def _serialize_frontend_manifest_value(value):
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    if isinstance(value, dict):
+        return {
+            str(key): _serialize_frontend_manifest_value(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, (list, tuple, set)):
+        return [_serialize_frontend_manifest_value(item) for item in value]
+    return getattr(value, "__name__", None) or str(value)

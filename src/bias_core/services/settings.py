@@ -527,7 +527,7 @@ def get_public_forum_settings(user=None) -> dict:
 
     forum_settings["extension_runtime"] = _serialize_extension_runtime_stamp()
     forum_settings["extension_recovery"] = serialize_extension_recovery_state()
-    enabled_extension_entries = get_enabled_extension_runtime_entries(product_visible_only=True)
+    enabled_extension_entries = get_enabled_extension_runtime_entries(product_visible_only=False)
     forum_settings["enabled_extensions"] = [
         {
             "id": extension["id"],
