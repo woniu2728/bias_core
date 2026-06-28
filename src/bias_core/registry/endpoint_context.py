@@ -19,7 +19,7 @@ class EndpointContextResolver:
         return ResourceEndpointRunner(self._store).run(definition, ensure_resource_context(context))
 
     def apply_resource_payload(self, resource, instance, payload, context=None, *, creating=False):
-        ctx = dict(context or {})
+        ctx = context if isinstance(context, dict) else {}
         ctx["creating"] = bool(creating)
         inp = dict(payload or {})
         self._run_extension_validators(resource, instance, inp, ctx)
