@@ -53,6 +53,33 @@ class AdminSettingsApiTests(TestCase):
             "今晚 23:00 进行维护。",
         )
 
+    def test_extension_settings_are_process_cached_until_runtime_settings_clear(self):
+        from bias_core.extension_settings_service import get_extension_settings
+
+        with patch(
+            "bias_core.extension_settings_service.build_extension_settings_defaults",
+            return_value={"enabled": False},
+        ) as defaults_mock:
+            with self.assertNumQueries(1):
+                self.assertEqual(get_extension_settings("alpha-tools"), {"enabled": False})
+            with self.assertNumQueries(0):
+                self.assertEqual(get_extension_settings("alpha-tools"), {"enabled": False})
+
+        Setting.objects.update_or_create(
+            key="extensions.alpha-tools.enabled",
+            defaults={"value": json.dumps(True)},
+        )
+        with self.assertNumQueries(0):
+            self.assertEqual(get_extension_settings("alpha-tools"), {"enabled": False})
+
+        clear_runtime_setting_caches()
+        with patch(
+            "bias_core.extension_settings_service.build_extension_settings_defaults",
+            return_value={"enabled": False},
+        ):
+            self.assertEqual(get_extension_settings("alpha-tools"), {"enabled": True})
+        self.assertEqual(defaults_mock.call_count, 1)
+
 
     @override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}})
     def test_advanced_and_cache_endpoints_exist(self):

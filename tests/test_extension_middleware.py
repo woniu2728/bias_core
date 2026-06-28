@@ -1396,6 +1396,75 @@ class ExtensionMiddlewareIntegrationTests(TestCase):
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
+    def test_validate_extension_manifests_allows_optional_public_contract_dependencies(self):
+        temp_dir = make_workspace_temp_dir()
+        try:
+            extensions_dir = Path(temp_dir) / "extensions"
+            alpha_dir = extensions_dir / "alpha-tools"
+            beta_dir = extensions_dir / "beta-tools"
+            alpha_backend_dir = alpha_dir / "backend"
+            alpha_backend_dir.mkdir(parents=True, exist_ok=False)
+            beta_dir.mkdir(parents=True, exist_ok=False)
+            (alpha_dir / "extension.json").write_text(json.dumps({
+                "id": "alpha-tools",
+                "name": "Alpha Tools",
+                "version": "1.0.0",
+                "backend_entry": "extensions.alpha_tools.backend.ext",
+                "optional_dependencies": ["beta-tools"],
+            }, ensure_ascii=False), encoding="utf-8")
+            (alpha_backend_dir / "ext.py").write_text(
+                "from bias_core.extensions import ConditionalExtender, EventListenersExtender, ExtensionEventListenerDefinition, RuntimeModel\n"
+                "\n"
+                "BETA_MODEL = RuntimeModel('beta-tools.service')\n"
+                "\n"
+                "def handle_beta(event):\n"
+                "    return None\n"
+                "\n"
+                "def beta_extenders():\n"
+                "    return [EventListenersExtender(listeners=(ExtensionEventListenerDefinition(\n"
+                "        event_type='beta-tools.item.created', handler=handle_beta,\n"
+                "    ),))]\n"
+                "\n"
+                "def extend():\n"
+                "    return [ConditionalExtender().when_extension_enabled('beta-tools', beta_extenders)]\n",
+                encoding="utf-8",
+            )
+            (beta_dir / "extension.json").write_text(json.dumps({
+                "id": "beta-tools",
+                "name": "Beta Tools",
+                "version": "1.0.0",
+            }, ensure_ascii=False), encoding="utf-8")
+
+            manifests = [
+                ExtensionManifest(
+                    id="alpha-tools",
+                    name="Alpha Tools",
+                    version="1.0.0",
+                    backend_entry="extensions.alpha_tools.backend.ext",
+                    optional_dependencies=("beta-tools",),
+                    path=str(alpha_dir),
+                ),
+                ExtensionManifest(
+                    id="beta-tools",
+                    name="Beta Tools",
+                    version="1.0.0",
+                    path=str(beta_dir),
+                ),
+            ]
+            result = validate_extension_manifests_with_available_ids(
+                manifests,
+                available_extension_ids={"core"},
+                extensions_base_path=extensions_dir,
+            )
+
+            self.assertTrue(result.ok)
+            self.assertFalse(any(
+                item.code == "undeclared_public_contract_extension_dependency"
+                for item in result.issues
+            ))
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
     def test_validate_extension_manifests_rejects_internal_event_contract_paths(self):
         temp_dir = make_workspace_temp_dir()
         try:

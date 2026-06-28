@@ -133,18 +133,6 @@ def inspect_extension_package_metadata(
         dependencies = []
     if not any(str(item or "").strip().startswith("bias-core") for item in dependencies):
         errors.append("project.dependencies 必须声明 bias-core 依赖")
-    package_dependency_names = {
-        _dependency_package_name(item)
-        for item in dependencies
-        if _dependency_package_name(item)
-    }
-    for dependency_id in manifest_dependencies:
-        normalized_dependency_id = str(dependency_id or "").strip()
-        if not normalized_dependency_id or normalized_dependency_id == "core":
-            continue
-        expected_dependency = f"bias-ext-{normalized_dependency_id}"
-        if expected_dependency not in package_dependency_names:
-            errors.append(f"project.dependencies 必须声明扩展依赖 {expected_dependency}")
 
     entry_points = project.get("entry-points", {})
     if not isinstance(entry_points, dict):
@@ -1252,12 +1240,6 @@ def _normalize_project_dependencies(
     existing = raw_dependencies if isinstance(raw_dependencies, list) else []
     preserved: list[str] = []
     seen_preserved: set[str] = set()
-    managed_names = {"bias-core"}
-    managed_names.update(
-        f"bias-ext-{dependency_id}"
-        for dependency_id in manifest_dependencies
-        if str(dependency_id or "").strip() and str(dependency_id or "").strip() != "core"
-    )
 
     for item in existing:
         text = str(item or "").strip()
@@ -1273,13 +1255,6 @@ def _normalize_project_dependencies(
             seen_preserved.add(text)
 
     managed = ["bias-core>=0.1,<0.2"]
-    for dependency_id in manifest_dependencies:
-        normalized_dependency_id = str(dependency_id or "").strip()
-        if not normalized_dependency_id or normalized_dependency_id == "core":
-            continue
-        managed_dependency = f"bias-ext-{normalized_dependency_id}>=0.1,<0.2"
-        if managed_dependency not in managed:
-            managed.append(managed_dependency)
 
     return managed + preserved
 

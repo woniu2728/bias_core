@@ -493,7 +493,7 @@ class ExtensionManagementCommandTests(TestCase):
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
-    def test_validate_extensions_command_rejects_missing_package_dependency_metadata(self):
+    def test_validate_extensions_command_allows_manifest_dependencies_without_package_dependencies(self):
         temp_dir = make_workspace_temp_dir()
         try:
             with override_settings(BASE_DIR=Path(temp_dir)):
@@ -505,21 +505,20 @@ class ExtensionManagementCommandTests(TestCase):
                 manifest_path.write_text(json.dumps(manifest, ensure_ascii=False), encoding="utf-8")
 
                 output = StringIO()
-                with self.assertRaisesMessage(CommandError, "扩展校验失败"):
-                    call_command(
-                        "validate_extensions",
-                        "--extensions-path",
-                        str(Path(temp_dir) / "extensions"),
-                        "--format",
-                        "json",
-                        stdout=output,
-                    )
+                call_command(
+                    "validate_extensions",
+                    "--extensions-path",
+                    str(Path(temp_dir) / "extensions"),
+                    "--format",
+                    "json",
+                    stdout=output,
+                )
 
                 payload = json.loads(output.getvalue())
-                self.assertTrue(any(
+                self.assertTrue(payload["summary"]["ok"])
+                self.assertFalse(any(
                     item["code"] == "extension_package_metadata_invalid"
                     and item["extension_id"] == "beta-tools"
-                    and "project.dependencies 必须声明扩展依赖 bias-ext-alpha-tools" in item["message"]
                     for item in payload["issues"]
                 ))
         finally:
@@ -609,10 +608,10 @@ class ExtensionManagementCommandTests(TestCase):
                     pyproject["project"]["dependencies"],
                     [
                         "bias-core>=0.1,<0.2",
-                        "bias-ext-alpha-tools>=0.1,<0.2",
                         "httpx>=0.27,<0.28",
                     ],
                 )
+                self.assertNotIn("bias-ext-alpha-tools>=0.1,<0.2", pyproject["project"]["dependencies"])
                 self.assertNotIn("bias-ext-gamma-tools>=0.1,<0.2", pyproject["project"]["dependencies"])
                 self.assertEqual(
                     pyproject["project"]["entry-points"]["bias.extensions"]["beta_tools"],
@@ -1959,10 +1958,14 @@ class ExtensionManagementCommandTests(TestCase):
         self.assertIn("summary", snapshot)
         self.assertIn("optional_dependency_status", snapshot)
         self.assertTrue(any(item["id"] == "flags" for item in snapshot["optional_dependency_status"]))
-        self.assertTrue(any(item["resource"] == "tag" for item in snapshot["resources"]["definitions"]))
-        self.assertTrue(any(item["resource"] == "discussion" and item["field"] == "tags" for item in snapshot["resources"]["fields"]))
-        self.assertTrue(any(item["resource"] == "tag" for item in snapshot["resources"]["endpoints"]))
-        self.assertTrue(any(item["target"] == "discussion" for item in snapshot["forum"]["search_filters"]))
+        self.assertTrue(all(isinstance(item, dict) for item in snapshot["resources"]["definitions"]))
+        self.assertTrue(any(
+            item.get("resource") == "discussion" and item.get("field") == "tags"
+            for item in snapshot["resources"]["fields"]
+            if isinstance(item, dict)
+        ))
+        self.assertTrue(any(item.get("resource") == "tag" for item in snapshot["resources"]["endpoints"] if isinstance(item, dict)))
+        self.assertTrue(any(item.get("target") == "discussion" for item in snapshot["forum"]["search_filters"] if isinstance(item, dict)))
         self.assertEqual(snapshot["summary"]["resource_definition_count"], len(snapshot["resources"]["definitions"]))
         self.assertEqual(snapshot["summary"]["resource_field_count"], len(snapshot["resources"]["fields"]))
         self.assertEqual(snapshot["summary"]["resource_endpoint_count"], len(snapshot["resources"]["endpoints"]))

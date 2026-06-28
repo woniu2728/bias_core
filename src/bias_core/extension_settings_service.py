@@ -16,6 +16,8 @@ ALLOWED_EXTENSION_SETTING_TYPES = {
     "number",
 }
 
+_EXTENSION_SETTINGS_CACHE: dict[str, dict[str, Any]] = {}
+
 
 def build_extension_settings_defaults(extension_id: str) -> dict[str, Any]:
     try:
@@ -26,12 +28,16 @@ def build_extension_settings_defaults(extension_id: str) -> dict[str, Any]:
 
 
 def get_extension_settings(extension_id: str) -> dict[str, Any]:
-    defaults = build_extension_settings_defaults(extension_id)
+    normalized_extension_id = str(extension_id or "").strip()
+    if normalized_extension_id in _EXTENSION_SETTINGS_CACHE:
+        return _EXTENSION_SETTINGS_CACHE[normalized_extension_id].copy()
+
+    defaults = build_extension_settings_defaults(normalized_extension_id)
     values = defaults.copy()
     if not defaults:
         return values
 
-    prefix = _build_extension_settings_prefix(extension_id)
+    prefix = _build_extension_settings_prefix(normalized_extension_id)
     setting_keys = [f"{prefix}{key}" for key in defaults.keys()]
     for setting in Setting.objects.filter(key__in=setting_keys):
         key = setting.key.removeprefix(prefix)
@@ -39,7 +45,16 @@ def get_extension_settings(extension_id: str) -> dict[str, Any]:
             values[key] = json.loads(setting.value)
         except json.JSONDecodeError:
             values[key] = setting.value
+    _EXTENSION_SETTINGS_CACHE[normalized_extension_id] = values.copy()
     return values
+
+
+def clear_extension_settings_cache(extension_id: str | None = None) -> None:
+    normalized_extension_id = str(extension_id or "").strip()
+    if normalized_extension_id:
+        _EXTENSION_SETTINGS_CACHE.pop(normalized_extension_id, None)
+        return
+    _EXTENSION_SETTINGS_CACHE.clear()
 
 
 def save_extension_settings(extension_id: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -133,6 +148,7 @@ def _handle_extension_settings_changed(
 ) -> None:
     from bias_core.settings_service import clear_runtime_setting_caches
 
+    clear_extension_settings_cache(extension_id)
     clear_runtime_setting_caches()
     frontend_cache_keys = set(definition.get("frontend_cache_keys") or ())
     if not frontend_cache_keys.intersection(changed_keys):
