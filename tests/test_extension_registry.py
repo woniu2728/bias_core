@@ -670,6 +670,35 @@ class ExtensionRegistryTests(TestCase):
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
+    def test_runtime_probe_uses_django_migration_recorder_for_applied_files(self):
+        temp_dir = make_workspace_temp_dir()
+        try:
+            extension_dir = Path(temp_dir) / "bias-ext-migration-recorder"
+            migrations_dir = extension_dir / "bias_ext_migration_recorder" / "backend" / "django_migrations"
+            migrations_dir.mkdir(parents=True, exist_ok=True)
+            (migrations_dir / "__init__.py").write_text("", encoding="utf-8")
+            (migrations_dir / "0001_initial.py").write_text("from django.db import migrations\n", encoding="utf-8")
+
+            extension = Extension(
+                manifest=ExtensionManifest(
+                    id="migration-recorder",
+                    name="Migration Recorder",
+                    version="1.0.0",
+                    django_app_label="migration_recorder",
+                    django_migration_module="bias_ext_migration_recorder.backend.django_migrations",
+                    path=str(extension_dir),
+                ),
+                source="filesystem",
+            )
+            MigrationRecorder(connection).record_applied("migration_recorder", "0001_initial")
+
+            payload = inspect_extension_runtime(extension)
+
+            self.assertEqual(payload["migration_plan"]["applied_files"], ["0001_initial.py"])
+            self.assertEqual(payload["migration_plan"]["pending_files"], [])
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
     def test_registry_applies_persisted_installation_state(self):
         ExtensionInstallation.objects.create(
             extension_id="emoji",
@@ -701,7 +730,10 @@ class ExtensionRegistryTests(TestCase):
         self.assertEqual(emoji["frontend_forum_entry"], "extensions/emoji/frontend/forum/index.js")
         self.assertEqual(emoji["module_ids"], ["emoji"])
         self.assertEqual(emoji["forum_settings"], {"cdn_url": "https://cdn.jsdelivr.net/gh/jdecked/twemoji@15.1.0/assets/"})
-        self.assertIn("extensions/emoji/locale", emoji["locale_paths"])
+        self.assertTrue(any(
+            Path(path).as_posix().endswith("bias-ext-emoji/locale") or path == "extensions/emoji/locale"
+            for path in emoji["locale_paths"]
+        ))
         self.assertFalse(any(item["id"] == "alpha-tools" for item in entries))
 
     def test_frontend_runtime_bootstrap_builds_enabled_extension_entries(self):
@@ -830,6 +862,9 @@ class ExtensionRegistryTests(TestCase):
             installed=True,
             booted=False,
         )
+        from bias_core.extension_state_cache import clear_extension_state_cache
+
+        clear_extension_state_cache()
 
         registry = get_forum_registry()
         approval_module = registry.get_module("approval")

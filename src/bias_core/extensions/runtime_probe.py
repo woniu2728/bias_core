@@ -6,6 +6,7 @@ import importlib.util
 
 from bias_core.extensions.extension_runtime import Extension
 from bias_core.extensions.migrations import (
+    list_applied_django_extension_migration_files,
     list_django_extension_migration_files,
     resolve_django_extension_app_label,
     resolve_django_extension_migration_dir,
@@ -500,7 +501,7 @@ def _build_migration_plan_summary(root_path: Path | None, extension: Extension) 
             "applied_files": [],
             "pending_files": [],
         }
-    applied_files = list(extension.runtime.applied_migration_files or ())
+    applied_files = _resolve_applied_migration_files(extension)
 
     applied_file_set = set(applied_files)
     pending_files = [item for item in declared_files if item not in applied_file_set]
@@ -511,6 +512,15 @@ def _build_migration_plan_summary(root_path: Path | None, extension: Extension) 
         "applied_files": applied_files,
         "pending_files": pending_files,
     }
+
+
+def _resolve_applied_migration_files(extension: Extension) -> list[str]:
+    applied = list(extension.runtime.applied_migration_files or ())
+    try:
+        applied.extend(list_applied_django_extension_migration_files(extension))
+    except Exception:
+        pass
+    return sorted(dict.fromkeys(applied))
 
 
 def _module_exists(module_name: str) -> bool:

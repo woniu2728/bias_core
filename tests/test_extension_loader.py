@@ -238,6 +238,130 @@ class ExtensionManifestLoaderTests(TestCase):
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
+    def test_loader_prefers_workspace_manifest_over_generated_site_source_copy(self):
+        temp_dir = make_workspace_temp_dir()
+        try:
+            workspace_root = Path(temp_dir)
+            extensions_dir = workspace_root / "bias" / "extensions"
+            generated_dir = extensions_dir / "alpha"
+            generated_dir.mkdir(parents=True, exist_ok=False)
+            (generated_dir / ".bias-generated-extension-source").write_text("bias-ext-alpha\n", encoding="utf-8")
+            (generated_dir / "extension.json").write_text(json.dumps({
+                "id": "alpha",
+                "name": "Alpha Generated Copy",
+                "version": "1.0.0",
+                "dependencies": ["core", "stale-hard-dependency"],
+            }, ensure_ascii=False), encoding="utf-8")
+
+            workspace_manifest_dir = workspace_root / "bias-ext-alpha"
+            workspace_manifest_dir.mkdir(parents=True, exist_ok=False)
+            (workspace_manifest_dir / "extension.json").write_text(json.dumps({
+                "id": "alpha",
+                "name": "Alpha Workspace Source",
+                "version": "1.0.0",
+                "dependencies": ["core"],
+                "optional_dependencies": ["stale-hard-dependency"],
+            }, ensure_ascii=False), encoding="utf-8")
+
+            with override_settings(BASE_DIR=workspace_root / "bias", BIAS_EXTENSION_WORKSPACE_ROOT=workspace_root):
+                loader = ExtensionManifestLoader(extensions_dir, include_workspace=True)
+                manifests = loader.discover_manifests()
+
+            self.assertEqual([manifest.id for manifest in manifests], ["alpha"])
+            self.assertEqual(manifests[0].name, "Alpha Workspace Source")
+            self.assertEqual(manifests[0].dependencies, ("core",))
+            self.assertEqual(manifests[0].optional_dependencies, ("stale-hard-dependency",))
+            self.assertEqual(manifests[0].path, str(workspace_manifest_dir))
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_loader_keeps_real_site_extension_when_workspace_has_same_id_without_generated_marker(self):
+        temp_dir = make_workspace_temp_dir()
+        try:
+            workspace_root = Path(temp_dir)
+            extensions_dir = workspace_root / "bias" / "extensions"
+            site_extension_dir = extensions_dir / "alpha"
+            site_extension_dir.mkdir(parents=True, exist_ok=False)
+            (site_extension_dir / "extension.json").write_text(json.dumps({
+                "id": "alpha",
+                "name": "Alpha Site Extension",
+                "version": "1.0.0",
+                "dependencies": ["core", "site-only"],
+            }, ensure_ascii=False), encoding="utf-8")
+
+            workspace_manifest_dir = workspace_root / "bias-ext-alpha"
+            workspace_manifest_dir.mkdir(parents=True, exist_ok=False)
+            (workspace_manifest_dir / "extension.json").write_text(json.dumps({
+                "id": "alpha",
+                "name": "Alpha Workspace Source",
+                "version": "1.0.0",
+                "dependencies": ["core"],
+            }, ensure_ascii=False), encoding="utf-8")
+
+            with override_settings(BASE_DIR=workspace_root / "bias", BIAS_EXTENSION_WORKSPACE_ROOT=workspace_root):
+                loader = ExtensionManifestLoader(extensions_dir, include_workspace=True)
+                manifests = loader.discover_manifests()
+
+            self.assertEqual([manifest.id for manifest in manifests], ["alpha"])
+            self.assertEqual(manifests[0].name, "Alpha Site Extension")
+            self.assertEqual(manifests[0].dependencies, ("core", "site-only"))
+            self.assertEqual(manifests[0].path, str(site_extension_dir))
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_loader_prefers_distribution_manifest_over_generated_site_source_copy(self):
+        temp_dir = make_workspace_temp_dir()
+        try:
+            workspace_root = Path(temp_dir)
+            extensions_dir = workspace_root / "bias" / "extensions"
+            generated_dir = extensions_dir / "alpha"
+            generated_dir.mkdir(parents=True, exist_ok=False)
+            (generated_dir / ".bias-generated-extension-source").write_text("bias-ext-alpha\n", encoding="utf-8")
+            (generated_dir / "extension.json").write_text(json.dumps({
+                "id": "alpha",
+                "name": "Alpha Generated Copy",
+                "version": "1.0.0",
+                "dependencies": ["core", "stale-hard-dependency"],
+            }, ensure_ascii=False), encoding="utf-8")
+
+            package_dir = Path(temp_dir) / "site-packages" / "alpha_tools" / "bias_extension"
+            package_dir.mkdir(parents=True, exist_ok=False)
+            (package_dir / "extension.json").write_text(json.dumps({
+                "id": "alpha",
+                "name": "Alpha Package Source",
+                "version": "1.0.0",
+                "dependencies": ["core"],
+                "optional_dependencies": ["stale-hard-dependency"],
+            }, ensure_ascii=False), encoding="utf-8")
+
+            class DemoDistribution:
+                version = "1.0.0"
+                files = ("alpha_tools/bias_extension/extension.json",)
+                metadata = {"Name": "bias-ext-alpha"}
+
+                def locate_file(self, file):
+                    return Path(temp_dir) / "site-packages" / str(file)
+
+            from bias_core.extensions import manifest as manifest_module
+
+            manifest_module._distribution_manifest_cache = None
+            with patch("bias_core.extensions.manifest.metadata.distributions", return_value=[DemoDistribution()]):
+                loader = ExtensionManifestLoader(
+                    extensions_dir,
+                    include_workspace=False,
+                    include_distributions=True,
+                )
+                manifests = loader.discover_manifests()
+            manifest_module._distribution_manifest_cache = None
+
+            self.assertEqual([manifest.id for manifest in manifests], ["alpha"])
+            self.assertEqual(manifests[0].name, "Alpha Package Source")
+            self.assertEqual(manifests[0].source, "python-package")
+            self.assertEqual(manifests[0].dependencies, ("core",))
+            self.assertEqual(manifests[0].optional_dependencies, ("stale-hard-dependency",))
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
     def test_loader_discovers_workspace_from_base_path_when_base_dir_points_elsewhere(self):
         temp_dir = make_workspace_temp_dir()
         try:
@@ -1206,7 +1330,7 @@ class ExtensionManifestLoaderTests(TestCase):
         )
 
         app = ExtensionApplication()
-        extension_id = "alpha-tools"
+        extension_id = f"runtime-replace-{uuid.uuid4().hex}"
 
         app.forum.register_permission(
             PermissionDefinition(
@@ -4047,7 +4171,7 @@ class ExtensionManifestLoaderTests(TestCase):
             shutil.rmtree(temp_dir, ignore_errors=True)
 
     def test_rebuild_api_urlpatterns_is_idempotent_after_runtime_sync(self):
-        import config.urls as root_urls
+        root_urls = importlib.import_module(settings.ROOT_URLCONF)
 
         first_patterns = root_urls.rebuild_api_urlpatterns()
         second_patterns = root_urls.rebuild_api_urlpatterns()

@@ -26,6 +26,7 @@ from bias_core.extensions.validation import EXTENSION_ID_PATTERN, SEMVER_PATTERN
 
 _distribution_manifest_cache: list[ExtensionManifest] | None = None
 SITE_HOST_DIRECTORY_NAMES = {"bias", "bias_site", "site"}
+GENERATED_EXTENSION_SOURCE_MARKER = ".bias-generated-extension-source"
 
 
 class ExtensionManifestLoader:
@@ -171,6 +172,16 @@ class ExtensionManifestLoader:
             or django_payload.get("migration_module")
             or ""
         ).strip()
+        extra = dict(payload.get("extra") or {})
+        generated_marker_path = manifest_path.parent / GENERATED_EXTENSION_SOURCE_MARKER
+        if generated_marker_path.exists():
+            extra["generated_site_source"] = True
+            try:
+                source_name = generated_marker_path.read_text(encoding="utf-8").strip()
+            except OSError:
+                source_name = ""
+            if source_name:
+                extra["generated_source_name"] = source_name
 
         manifest = ExtensionManifest(
             id=extension_id,
@@ -204,7 +215,7 @@ class ExtensionManifestLoader:
             django_migration_module=django_migration_module,
             source="filesystem",
             path=str(manifest_path.parent),
-            extra=dict(payload.get("extra") or {}),
+            extra=extra,
         )
         return manifest
 
@@ -268,10 +279,26 @@ class ExtensionManifestLoader:
         by_id: dict[str, ExtensionManifest] = {}
         for manifest in manifests:
             existing = by_id.get(manifest.id)
-            if existing is not None and existing.source == "filesystem":
+            if existing is not None and not self._should_replace_manifest(existing, manifest):
                 continue
             by_id[manifest.id] = manifest
         return [by_id[key] for key in sorted(by_id.keys())]
+
+    def _should_replace_manifest(self, existing: ExtensionManifest, candidate: ExtensionManifest) -> bool:
+        existing_generated = self._is_generated_site_source_manifest(existing)
+        candidate_generated = self._is_generated_site_source_manifest(candidate)
+        if existing_generated and not candidate_generated:
+            return True
+        if candidate_generated and not existing_generated:
+            return False
+        if existing.source == "filesystem" and candidate.source == "python-package":
+            return False
+        if existing.source != "filesystem" and candidate.source == "filesystem":
+            return True
+        return False
+
+    def _is_generated_site_source_manifest(self, manifest: ExtensionManifest) -> bool:
+        return bool((manifest.extra or {}).get("generated_site_source"))
 
     def _resolve_workspace_root(self) -> Path | None:
         if self.workspace_root is not None:
