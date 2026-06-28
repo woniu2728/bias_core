@@ -100,6 +100,7 @@ class Command(BaseCommand):
             "--build",
             "--install-smoke",
             "--install-set-smoke",
+            "--migration-smoke",
             "--extensions-path",
             str(extensions_path),
         )

@@ -104,7 +104,7 @@ jobs:
           BIAS_FRONTEND_DIR: ${{ github.workspace }}/../bias/frontend
         run: |
           if [ -d "$BIAS_EXTENSION_WORKSPACE_ROOT/bias-ext-tags" ]; then
-            python -m django inspect_extension_packages --extensions-path "$BIAS_EXTENSION_WORKSPACE_ROOT/extensions" --require-extensions --build --install-smoke --install-set-smoke
+            python -m django inspect_extension_packages --extensions-path "$BIAS_EXTENSION_WORKSPACE_ROOT/extensions" --require-extensions --build --install-smoke --install-set-smoke --migration-smoke
           else
             echo "Split extension workspace not present; wheel package audit is covered in workspace CI."
           fi

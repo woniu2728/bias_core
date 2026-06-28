@@ -44,7 +44,9 @@ class ExtensionManagementCommandTests(TestCase):
 
         self.assertIn("Audit extension backend import boundaries", workflow)
         self.assertIn("python -m django inspect_extension_imports", workflow)
+        self.assertIn("python -m django inspect_extension_packages", workflow)
         self.assertIn("--require-extensions", workflow)
+        self.assertIn("--migration-smoke", workflow)
 
     def test_extension_console_command_lists_and_runs_runtime_commands(self):
         commands = [{
@@ -2440,12 +2442,16 @@ class ExtensionManagementCommandTests(TestCase):
             validate_call = next((args for name, args in calls if name == "validate_extensions"), None)
             sync_call = next((args for name, args in calls if name == "sync_extension_package_metadata"), None)
             import_call = next((args for name, args in calls if name == "inspect_extension_imports"), None)
+            package_call = next((args for name, args in calls if name == "inspect_extension_packages"), None)
             self.assertIsNotNone(sync_call)
             self.assertIn("--extensions-path", sync_call)
             self.assertIsNotNone(import_call)
             self.assertNotIn("--internal", import_call)
             self.assertIn("--require-extensions", import_call)
             self.assertIn("--extensions-path", import_call)
+            self.assertIsNotNone(package_call)
+            self.assertIn("--install-set-smoke", package_call)
+            self.assertIn("--migration-smoke", package_call)
             self.assertIsNotNone(validate_call)
             self.assertIn("--strict", validate_call)
             self.assertIn("--internal", validate_call)
