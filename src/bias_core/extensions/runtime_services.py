@@ -45,7 +45,7 @@ def create_runtime_timeline_from_builder(
     builder: str,
     *,
     extra: dict | None = None,
-    update_discussion_last_post: bool = True,
+    update_discussion_last_post: bool | None = None,
 ):
     return runtime_service_method(get_runtime_timeline_service(), "create_from_builder")(
         event,
