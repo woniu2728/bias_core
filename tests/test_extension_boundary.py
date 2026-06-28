@@ -60,6 +60,10 @@ class ExtensionPublicApiBoundaryTests(TestCase):
         env["PYTHONPATH"] = str(core_source_root().parent)
         code = (
             "import bias_core.extensions\n"
+            "import importlib\n"
+            "from bias_core.extensions.validation_rules import PUBLIC_EXTENSION_IMPORT_MODULES\n"
+            "for module_name in sorted(PUBLIC_EXTENSION_IMPORT_MODULES):\n"
+            "    importlib.import_module(module_name)\n"
             "from bias_core.extensions import (\n"
             "    ApiResourceExtender,\n"
             "    ConditionalExtender,\n"
@@ -85,6 +89,12 @@ class ExtensionPublicApiBoundaryTests(TestCase):
             "assert ModelExtender(model='alpha').model == 'alpha'\n"
             "assert EventListenersExtender().listeners == ()\n"
             "assert ServiceProviderExtender('alpha', object()).key == 'alpha'\n"
+            "from bias_core.extensions import platform\n"
+            "from bias_core.extensions.platform import api_error, get_forum_registry, set_access_token_cookie\n"
+            "assert 'set_access_token_cookie' in platform.__all__\n"
+            "assert set_access_token_cookie.__name__ == 'set_access_token_cookie'\n"
+            "assert api_error.__name__ == 'api_error'\n"
+            "assert get_forum_registry.__name__ == 'get_forum_registry'\n"
         )
 
         result = subprocess.run(

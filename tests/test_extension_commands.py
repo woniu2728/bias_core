@@ -1148,7 +1148,6 @@ class ExtensionManagementCommandTests(TestCase):
                 "from bias_core.extensions.runtime import get_runtime_user_by_id\n"
                 "from bias_core.extensions.platform import api_error, get_forum_registry\n"
                 "from bias_core.extensions.contracts import PermissionDefinition\n"
-                "from bias_core.extensions.testing import ExtensionRuntimeTestMixin\n"
                 "\n"
                 "def extend():\n"
                 "    return []\n",
@@ -1156,6 +1155,32 @@ class ExtensionManagementCommandTests(TestCase):
             )
 
             call_command_quietly("validate_extensions", "--extensions-path", str(Path(temp_dir) / "extensions"))
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_validate_extensions_command_rejects_testing_facade_by_default(self):
+        temp_dir = make_workspace_temp_dir()
+        try:
+            manifest_dir = Path(temp_dir) / "extensions" / "alpha-tools"
+            backend_dir = manifest_dir / "backend"
+            backend_dir.mkdir(parents=True, exist_ok=False)
+            (manifest_dir / "extension.json").write_text(json.dumps({
+                "id": "alpha-tools",
+                "name": "Alpha Tools",
+                "version": "1.0.0",
+                "dependencies": ["core"],
+                "backend_entry": "extensions.alpha_tools.backend.ext",
+            }, ensure_ascii=False), encoding="utf-8")
+            (backend_dir / "ext.py").write_text(
+                "from bias_core.extensions.testing import ExtensionRuntimeTestMixin\n"
+                "\n"
+                "def extend():\n"
+                "    return []\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesMessage(CommandError, "扩展校验失败"):
+                call_command_quietly("validate_extensions", "--extensions-path", str(Path(temp_dir) / "extensions"))
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 

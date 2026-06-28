@@ -30,7 +30,6 @@ PUBLIC_EXTENSION_IMPORT_MODULES = {
     "bias_core.extensions.contracts",
     "bias_core.extensions.sdk",
     "bias_core.extensions.notifications",
-    "bias_core.extensions.testing",
 }
 FORBIDDEN_CROSS_EXTENSION_INTERNAL_IMPORT_RE = re.compile(
     r"^\.backend\.(?:models|services|tasks|signals|events|visibility|admin|admin_api|api|handlers|resources|resource|listeners)(?:\.|$)"
