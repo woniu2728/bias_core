@@ -27,7 +27,7 @@ def build_api_application(*, extension_host=None, urls_namespace: str | None = N
 
     _register_admin_routes(api)
     _register_extension_routes(api, extension_host=extension_host)
-    _register_resource_routes(api)
+    _register_resource_routes(api, extension_host=extension_host)
     _register_core_routes(api)
     _register_frontend_manifest_route(api)
     _register_health_route(api)
@@ -47,13 +47,18 @@ def _register_admin_routes(api: NinjaAPI) -> None:
         pass
 
 
-def _register_resource_routes(api: NinjaAPI) -> None:
+def _register_resource_routes(api: NinjaAPI, *, extension_host=None) -> None:
     try:
         from bias_core.resource_routes import build_resource_endpoint_router
         from bias_core.resource_registry import get_resource_registry
-        registry = get_resource_registry()
+        from bias_core.resource_runtime_api import router as legacy_resource_router
+
+        registry = getattr(extension_host, "resources", None) if extension_host is not None else None
+        if registry is None:
+            registry = get_resource_registry()
         resource_router = build_resource_endpoint_router(registry)
         _add_router_once(api, "", resource_router, tags=["Resources"])
+        _add_router_once(api, "", legacy_resource_router, tags=["Resources"])
     except Exception:
         pass
 

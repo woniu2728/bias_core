@@ -116,13 +116,26 @@ def mark_runtime_discussion_read(
     user: Any,
     last_read_post_number: int,
     subscribed: bool | None = None,
+    require_view: bool = True,
 ) -> bool:
     return bool(_discussion.mark_read(
         discussion_id=discussion_id,
         user=user,
         last_read_post_number=last_read_post_number,
         subscribed=subscribed,
+        require_view=require_view,
     ))
+
+
+def clamp_runtime_discussion_read_states(
+    *,
+    discussion_id: int,
+    last_post_number: int | None,
+) -> int:
+    return int(_discussion.clamp_read_states(
+        discussion_id=discussion_id,
+        last_post_number=last_post_number,
+    ) or 0)
 
 
 def get_runtime_discussion_reply_notification_context(discussion_id: int, post_id: int, from_user: Any):

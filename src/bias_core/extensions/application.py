@@ -292,6 +292,8 @@ class ExtensionApplication:
         self.make("theme")
         self.make("throttle.api")
         self.make("signals")
+        self.events.resolve_pending_listeners(strict=True)
+        self.realtime.resolve_pending_discussion_broadcasts(strict=True)
         for extension in self.extensions_to_boot:
             self._mark_extension_lifecycle_phase(extension.id, "boot")
 
@@ -341,6 +343,11 @@ class ExtensionApplication:
         view = self._get_or_create_runtime_view(normalized_extension_id)
         if extender_key and extender_key not in view.lifecycle_extender_keys:
             view.lifecycle_extender_keys = tuple([*view.lifecycle_extender_keys, extender_key])
+        lifecycle_hook_keys = tuple(getattr(extender, "lifecycle_hook_keys", ()) or ())
+        for hook_key in lifecycle_hook_keys:
+            normalized_hook_key = str(hook_key or "").strip()
+            if normalized_hook_key and normalized_hook_key not in view.lifecycle_hook_keys:
+                view.lifecycle_hook_keys = tuple([*view.lifecycle_hook_keys, normalized_hook_key])
 
     def get_lifecycle_extenders(self, extension_id: str) -> list[Any]:
         normalized_extension_id = str(extension_id or "").strip()
@@ -370,6 +377,7 @@ class ExtensionApplication:
         normalized = self._resolve_alias(normalized)
         self._bindings[normalized] = resolver
         self._instances.pop(normalized, None)
+        self._invalidate_runtime_service_proxy(normalized)
 
     def singleton(self, key: str, resolver: ContainerResolver) -> None:
         normalized = self._container_key(key)
@@ -378,6 +386,7 @@ class ExtensionApplication:
         normalized = self._resolve_alias(normalized)
         self._singletons[normalized] = resolver
         self._instances.pop(normalized, None)
+        self._invalidate_runtime_service_proxy(normalized)
 
     def instance(self, key: str, value: Any) -> None:
         normalized = self._container_key(key)
@@ -386,6 +395,7 @@ class ExtensionApplication:
         normalized = self._resolve_alias(normalized)
         resolved = self._apply_service_extenders(normalized, value)
         self._instances[normalized] = self._apply_resolving_callbacks(normalized, resolved)
+        self._invalidate_runtime_service_proxy(normalized)
 
     def extend(self, key: str, extender: ContainerExtender) -> None:
         normalized = self._container_key(key)
@@ -396,6 +406,7 @@ class ExtensionApplication:
         if normalized in self._instances:
             self._instances[normalized] = self._apply_service_extenders(normalized, self._instances[normalized])
             self._instances[normalized] = self._apply_resolving_callbacks(normalized, self._instances[normalized])
+            self._invalidate_runtime_service_proxy(normalized)
 
     def resolving(self, key: str, callback: ResolvingCallback) -> None:
         normalized = self._container_key(key)
@@ -405,6 +416,7 @@ class ExtensionApplication:
         self._resolving_callbacks.setdefault(normalized, []).append(callback)
         if normalized in self._instances:
             self._instances[normalized] = callback(self._instances[normalized], self)
+            self._invalidate_runtime_service_proxy(normalized)
 
     def alias(self, abstract: Any, alias: str) -> None:
         target = self._container_key(abstract)
@@ -560,10 +572,7 @@ class ExtensionApplication:
         view.operations_pages = frontend.operations_pages
 
     def register_locale_path(self, extension: ExtensionRuntimeView, path: str) -> None:
-        view = self._get_or_create_runtime_view(extension.extension_id)
-        normalized = str(path or "").strip()
-        if normalized and normalized not in view.locale_paths:
-            view.locale_paths = tuple([*view.locale_paths, normalized])
+        self.locales.register_path(extension.extension_id, path)
 
     def register_formatter(self, extension: ExtensionRuntimeView, callback) -> None:
         self.formatters.register_render(extension.extension_id, callback)
@@ -581,34 +590,17 @@ class ExtensionApplication:
         theme_variables=(),
         forum_serializations=(),
     ) -> None:
-        view = self._get_or_create_runtime_view(extension.extension_id)
-        fields_collection = list(view.settings_schema)
-        for field in fields or ():
-            fields_collection.append(field)
-        view.settings_schema = tuple(fields_collection)
-        view.settings_defaults = tuple([*view.settings_defaults, *(defaults or ())])
-        view.settings_reset_rules = tuple([*view.settings_reset_rules, *(reset_when or ())])
-        cache_keys = list(view.settings_frontend_cache_keys)
-        for key in reset_frontend_cache_for or ():
-            normalized = str(key or "").strip()
-            if normalized and normalized not in cache_keys:
-                cache_keys.append(normalized)
-        view.settings_frontend_cache_keys = tuple(cache_keys)
-        view.settings_theme_variables = tuple([*view.settings_theme_variables, *(theme_variables or ())])
-        view.settings_forum_serializations = tuple([
-            *view.settings_forum_serializations,
-            *(forum_serializations or ()),
-        ])
-        forum_keys = list(view.forum_settings_keys)
-        for key in expose_to_forum or ():
-            normalized = str(key or "").strip()
-            if normalized and normalized not in forum_keys:
-                forum_keys.append(normalized)
-        view.forum_settings_keys = tuple(forum_keys)
-        if generated_page:
-            view.use_generated_settings_page = True
-            generated_path = f"/admin/extensions/{extension.extension_id}/settings"
-            self.register_admin_surface_pages(extension, settings_pages=(generated_path,))
+        self.settings.register_fields(
+            extension.extension_id,
+            fields,
+            expose_to_forum=expose_to_forum,
+            generated_page=generated_page,
+            defaults=defaults,
+            reset_when=reset_when,
+            reset_frontend_cache_for=reset_frontend_cache_for,
+            theme_variables=theme_variables,
+            forum_serializations=forum_serializations,
+        )
 
     def register_runtime_actions(
         self,
@@ -617,15 +609,11 @@ class ExtensionApplication:
         *,
         generated_page: bool = False,
     ) -> None:
-        view = self._get_or_create_runtime_view(extension.extension_id)
-        collection = list(view.runtime_actions)
-        for action in actions or ():
-            collection.append(action)
-        view.runtime_actions = tuple(collection)
-        if generated_page:
-            view.use_generated_operations_page = True
-            generated_path = f"/admin/extensions/{extension.extension_id}/operations"
-            self.register_admin_surface_pages(extension, operations_pages=(generated_path,))
+        self.actions.register_runtime_actions(
+            extension.extension_id,
+            actions,
+            generated_page=generated_page,
+        )
 
     def register_admin_actions(
         self,
@@ -635,25 +623,15 @@ class ExtensionApplication:
         generated_permissions_page: bool = False,
         generated_operations_page: bool = False,
     ) -> None:
-        view = self._get_or_create_runtime_view(extension.extension_id)
-        collection = list(view.admin_actions)
-        for action in actions or ():
-            collection.append(action)
-        view.admin_actions = tuple(collection)
-        if generated_permissions_page:
-            view.use_generated_permissions_page = True
-            generated_path = f"/admin/extensions/{extension.extension_id}/permissions"
-            self.register_admin_surface_pages(extension, permissions_pages=(generated_path,))
-        if generated_operations_page:
-            view.use_generated_operations_page = True
-            generated_path = f"/admin/extensions/{extension.extension_id}/operations"
-            self.register_admin_surface_pages(extension, operations_pages=(generated_path,))
+        self.actions.register_admin_actions(
+            extension.extension_id,
+            actions,
+            generated_permissions_page=generated_permissions_page,
+            generated_operations_page=generated_operations_page,
+        )
 
     def mark_generated_permissions_page(self, extension: ExtensionRuntimeView) -> None:
-        view = self._get_or_create_runtime_view(extension.extension_id)
-        view.use_generated_permissions_page = True
-        generated_path = f"/admin/extensions/{extension.extension_id}/permissions"
-        self.register_admin_surface_pages(extension, permissions_pages=(generated_path,))
+        self.actions.mark_generated_permissions_page(extension.extension_id)
 
     def register_forum_module_id(self, extension: ExtensionRuntimeView, module_id: str) -> None:
         view = self._get_or_create_runtime_view(extension.extension_id)
@@ -664,74 +642,46 @@ class ExtensionApplication:
                 view.module_ids = tuple([*view.module_ids, normalized])
 
     def register_permission(self, extension: ExtensionRuntimeView, definition) -> None:
-        view = self._get_or_create_runtime_view(extension.extension_id)
-        view.permissions = tuple([*view.permissions, definition])
-        self.forum.register_permission(definition)
+        self.forum.register_permission(definition, extension_id=extension.extension_id)
 
     def register_admin_page(self, extension: ExtensionRuntimeView, definition) -> None:
-        view = self._get_or_create_runtime_view(extension.extension_id)
-        view.admin_pages = tuple([*view.admin_pages, definition])
-        self.forum.register_admin_page(definition)
+        self.forum.register_admin_page(definition, extension_id=extension.extension_id)
 
     def register_notification_type(self, extension: ExtensionRuntimeView, definition) -> None:
-        view = self._get_or_create_runtime_view(extension.extension_id)
-        view.notification_types = tuple([*view.notification_types, definition])
-        self.forum.register_notification_type(definition)
+        self.forum.register_notification_type(definition, extension_id=extension.extension_id)
 
     def register_user_preference(self, extension: ExtensionRuntimeView, definition) -> None:
-        view = self._get_or_create_runtime_view(extension.extension_id)
-        view.user_preferences = tuple([*view.user_preferences, definition])
-        self.forum.register_user_preference(definition)
+        self.forum.register_user_preference(definition, extension_id=extension.extension_id)
 
     def register_language_pack(self, extension: ExtensionRuntimeView, definition) -> None:
-        view = self._get_or_create_runtime_view(extension.extension_id)
-        view.language_packs = tuple([*view.language_packs, definition])
-        self.forum.register_language_pack(definition)
+        self.forum.register_language_pack(definition, extension_id=extension.extension_id)
 
     def register_post_type(self, extension: ExtensionRuntimeView, definition) -> None:
-        view = self._get_or_create_runtime_view(extension.extension_id)
-        view.post_types = tuple([*view.post_types, definition])
-        self.forum.register_post_type(definition)
+        self.forum.register_post_type(definition, extension_id=extension.extension_id)
 
     def register_search_filter(self, extension: ExtensionRuntimeView, definition) -> None:
-        view = self._get_or_create_runtime_view(extension.extension_id)
-        view.search_filters = tuple([*view.search_filters, definition])
-        self.forum.register_search_filter(definition)
+        self.forum.register_search_filter(definition, extension_id=extension.extension_id)
 
     def register_discussion_list_query(self, extension: ExtensionRuntimeView, definition) -> None:
-        view = self._get_or_create_runtime_view(extension.extension_id)
-        view.discussion_list_queries = tuple([*view.discussion_list_queries, definition])
-        self.forum.register_discussion_list_query(definition)
+        self.forum.register_discussion_list_query(definition, extension_id=extension.extension_id)
 
     def register_discussion_sort(self, extension: ExtensionRuntimeView, definition) -> None:
-        view = self._get_or_create_runtime_view(extension.extension_id)
-        view.discussion_sorts = tuple([*view.discussion_sorts, definition])
-        self.forum.register_discussion_sort(definition)
+        self.forum.register_discussion_sort(definition, extension_id=extension.extension_id)
 
     def register_discussion_list_filter(self, extension: ExtensionRuntimeView, definition) -> None:
-        view = self._get_or_create_runtime_view(extension.extension_id)
-        view.discussion_list_filters = tuple([*view.discussion_list_filters, definition])
-        self.forum.register_discussion_list_filter(definition)
+        self.forum.register_discussion_list_filter(definition, extension_id=extension.extension_id)
 
     def register_resource(self, extension: ExtensionRuntimeView, definition) -> None:
-        view = self._get_or_create_runtime_view(extension.extension_id)
-        view.resource_definitions = tuple([*view.resource_definitions, definition])
-        self.resources.register_resource(definition)
+        self.resources.register_resource(definition, extension_id=extension.extension_id)
 
     def register_resource_field(self, extension: ExtensionRuntimeView, definition) -> None:
-        view = self._get_or_create_runtime_view(extension.extension_id)
-        view.resource_fields = tuple([*view.resource_fields, definition])
-        self.resources.register_field(definition)
+        self.resources.register_field(definition, extension_id=extension.extension_id)
 
     def register_resource_relationship(self, extension: ExtensionRuntimeView, definition) -> None:
-        view = self._get_or_create_runtime_view(extension.extension_id)
-        view.resource_relationships = tuple([*view.resource_relationships, definition])
-        self.resources.register_relationship(definition)
+        self.resources.register_relationship(definition, extension_id=extension.extension_id)
 
     def register_event_listener(self, extension: ExtensionRuntimeView, definition) -> None:
-        view = self._get_or_create_runtime_view(extension.extension_id)
-        view.event_listeners = tuple([*view.event_listeners, definition])
-        self.event_bus.register(definition.event_type, definition.handler)
+        self.events.register_listener(extension.extension_id, definition)
 
     def register_route_mount(
         self,
@@ -778,21 +728,10 @@ class ExtensionApplication:
         *,
         order: int = 100,
     ) -> None:
-        view = self._get_or_create_runtime_view(extension.extension_id)
-        view.middleware_mounts = tuple([*view.middleware_mounts, ApplicationMiddlewareMount(
-            target=str(target or "").strip() or "api",
-            middleware=middleware,
-            order=int(order),
-        )])
+        self.middleware.mount(extension.extension_id, target, middleware, order=order)
 
     def register_policy_mount(self, extension: ExtensionRuntimeView, key: str, handler) -> None:
-        view = self._get_or_create_runtime_view(extension.extension_id)
-        normalized = str(key or "").strip()
-        if normalized and callable(handler):
-            view.policy_mounts = tuple([*view.policy_mounts, ApplicationPolicyMount(
-                key=normalized,
-                handler=handler,
-            )])
+        self.policies.mount_key(extension.extension_id, key, handler)
 
     def get_route_mounts(self) -> list[ApplicationRouteMount]:
         return self.routes.get_mounts()
@@ -813,18 +752,10 @@ class ExtensionApplication:
         return self.providers.get_provider_keys(extension_id=extension_id)
 
     def get_middleware_mounts(self, *, target: str | None = None) -> list[ApplicationMiddlewareMount]:
-        mounts: list[ApplicationMiddlewareMount] = []
-        for view in self.get_runtime_views():
-            mounts.extend(view.middleware_mounts)
-        if target is not None:
-            mounts = [item for item in mounts if item.target == target]
-        return sorted(mounts, key=lambda item: (item.target, item.order))
+        return self.middleware.get_mounts(target=target)
 
     def get_policy_mounts(self) -> list[ApplicationPolicyMount]:
-        mounts: list[ApplicationPolicyMount] = []
-        for view in self.get_runtime_views():
-            mounts.extend(view.policy_mounts)
-        return mounts
+        return self.policies.get_mounts()
 
     @staticmethod
     def _container_key(key: Any) -> str:
@@ -843,6 +774,12 @@ class ExtensionApplication:
     @staticmethod
     def _is_class_key(key: str) -> bool:
         return "." in str(key or "").strip()
+
+    @staticmethod
+    def _invalidate_runtime_service_proxy(key: str) -> None:
+        from bias_core.extensions.runtime_core import invalidate_runtime_service_proxies
+
+        invalidate_runtime_service_proxies(key)
 
     def _make_class(self, key: str) -> Any:
         try:
@@ -1010,6 +947,7 @@ class ExtensionApplication:
             service_providers=list(view.service_providers),
             extender_keys=list(view.extender_keys),
             lifecycle_extender_keys=list(view.lifecycle_extender_keys),
+            lifecycle_hook_keys=list(view.lifecycle_hook_keys),
             lifecycle_phase_keys=list(view.lifecycle_phase_keys),
             use_generated_settings_page=view.use_generated_settings_page,
             use_generated_permissions_page=view.use_generated_permissions_page,

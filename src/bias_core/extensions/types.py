@@ -15,6 +15,11 @@ from bias_core.extensions.forum_registry_types import (
     SearchFilterDefinition,
     UserPreferenceDefinition,
 )
+from bias_core.extensions.application_types import (
+    ApplicationNamedRoute,
+    ApplicationRouteMount,
+    ApplicationWebSocketRoute,
+)
 
 
 @dataclass(frozen=True)
@@ -36,6 +41,7 @@ class ExtensionRuntimeActionDefinition:
     key: str
     label: str
     action: str
+    payload: dict[str, Any] = field(default_factory=dict)
     tone: str = "default"
     confirm_title: str = ""
     confirm_message: str = ""
@@ -249,6 +255,7 @@ class ExtensionResourceRelationshipDefinition:
     setter: Callable[[Any, Any, dict], None] | None = None
     writable: Callable[[Any, dict], bool] | bool = False
     linkage: Callable[[Any, dict], Any] | bool = True
+    plain_output: str = ""
     required_on_create: bool = False
     required_on_update: bool = False
     nullable: bool = False
@@ -681,6 +688,9 @@ class ExtensionDiscoveryResult:
     post_lifecycle: Tuple[ExtensionPostLifecycleDefinition, ...] = ()
     runtime_actions: Tuple[ExtensionManifestRuntimeActionDefinition, ...] = ()
     admin_actions: Tuple[ExtensionAdminActionDefinition, ...] = ()
+    route_mounts: Tuple[ApplicationRouteMount, ...] = ()
+    named_routes: Tuple[ApplicationNamedRoute, ...] = ()
+    websocket_routes: Tuple[ApplicationWebSocketRoute, ...] = ()
 
 
 @dataclass(frozen=True)

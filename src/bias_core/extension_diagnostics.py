@@ -14,6 +14,22 @@ def classify_extension_diagnostics(item: dict) -> dict:
     if item.get("dependency_state") not in {"", "healthy"}:
         blocking_reasons.append("依赖状态异常")
 
+    optional_dependency_status = item.get("optional_dependency_status") or []
+    inactive_optional_dependencies = [
+        dependency
+        for dependency in optional_dependency_status
+        if isinstance(dependency, dict)
+        and dependency.get("state") in {"missing", "not_installed", "disabled"}
+    ]
+    if inactive_optional_dependencies:
+        dependency_names = ", ".join(
+            str(dependency.get("id") or "").strip()
+            for dependency in inactive_optional_dependencies[:5]
+            if str(dependency.get("id") or "").strip()
+        )
+        suffix = f"：{dependency_names}" if dependency_names else ""
+        warning_reasons.append(f"可选依赖未启用{suffix}")
+
     migration_execution = item.get("migration_execution") or {}
     migration_status = str(migration_execution.get("status") or "").strip()
     if migration_status and migration_status not in {"ok", "skipped"}:

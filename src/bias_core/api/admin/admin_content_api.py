@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from ninja import Body, Router
@@ -151,17 +152,46 @@ def install_extension(request, extension_id: str):
 
 @router.post("/extensions/{extension_id}/uninstall", auth=AccessTokenAuth(), tags=["Admin"], response=ADMIN_EXTENSION_RESPONSES)
 def uninstall_extension(request, extension_id: str):
-    return _run_extension_action(request, lambda: ExtensionService.uninstall_extension(extension_id, request=request))
+    payload = _optional_json_body(request)
+    include_dependents = bool(payload.get("include_dependents", False))
+    return _run_extension_action(
+        request,
+        lambda: ExtensionService.uninstall_extension(
+            extension_id,
+            include_dependents=include_dependents,
+            request=request,
+        ),
+    )
 
 
 @router.post("/extensions/{extension_id}/enable", auth=AccessTokenAuth(), tags=["Admin"], response=ADMIN_EXTENSION_RESPONSES)
 def enable_extension(request, extension_id: str):
-    return _run_extension_action(request, lambda: ExtensionService.set_extension_enabled(extension_id, True, request=request))
+    payload = _optional_json_body(request)
+    include_dependencies = bool(payload.get("include_dependencies", False))
+    return _run_extension_action(
+        request,
+        lambda: ExtensionService.set_extension_enabled(
+            extension_id,
+            True,
+            include_dependencies=include_dependencies,
+            request=request,
+        ),
+    )
 
 
 @router.post("/extensions/{extension_id}/disable", auth=AccessTokenAuth(), tags=["Admin"], response=ADMIN_EXTENSION_RESPONSES)
 def disable_extension(request, extension_id: str):
-    return _run_extension_action(request, lambda: ExtensionService.set_extension_enabled(extension_id, False, request=request))
+    payload = _optional_json_body(request)
+    include_dependents = bool(payload.get("include_dependents", False))
+    return _run_extension_action(
+        request,
+        lambda: ExtensionService.set_extension_enabled(
+            extension_id,
+            False,
+            include_dependents=include_dependents,
+            request=request,
+        ),
+    )
 
 
 @router.post("/extensions/{extension_id}/runtime-hooks/{hook_name}", auth=AccessTokenAuth(), tags=["Admin"], response=ADMIN_EXTENSION_RESPONSES)
@@ -187,6 +217,17 @@ def _run_extension_action(request, callback):
         status, payload = _error_payload(exc)
         return status, payload
     return _serialize_admin_extension_action_payload(extension)
+
+
+def _optional_json_body(request) -> dict[str, Any]:
+    raw_body = getattr(request, "body", b"") or b""
+    if not raw_body:
+        return {}
+    try:
+        payload = json.loads(raw_body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
 
 
 def _get_extension(extension_id: str):

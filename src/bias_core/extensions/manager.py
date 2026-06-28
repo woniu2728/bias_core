@@ -109,6 +109,7 @@ class ExtensionManager:
                 extensions[extension.id] = self._apply_installation_state(extension)
 
             self._extensions = extensions
+            self._refresh_runtime_actions()
             self._loaded = True
         finally:
             self._loading = False
@@ -132,6 +133,13 @@ class ExtensionManager:
             return self._extensions[normalized]
         raise ExtensionNotFoundError(f"扩展不存在: {normalized}")
 
+    def _refresh_runtime_actions(self) -> None:
+        extensions = tuple(self._extensions.values())
+        self._extensions = {
+            extension_id: self._with_runtime_actions(extension, extensions)
+            for extension_id, extension in self._extensions.items()
+        }
+
     def get_loaded_extension(self, extension_id: str) -> Extension:
         extension = self.get_extension(extension_id)
         if extension.source != "filesystem":
@@ -142,6 +150,7 @@ class ExtensionManager:
     def install_extension(self, extension_id: str) -> Extension:
         self.load(force=True)
         extension = self.get_extension(extension_id)
+        extensions = self.get_extensions()
 
         if extension.runtime.installed:
             raise ExtensionStateError(
@@ -150,7 +159,7 @@ class ExtensionManager:
                 details={"extension_id": extension.id},
         )
 
-        validate_bias_compatibility(extension, action="install")
+        self._validate_enable(extension, extensions, installing=True, action="install")
         self._dispatch_extension_lifecycle_event(ExtensionEnablingEvent(extension_id=extension.id))
         migration_result = self._run_install_migrations_if_declared(extension)
         migration_meta = self._build_migration_meta_updates(extension.id, migration_result)
@@ -221,11 +230,52 @@ class ExtensionManager:
                 details={"extension_id": extension.id},
             )
 
-        self._validate_disable(extension, extensions, uninstalling=True)
+        return self._uninstall_extension(extension, extensions)
+
+    @transaction.atomic
+    def uninstall_extension_with_dependents(self, extension_id: str) -> Extension:
+        self.load(force=True)
+        target = self.get_extension(extension_id)
+        if not target.runtime.installed:
+            raise ExtensionStateError(
+                f"扩展 {target.id} 尚未安装",
+                code="extension_uninstall_not_installed",
+                details={"extension_id": target.id},
+            )
+
+        extensions = self.get_extensions()
+        self._validate_dependent_transaction_target(target, uninstalling=True)
+        ordered_extensions = self._resolve_dependent_transaction(target, extensions, uninstalling=True)
+        transaction_ids = {extension.id for extension in ordered_extensions}
+
+        updated_target = target
+        for extension in ordered_extensions:
+            uninstalled = self._uninstall_extension(
+                extension,
+                self.get_extensions(),
+                ignored_dependent_ids=transaction_ids,
+            )
+            if uninstalled.id == target.id:
+                updated_target = uninstalled
+            self.load(force=True)
+        return self.get_extension(updated_target.id)
+
+    def _uninstall_extension(
+        self,
+        extension,
+        extensions,
+        *,
+        ignored_dependent_ids: set[str] | None = None,
+    ) -> Extension:
+        self._validate_disable(extension, extensions, uninstalling=True, ignored_dependent_ids=ignored_dependent_ids)
         disable_result = None
         disable_asset_result = None
         if extension.runtime.enabled:
-            disabled_extension = self._disable_extension(extension, extensions)
+            disabled_extension = self._disable_extension(
+                extension,
+                extensions,
+                ignored_dependent_ids=ignored_dependent_ids,
+            )
             extension = disabled_extension
             disable_result = dict(extension.runtime.backend_hooks.get("run_disable") or {})
             disable_asset_result = dict(extension.runtime.backend_hooks.get("unpublish_assets") or {})
@@ -274,45 +324,130 @@ class ExtensionManager:
         extensions = self.get_extensions()
 
         if enabled:
-            self._validate_enable(extension, extensions)
-            self._dispatch_extension_lifecycle_event(ExtensionEnablingEvent(extension_id=extension.id))
-            migration_result = self._run_install_migrations_if_declared(extension)
-            self._write_installation_state(
-                extension,
-                installed=True,
-                enabled=True,
-                booted=True,
-            )
-            hook_result = self._run_lifecycle_extenders(
-                extension,
-                "enable",
-                meta={"action": "enable"},
-                target_runtime={"installed": True, "enabled": True, "booted": True},
-            )
-            asset_result = publish_extension_assets(extension)
-            backend_hooks = {
-                "run_enable": hook_result,
-                "publish_assets": asset_result,
-            }
-            meta_updates = {"backend_hooks": backend_hooks}
-            if migration_result is not None:
-                backend_hooks["run_migrations"] = migration_result
-                meta_updates.update({
-                    **self._build_migration_meta_updates(extension.id, migration_result),
-                })
-            return self._persist_installation_state(
-                extension,
-                installed=True,
-                enabled=True,
-                booted=True,
-                lifecycle_event=ExtensionEnabledEvent(extension_id=extension.id),
-                meta_updates=meta_updates,
-            )
+            return self._enable_extension(extension, extensions)
 
         return self._disable_extension(extension, extensions)
 
-    def _disable_extension(self, extension, extensions) -> Extension:
-        self._validate_disable(extension, extensions)
+    @transaction.atomic
+    def enable_extension_with_dependencies(self, extension_id: str) -> Extension:
+        self.load(force=True)
+        target = self.get_extension(extension_id)
+        extensions = self.get_extensions()
+        self._validate_enable_dependency_transaction_target(target)
+        ordered_extensions = self._resolve_enable_dependency_transaction(target, extensions)
+
+        updated_target = target
+        for extension in ordered_extensions:
+            enabled = self._enable_extension(extension, self.get_extensions())
+            if enabled.id == target.id:
+                updated_target = enabled
+            self.load(force=True)
+        return self.get_extension(updated_target.id)
+
+    @transaction.atomic
+    def disable_extension_with_dependents(self, extension_id: str) -> Extension:
+        self.load(force=True)
+        target = self.get_extension(extension_id)
+        extensions = self.get_extensions()
+        self._validate_dependent_transaction_target(target, uninstalling=False)
+        ordered_extensions = self._resolve_dependent_transaction(target, extensions, uninstalling=False)
+        transaction_ids = {extension.id for extension in ordered_extensions}
+
+        updated_target = target
+        for extension in ordered_extensions:
+            disabled = self._disable_extension(
+                extension,
+                self.get_extensions(),
+                ignored_dependent_ids=transaction_ids,
+            )
+            if disabled.id == target.id:
+                updated_target = disabled
+            self.load(force=True)
+        return self.get_extension(updated_target.id)
+
+    def _validate_enable_dependency_transaction_target(self, extension) -> None:
+        if extension.runtime.enabled:
+            raise ExtensionStateError(
+                f"扩展 {extension.id} 已启用",
+                code="extension_enable_already_enabled",
+                details={"extension_id": extension.id},
+            )
+        if extension.source == "filesystem" and not extension.runtime.installed:
+            raise ExtensionStateError(
+                f"扩展 {extension.id} 尚未安装",
+                code="extension_enable_not_installed",
+                details={"extension_id": extension.id},
+            )
+
+    def _validate_dependent_transaction_target(self, extension, *, uninstalling: bool) -> None:
+        if uninstalling:
+            if not extension.runtime.installed:
+                raise ExtensionStateError(
+                    f"扩展 {extension.id} 尚未安装",
+                    code="extension_uninstall_not_installed",
+                    details={"extension_id": extension.id},
+                )
+        elif not extension.runtime.enabled:
+            raise ExtensionStateError(
+                f"扩展 {extension.id} 未启用",
+                code="extension_disable_not_enabled",
+                details={"extension_id": extension.id},
+            )
+
+        if is_extension_protected(extension):
+            raise ExtensionStateError(
+                f"无法{'卸载' if uninstalling else '停用'}受保护扩展 {extension.id}",
+                code="extension_uninstall_protected_blocked" if uninstalling else "extension_disable_protected_blocked",
+                details={
+                    "extension_id": extension.id,
+                    "protected_reason": get_extension_protected_reason(extension),
+                },
+            )
+        if extension.manifest.category == "core":
+            raise ExtensionStateError(
+                f"无法{'卸载' if uninstalling else '停用'}核心扩展 {extension.id}",
+                code="extension_uninstall_core_blocked" if uninstalling else "extension_disable_core_blocked",
+                details={"extension_id": extension.id},
+            )
+
+    def _enable_extension(self, extension, extensions) -> Extension:
+        self._validate_enable(extension, extensions)
+        self._dispatch_extension_lifecycle_event(ExtensionEnablingEvent(extension_id=extension.id))
+        migration_result = self._run_install_migrations_if_declared(extension)
+        self._write_installation_state(
+            extension,
+            installed=True,
+            enabled=True,
+            booted=True,
+        )
+        hook_result = self._run_lifecycle_extenders(
+            extension,
+            "enable",
+            meta={"action": "enable"},
+            target_runtime={"installed": True, "enabled": True, "booted": True},
+        )
+        asset_result = publish_extension_assets(extension)
+        backend_hooks = {
+            "run_enable": hook_result,
+            "publish_assets": asset_result,
+        }
+        meta_updates = {"backend_hooks": backend_hooks}
+        if migration_result is not None:
+            backend_hooks["run_migrations"] = migration_result
+            meta_updates.update({
+                **self._build_migration_meta_updates(extension.id, migration_result),
+            })
+        return self._persist_installation_state(
+            extension,
+            installed=True,
+            enabled=True,
+            booted=True,
+            lifecycle_event=ExtensionEnabledEvent(extension_id=extension.id),
+            meta_updates=meta_updates,
+        )
+
+    def _disable_extension(self, extension, extensions, *, ignored_dependent_ids: set[str] | None = None) -> Extension:
+        self._validate_disable(extension, extensions, ignored_dependent_ids=ignored_dependent_ids)
         self._dispatch_extension_lifecycle_event(ExtensionDisablingEvent(extension_id=extension.id))
         self._write_installation_state(
             extension,
@@ -689,6 +824,19 @@ class ExtensionManager:
             "circular_dependencies": list(resolved.get("circular_dependencies") or []),
         }
 
+    def build_extension_lifecycle_plan(self, extension_id: str, *, force: bool = False) -> dict:
+        self.load(force=force)
+        extension = self.get_extension(extension_id)
+        extensions = self.get_extensions()
+        return {
+            "schema": 1,
+            "extension_id": extension.id,
+            "install": self._build_enable_plan(extension, extensions, action="install"),
+            "enable": self._build_enable_plan(extension, extensions, action="enable"),
+            "disable": self._build_disable_plan(extension, extensions, action="disable"),
+            "uninstall": self._build_disable_plan(extension, extensions, action="uninstall"),
+        }
+
     def _persist_package_lock(
         self,
         *,
@@ -800,7 +948,7 @@ class ExtensionManager:
                 migration_execution=dict((installation.meta or {}).get("migration_execution") or {}),
                 applied_migration_files=tuple((installation.meta or {}).get("applied_migration_files") or ()),
             )
-        return self._with_runtime_actions(extension)
+        return extension
 
     def _build_uninstalled_extension(self, extension: Extension) -> Extension:
         auto_installed = is_extension_auto_installed(extension)
@@ -844,7 +992,7 @@ class ExtensionManager:
         )
         return extension
 
-    def _with_runtime_actions(self, extension: Extension) -> Extension:
+    def _with_runtime_actions(self, extension: Extension, extensions: tuple[Extension, ...] = ()) -> Extension:
         runtime_probe = inspect_extension_runtime(extension)
         extension.runtime = ExtensionRuntimeState(
             installed=extension.runtime.installed,
@@ -877,7 +1025,7 @@ class ExtensionManager:
             dependency_state=extension.runtime.dependency_state,
             dependency_state_label=extension.runtime.dependency_state_label,
             runtime_issues=extension.runtime.runtime_issues,
-            runtime_actions=build_runtime_actions(extension),
+            runtime_actions=build_runtime_actions(extension, tuple(extensions or ())),
             delivery_checks=extension.runtime.delivery_checks,
             uninstall_warnings=extension.runtime.uninstall_warnings,
             backend_hooks=dict(extension.runtime.backend_hooks or {}),
@@ -953,15 +1101,16 @@ class ExtensionManager:
             operations_pages=tuple(extension.operations_pages),
         )
 
-    def _validate_enable(self, extension, extensions) -> None:
-        if not extension.runtime.installed and extension.source == "filesystem":
+    def _validate_enable(self, extension, extensions, *, installing: bool = False, action: str = "enable") -> None:
+        normalized_action = "install" if action == "install" else "enable"
+        if not installing and not extension.runtime.installed and extension.source == "filesystem":
             raise ExtensionStateError(
                 f"扩展 {extension.id} 尚未安装",
                 code="extension_enable_not_installed",
                 details={"extension_id": extension.id},
             )
 
-            validate_bias_compatibility(extension, action="enable")
+        validate_bias_compatibility(extension, action=normalized_action)
 
         extension_map = {item.id: item for item in extensions}
         satisfied_dependency_ids = get_core_satisfied_dependency_ids()
@@ -978,10 +1127,9 @@ class ExtensionManager:
             elif not dependency.runtime.enabled:
                 disabled_dependencies.append(dependency_id)
 
-        for conflict_id in extension.manifest.conflicts:
-            conflict = extension_map.get(conflict_id)
-            if conflict is not None and conflict.runtime.enabled:
-                active_conflicts.append(conflict_id)
+        active_conflicts.extend(
+            self._find_active_conflicts(extension, extension_map).keys()
+        )
 
         if missing_dependencies or disabled_dependencies or active_conflicts:
             issues = []
@@ -993,16 +1141,24 @@ class ExtensionManager:
                 issues.append(f"存在冲突扩展：{', '.join(active_conflicts)}")
             raise ExtensionStateError(
                 f"无法启用扩展 {extension.id}。{'；'.join(issues)}",
-                code="extension_enable_blocked",
+                code=f"extension_{normalized_action}_blocked",
                 details={
                     "extension_id": extension.id,
+                    "action": normalized_action,
                     "missing_dependencies": missing_dependencies,
                     "disabled_dependencies": disabled_dependencies,
                     "active_conflicts": active_conflicts,
                 },
             )
 
-    def _validate_disable(self, extension, extensions, *, uninstalling: bool = False) -> None:
+    def _validate_disable(
+        self,
+        extension,
+        extensions,
+        *,
+        uninstalling: bool = False,
+        ignored_dependent_ids: set[str] | None = None,
+    ) -> None:
         if is_extension_protected(extension):
             raise ExtensionStateError(
                 f"无法{'卸载' if uninstalling else '停用'}受保护扩展 {extension.id}",
@@ -1020,9 +1176,15 @@ class ExtensionManager:
                 details={"extension_id": extension.id},
             )
 
+        ignored_dependent_ids = set(ignored_dependent_ids or ())
         blocking_dependents = []
         for candidate in extensions:
-            if candidate.id == extension.id or not candidate.runtime.enabled:
+            if candidate.id == extension.id or candidate.id in ignored_dependent_ids:
+                continue
+            if uninstalling:
+                if not candidate.runtime.installed:
+                    continue
+            elif not candidate.runtime.enabled:
                 continue
             if extension.id in candidate.manifest.dependencies:
                 blocking_dependents.append(candidate.id)
@@ -1036,6 +1198,345 @@ class ExtensionManager:
                     "blocking_dependents": blocking_dependents,
                 },
             )
+
+    def _build_enable_plan(self, extension, extensions, *, action: str) -> dict:
+        normalized_action = "install" if action == "install" else "enable"
+        extension_map = {item.id: item for item in extensions}
+        satisfied_dependency_ids = get_core_satisfied_dependency_ids()
+        required_dependencies = []
+        missing_dependencies = []
+        disabled_dependencies = []
+        enabled_dependencies = []
+        active_conflicts = []
+
+        if normalized_action == "install":
+            already_active = bool(extension.runtime.installed)
+            not_installed = False
+        else:
+            already_active = bool(extension.runtime.enabled)
+            not_installed = bool(extension.source == "filesystem" and not extension.runtime.installed)
+
+        for dependency_id in extension.manifest.dependencies:
+            if dependency_id in satisfied_dependency_ids:
+                continue
+            required_dependencies.append(dependency_id)
+            dependency = extension_map.get(dependency_id)
+            if dependency is None:
+                missing_dependencies.append(dependency_id)
+            elif dependency.runtime.enabled:
+                enabled_dependencies.append(dependency_id)
+            else:
+                disabled_dependencies.append(dependency_id)
+
+        active_conflicts.extend(
+            self._find_active_conflicts(extension, extension_map).keys()
+        )
+
+        blockers = []
+        if already_active:
+            blockers.append("already_active")
+        if not_installed:
+            blockers.append("not_installed")
+        if missing_dependencies:
+            blockers.append("missing_dependencies")
+        if disabled_dependencies:
+            blockers.append("disabled_dependencies")
+        if active_conflicts:
+            blockers.append("active_conflicts")
+
+        return {
+            "action": normalized_action,
+            "can_execute": not blockers,
+            "already_active": already_active,
+            "not_installed": not_installed,
+            "required_dependencies": required_dependencies,
+            "enabled_dependencies": enabled_dependencies,
+            "disabled_dependencies": disabled_dependencies,
+            "missing_dependencies": missing_dependencies,
+            "active_conflicts": active_conflicts,
+            "blockers": blockers,
+            "dependency_transaction": self._build_enable_dependency_transaction_plan(
+                extension,
+                extensions,
+                action=normalized_action,
+            ),
+        }
+
+    def _build_disable_plan(self, extension, extensions, *, action: str) -> dict:
+        uninstalling = action == "uninstall"
+        protected = is_extension_protected(extension)
+        core_extension = extension.manifest.category == "core"
+        blocking_dependents = []
+        for candidate in extensions:
+            if candidate.id == extension.id:
+                continue
+            if uninstalling:
+                if not candidate.runtime.installed:
+                    continue
+            elif not candidate.runtime.enabled:
+                continue
+            if extension.id in candidate.manifest.dependencies:
+                blocking_dependents.append(candidate.id)
+
+        blockers = []
+        if uninstalling and not extension.runtime.installed:
+            blockers.append("not_installed")
+        if not uninstalling and not extension.runtime.enabled:
+            blockers.append("not_enabled")
+        if protected:
+            blockers.append("protected")
+        if core_extension:
+            blockers.append("core_extension")
+        if blocking_dependents:
+            blockers.append("blocking_dependents")
+
+        return {
+            "action": "uninstall" if uninstalling else "disable",
+            "can_execute": not blockers,
+            "protected": protected,
+            "protected_reason": get_extension_protected_reason(extension),
+            "core_extension": core_extension,
+            "blocking_dependents": sorted(blocking_dependents),
+            "blockers": blockers,
+            "dependent_transaction": self._build_dependent_transaction_plan(
+                extension,
+                extensions,
+                uninstalling=uninstalling,
+            ),
+        }
+
+    def _build_enable_dependency_transaction_plan(self, extension, extensions, *, action: str) -> dict:
+        if action == "install":
+            return {
+                "can_execute": False,
+                "available": False,
+                "order": [],
+                "blockers": ["unsupported_action"],
+            }
+        try:
+            self._validate_enable_dependency_transaction_target(extension)
+        except ExtensionStateError as exc:
+            blocker = {
+                "extension_enable_already_enabled": "already_active",
+                "extension_enable_not_installed": "not_installed",
+            }.get(exc.code, exc.code)
+            return {
+                "can_execute": False,
+                "available": True,
+                "order": [],
+                "blockers": [blocker],
+                "field_errors": dict(exc.details or {}),
+            }
+        try:
+            order = [item.id for item in self._resolve_enable_dependency_transaction(extension, extensions)]
+        except ExtensionStateError as exc:
+            return {
+                "can_execute": False,
+                "available": True,
+                "order": [],
+                "blockers": [exc.code],
+                "field_errors": dict(exc.details or {}),
+            }
+        return {
+            "can_execute": True,
+            "available": True,
+            "order": order,
+            "blockers": [],
+        }
+
+    def _build_dependent_transaction_plan(self, extension, extensions, *, uninstalling: bool) -> dict:
+        try:
+            self._validate_dependent_transaction_target(extension, uninstalling=uninstalling)
+        except ExtensionStateError as exc:
+            blocker = {
+                "extension_uninstall_not_installed": "not_installed",
+                "extension_disable_not_enabled": "not_enabled",
+                "extension_uninstall_protected_blocked": "protected",
+                "extension_disable_protected_blocked": "protected",
+                "extension_uninstall_core_blocked": "core_extension",
+                "extension_disable_core_blocked": "core_extension",
+            }.get(exc.code, exc.code)
+            return {
+                "can_execute": False,
+                "available": True,
+                "order": [],
+                "blockers": [blocker],
+                "field_errors": dict(exc.details or {}),
+            }
+        try:
+            order = [item.id for item in self._resolve_dependent_transaction(extension, extensions, uninstalling=uninstalling)]
+        except ExtensionStateError as exc:
+            return {
+                "can_execute": False,
+                "available": True,
+                "order": [],
+                "blockers": [exc.code],
+                "field_errors": dict(exc.details or {}),
+            }
+        return {
+            "can_execute": bool(order),
+            "available": True,
+            "order": order,
+            "blockers": [],
+        }
+
+    def _resolve_enable_dependency_transaction(self, target, extensions) -> list[Extension]:
+        extension_map = {extension.id: extension for extension in extensions}
+        satisfied_dependency_ids = get_core_satisfied_dependency_ids()
+        missing_dependencies: dict[str, list[str]] = {}
+        not_installed_dependencies: dict[str, list[str]] = {}
+        active_conflicts: dict[str, list[str]] = {}
+        visiting: set[str] = set()
+        visited: set[str] = set()
+        required_ids: list[str] = []
+
+        def visit(extension) -> None:
+            if extension.id in visited:
+                return
+            if extension.id in visiting:
+                raise ExtensionStateError(
+                    f"启用扩展 {target.id} 的依赖存在循环: {extension.id}",
+                    code="extension_enable_dependency_cycle",
+                    details={"extension_id": target.id, "circular_dependency": extension.id},
+                )
+            visiting.add(extension.id)
+            conflicts = self._find_active_conflicts(
+                extension,
+                extension_map,
+                ignored_extension_ids=set(visiting) | {item_id for item_id in required_ids},
+            )
+            if conflicts:
+                active_conflicts.setdefault(extension.id, []).extend(conflicts.keys())
+            for dependency_id in extension.manifest.dependencies:
+                if dependency_id in satisfied_dependency_ids:
+                    continue
+                dependency = extension_map.get(dependency_id)
+                if dependency is None:
+                    missing_dependencies.setdefault(extension.id, []).append(dependency_id)
+                    continue
+                if not dependency.runtime.installed:
+                    not_installed_dependencies.setdefault(extension.id, []).append(dependency_id)
+                    continue
+                visit(dependency)
+            visiting.remove(extension.id)
+            visited.add(extension.id)
+            required_ids.append(extension.id)
+
+        visit(target)
+
+        if missing_dependencies or not_installed_dependencies or active_conflicts:
+            raise ExtensionStateError(
+                f"无法启用扩展 {target.id} 及其依赖。",
+                code="extension_enable_dependencies_blocked",
+                details={
+                    "extension_id": target.id,
+                    "missing_dependencies": missing_dependencies,
+                    "not_installed_dependencies": not_installed_dependencies,
+                    "active_conflicts": active_conflicts,
+                },
+            )
+
+        ordered = resolve_extension_order(
+            [extension_map[extension_id] for extension_id in required_ids],
+            satisfied_dependency_ids=satisfied_dependency_ids,
+        )
+        if ordered.get("circular_dependencies"):
+            raise ExtensionStateError(
+                f"启用扩展 {target.id} 的依赖存在循环。",
+                code="extension_enable_dependency_cycle",
+                details={
+                    "extension_id": target.id,
+                    "circular_dependencies": list(ordered.get("circular_dependencies") or []),
+                },
+            )
+
+        return [
+            extension
+            for extension in ordered.get("valid", [])
+            if not extension.runtime.enabled or extension.id == target.id
+        ]
+
+    def _find_active_conflicts(
+        self,
+        extension,
+        extension_map: dict[str, Extension],
+        *,
+        ignored_extension_ids: set[str] | None = None,
+    ) -> dict[str, str]:
+        ignored_extension_ids = set(ignored_extension_ids or ())
+        active_conflicts: dict[str, str] = {}
+        for conflict_id in extension.manifest.conflicts:
+            conflict = extension_map.get(conflict_id)
+            if conflict is not None and conflict.runtime.enabled and conflict.id not in ignored_extension_ids:
+                active_conflicts[conflict_id] = "declared_by_target"
+
+        for candidate in extension_map.values():
+            if candidate.id == extension.id or candidate.id in ignored_extension_ids:
+                continue
+            if not candidate.runtime.enabled:
+                continue
+            if extension.id in candidate.manifest.conflicts:
+                active_conflicts[candidate.id] = "declared_by_active_extension"
+        return dict(sorted(active_conflicts.items()))
+
+    def _resolve_dependent_transaction(self, target, extensions, *, uninstalling: bool) -> list[Extension]:
+        extension_map = {extension.id: extension for extension in extensions}
+        dependents_by_dependency: dict[str, list[Extension]] = {}
+        for candidate in extensions:
+            if candidate.id == target.id:
+                continue
+            if uninstalling:
+                if not candidate.runtime.installed:
+                    continue
+            elif not candidate.runtime.enabled:
+                continue
+            for dependency_id in candidate.manifest.dependencies:
+                dependents_by_dependency.setdefault(dependency_id, []).append(candidate)
+
+        visiting: set[str] = set()
+        visited: set[str] = set()
+        ordered: list[Extension] = []
+        blocked_dependents: dict[str, dict[str, str]] = {}
+
+        def visit(extension) -> None:
+            if extension.id in visited:
+                return
+            if extension.id in visiting:
+                raise ExtensionStateError(
+                    f"{'卸载' if uninstalling else '停用'}扩展 {target.id} 的被依赖链存在循环: {extension.id}",
+                    code="extension_uninstall_dependent_cycle" if uninstalling else "extension_disable_dependent_cycle",
+                    details={"extension_id": target.id, "circular_dependent": extension.id},
+                )
+            visiting.add(extension.id)
+            for dependent in dependents_by_dependency.get(extension.id, []):
+                visit(dependent)
+            visiting.remove(extension.id)
+            visited.add(extension.id)
+
+            if extension.id == target.id:
+                pass
+            elif is_extension_protected(extension):
+                blocked_dependents[extension.id] = {
+                    "reason": "protected",
+                    "protected_reason": get_extension_protected_reason(extension),
+                }
+            elif extension.manifest.category == "core":
+                blocked_dependents[extension.id] = {"reason": "core_extension"}
+            ordered.append(extension)
+
+        visit(target)
+
+        if blocked_dependents:
+            raise ExtensionStateError(
+                f"无法级联{'卸载' if uninstalling else '停用'}扩展 {target.id}。被依赖链包含受保护或核心扩展。",
+                code="extension_uninstall_dependents_blocked" if uninstalling else "extension_disable_dependents_blocked",
+                details={
+                    "extension_id": target.id,
+                    "blocked_dependents": blocked_dependents,
+                },
+            )
+
+        return [extension_map[extension.id] for extension in ordered]
 
     def _run_install_migrations_if_declared(self, extension) -> dict | None:
         if not has_django_extension_migrations(extension):

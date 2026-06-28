@@ -59,6 +59,7 @@ class AdminExtensionsApiTests(TestCase):
         self.assertTrue(users_extension["protected"])
         self.assertIn("认证基础域", users_extension["protected_reason"])
         self.assertFalse(any(action["action"] == "disable" for action in users_extension["runtime_actions"]))
+        self.assertIn("protected", users_extension["lifecycle_plan"]["disable"]["blockers"])
         self.assertIn("/admin/extensions/users/permissions", users_extension["permissions_pages"])
 
         discussions_extension = next(item for item in payload["extensions"] if item["id"] == "discussions")
@@ -99,6 +100,7 @@ class AdminExtensionsApiTests(TestCase):
         self.assertEqual(sample_extension["admin_actions"][0]["key"], "details")
         self.assertTrue(any(action["key"] == "documentation" for action in sample_extension["admin_actions"]))
         self.assertTrue(any(action["action"] == "hook:run_rebuild_cache" for action in sample_extension["runtime_actions"]))
+        self.assertTrue(sample_extension["lifecycle_plan"]["install"]["can_execute"])
 
     @patch("bias_core.extension_detail.orchestrator.inspect_extension_frontend_output_manifest")
     def test_extensions_api_reuses_frontend_output_manifest_snapshot(self, inspect_manifest):
@@ -282,6 +284,10 @@ class AdminExtensionsApiTests(TestCase):
         self.assertEqual(payload["admin_actions"][0]["key"], "details")
         self.assertEqual(payload["runtime_status"]["key"], "pending_install")
         self.assertEqual(payload["runtime_actions"][0]["action"], "install")
+        self.assertIn("lifecycle_plan", payload)
+        self.assertTrue(payload["lifecycle_plan"]["install"]["can_execute"])
+        self.assertEqual(payload["lifecycle_plan"]["install"]["action"], "install")
+        self.assertIn("disable", payload["lifecycle_plan"])
         self.assertEqual(payload["compatibility"]["bias_version"], ">=0.1.0 <0.2.0")
         self.assertEqual(payload["compatibility"]["api_stability_label"], "实验性")
         self.assertEqual(payload["distribution"]["channel_label"], "私有分发")
@@ -734,6 +740,76 @@ class AdminExtensionsApiTests(TestCase):
         sample_extension = payload["extension"]
         self.assertTrue(sample_extension["enabled"])
 
+    def test_extensions_api_can_enable_installed_dependencies_with_target(self):
+        beta_dir = self.extension_base_dir / "extensions" / "beta-tools"
+        beta_dir.mkdir(parents=True, exist_ok=True)
+        (beta_dir / "extension.json").write_text(json.dumps({
+            "id": "beta-tools",
+            "name": "Beta Tools",
+            "version": "0.1.0",
+            "dependencies": ["core"],
+            "description": "Dependency fixture for lifecycle API tests.",
+            "extra": {"product_hidden": True},
+        }, ensure_ascii=False), encoding="utf-8")
+        manifest_path = self.extension_base_dir / "extensions" / "alpha-tools" / "extension.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["dependencies"] = ["core", "beta-tools"]
+        manifest_path.write_text(json.dumps(manifest, ensure_ascii=False), encoding="utf-8")
+        ExtensionInstallation.objects.update_or_create(
+            extension_id="beta-tools",
+            defaults={
+                "version": "0.1.0",
+                "source": "filesystem",
+                "enabled": False,
+                "installed": True,
+                "booted": False,
+            },
+        )
+        ExtensionInstallation.objects.update_or_create(
+            extension_id="alpha-tools",
+            defaults={
+                "version": "0.1.0",
+                "source": "filesystem",
+                "enabled": False,
+                "installed": True,
+                "booted": False,
+            },
+        )
+        reset_extension_runtime_state()
+
+        blocked_response = self.client.post(
+            "/api/admin/extensions/alpha-tools/enable",
+            **self.auth_header(),
+        )
+        self.assertEqual(blocked_response.status_code, 409, blocked_response.content)
+        self.assertEqual(blocked_response.json()["code"], "extension_enable_blocked")
+
+        detail_response = self.client.get(
+            "/api/admin/extensions/alpha-tools",
+            **self.auth_header(),
+        )
+        self.assertEqual(detail_response.status_code, 200, detail_response.content)
+        detail_extension = detail_response.json()["extension"]
+        enable_transaction = detail_extension["lifecycle_plan"]["enable"]["dependency_transaction"]
+        self.assertTrue(enable_transaction["can_execute"])
+        self.assertEqual(enable_transaction["order"], ["beta-tools", "alpha-tools"])
+        runtime_actions = {action["key"]: action for action in detail_extension["runtime_actions"]}
+        self.assertEqual(runtime_actions["enable-with-dependencies"]["action"], "enable")
+        self.assertEqual(runtime_actions["enable-with-dependencies"]["payload"], {"include_dependencies": True})
+
+        response = self.client.post(
+            "/api/admin/extensions/alpha-tools/enable",
+            data=json.dumps({"include_dependencies": True}),
+            content_type="application/json",
+            **self.auth_header(),
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        payload = response.json()["extension"]
+        self.assertTrue(payload["enabled"])
+        self.assertTrue(ExtensionInstallation.objects.get(extension_id="beta-tools").enabled)
+        self.assertTrue(ExtensionInstallation.objects.get(extension_id="alpha-tools").enabled)
+
     def test_extensions_api_blocks_enable_when_extension_not_installed(self):
         response = self.client.post(
             "/api/admin/extensions/alpha-tools/enable",
@@ -775,6 +851,76 @@ class AdminExtensionsApiTests(TestCase):
         self.assertIn("blocking_dependents", payload["field_errors"])
         self.assertIn("approval", payload["field_errors"]["blocking_dependents"])
 
+    def test_extensions_api_can_disable_dependents_with_target(self):
+        beta_dir = self.extension_base_dir / "extensions" / "beta-tools"
+        beta_dir.mkdir(parents=True, exist_ok=True)
+        (beta_dir / "extension.json").write_text(json.dumps({
+            "id": "beta-tools",
+            "name": "Beta Tools",
+            "version": "0.1.0",
+            "dependencies": ["core"],
+            "description": "Dependency fixture for lifecycle API tests.",
+            "extra": {"product_hidden": True},
+        }, ensure_ascii=False), encoding="utf-8")
+        manifest_path = self.extension_base_dir / "extensions" / "alpha-tools" / "extension.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["dependencies"] = ["core", "beta-tools"]
+        manifest_path.write_text(json.dumps(manifest, ensure_ascii=False), encoding="utf-8")
+        ExtensionInstallation.objects.update_or_create(
+            extension_id="beta-tools",
+            defaults={
+                "version": "0.1.0",
+                "source": "filesystem",
+                "enabled": True,
+                "installed": True,
+                "booted": True,
+            },
+        )
+        ExtensionInstallation.objects.update_or_create(
+            extension_id="alpha-tools",
+            defaults={
+                "version": "0.1.0",
+                "source": "filesystem",
+                "enabled": True,
+                "installed": True,
+                "booted": True,
+            },
+        )
+        reset_extension_runtime_state()
+
+        blocked_response = self.client.post(
+            "/api/admin/extensions/beta-tools/disable",
+            **self.auth_header(),
+        )
+        self.assertEqual(blocked_response.status_code, 409, blocked_response.content)
+        self.assertEqual(blocked_response.json()["code"], "extension_disable_blocked")
+
+        detail_response = self.client.get(
+            "/api/admin/extensions/beta-tools",
+            **self.auth_header(),
+        )
+        self.assertEqual(detail_response.status_code, 200, detail_response.content)
+        detail_extension = detail_response.json()["extension"]
+        disable_transaction = detail_extension["lifecycle_plan"]["disable"]["dependent_transaction"]
+        self.assertTrue(disable_transaction["can_execute"])
+        self.assertEqual(disable_transaction["order"], ["alpha-tools", "beta-tools"])
+        runtime_actions = {action["key"]: action for action in detail_extension["runtime_actions"]}
+        self.assertEqual(runtime_actions["disable-with-dependents"]["action"], "disable")
+        self.assertEqual(runtime_actions["disable-with-dependents"]["payload"], {"include_dependents": True})
+
+        response = self.client.post(
+            "/api/admin/extensions/beta-tools/disable",
+            data=json.dumps({"include_dependents": True}),
+            content_type="application/json",
+            **self.auth_header(),
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        payload = response.json()["extension"]
+        self.assertFalse(payload["enabled"])
+        self.assertFalse(ExtensionInstallation.objects.get(extension_id="alpha-tools").enabled)
+        self.assertFalse(ExtensionInstallation.objects.get(extension_id="beta-tools").enabled)
+
     def test_extensions_api_blocks_disable_for_core_extension(self):
         response = self.client.post(
             "/api/admin/extensions/core/disable",
@@ -815,4 +961,75 @@ class AdminExtensionsApiTests(TestCase):
         hooks = {item["hook"]: item for item in extension["backend_hooks"]}
         self.assertEqual(hooks["run_disable"]["status"], "ok")
         self.assertEqual(hooks["run_uninstall"]["status"], "ok")
+
+    def test_extensions_api_can_uninstall_dependents_with_target(self):
+        beta_dir = self.extension_base_dir / "extensions" / "beta-tools"
+        beta_dir.mkdir(parents=True, exist_ok=True)
+        (beta_dir / "extension.json").write_text(json.dumps({
+            "id": "beta-tools",
+            "name": "Beta Tools",
+            "version": "0.1.0",
+            "dependencies": ["core"],
+            "description": "Dependency fixture for lifecycle API tests.",
+            "extra": {"product_hidden": True},
+        }, ensure_ascii=False), encoding="utf-8")
+        manifest_path = self.extension_base_dir / "extensions" / "alpha-tools" / "extension.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["dependencies"] = ["core", "beta-tools"]
+        manifest_path.write_text(json.dumps(manifest, ensure_ascii=False), encoding="utf-8")
+        ExtensionInstallation.objects.update_or_create(
+            extension_id="beta-tools",
+            defaults={
+                "version": "0.1.0",
+                "source": "filesystem",
+                "enabled": False,
+                "installed": True,
+                "booted": False,
+            },
+        )
+        ExtensionInstallation.objects.update_or_create(
+            extension_id="alpha-tools",
+            defaults={
+                "version": "0.1.0",
+                "source": "filesystem",
+                "enabled": False,
+                "installed": True,
+                "booted": False,
+            },
+        )
+        reset_extension_runtime_state()
+
+        blocked_response = self.client.post(
+            "/api/admin/extensions/beta-tools/uninstall",
+            **self.auth_header(),
+        )
+        self.assertEqual(blocked_response.status_code, 409, blocked_response.content)
+        self.assertEqual(blocked_response.json()["code"], "extension_uninstall_blocked")
+
+        detail_response = self.client.get(
+            "/api/admin/extensions/beta-tools",
+            **self.auth_header(),
+        )
+        self.assertEqual(detail_response.status_code, 200, detail_response.content)
+        detail_extension = detail_response.json()["extension"]
+        uninstall_plan = detail_extension["lifecycle_plan"]["uninstall"]
+        self.assertIn("blocking_dependents", uninstall_plan["blockers"])
+        self.assertTrue(uninstall_plan["dependent_transaction"]["can_execute"])
+        self.assertEqual(uninstall_plan["dependent_transaction"]["order"], ["alpha-tools", "beta-tools"])
+        runtime_actions = {action["key"]: action for action in detail_extension["runtime_actions"]}
+        self.assertEqual(runtime_actions["uninstall-with-dependents"]["action"], "uninstall")
+        self.assertEqual(runtime_actions["uninstall-with-dependents"]["payload"], {"include_dependents": True})
+
+        response = self.client.post(
+            "/api/admin/extensions/beta-tools/uninstall",
+            data=json.dumps({"include_dependents": True}),
+            content_type="application/json",
+            **self.auth_header(),
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        payload = response.json()["extension"]
+        self.assertFalse(payload["installed"])
+        self.assertFalse(ExtensionInstallation.objects.get(extension_id="alpha-tools").installed)
+        self.assertFalse(ExtensionInstallation.objects.get(extension_id="beta-tools").installed)
 

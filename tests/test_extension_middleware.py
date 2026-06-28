@@ -1,11 +1,57 @@
+import json
 import os
+import shutil
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
+from django.http import HttpResponse, JsonResponse
+from django.test import RequestFactory
 from django.test import TestCase, override_settings
 
+from bias_core.extensions.application import ExtensionApplication
+from bias_core.extensions.application_types import (
+    ApplicationNamedRoute,
+    ApplicationRouteMount,
+    ApplicationWebSocketRoute,
+)
+from bias_core.extensions import (
+    AdminPageDefinition,
+    DiscussionListFilterDefinition,
+    DiscussionListQueryDefinition,
+    DiscussionSortDefinition,
+    ExtensionModelCastDefinition,
+    ExtensionModelDefaultDefinition,
+    ExtensionModelDefinition,
+    ExtensionModelRelationDefinition,
+    ExtensionModelSlugDriverDefinition,
+    ExtensionResourceDefinition,
+    ExtensionResourceEndpointDefinition,
+    ExtensionResourceFieldDefinition,
+    ExtensionResourceFilterDefinition,
+    ExtensionResourceRelationshipDefinition,
+    ExtensionResourceSortDefinition,
+    ExtensionSearchDriverDefinition,
+    ExtensionSearchIndexDefinition,
+    LanguagePackDefinition,
+    NotificationTypeDefinition,
+    PermissionDefinition,
+    PostTypeDefinition,
+    RuntimeModel,
+    SearchFilterDefinition,
+    UserPreferenceDefinition,
+)
+from bias_core.extensions.bootstrap import build_extension_application
+from bias_core.extensions.manifest import ExtensionManifestLoader
 from bias_core.extensions.registry import ExtensionRegistry
+from bias_core.extensions.types import ExtensionFrontendRouteDefinition, ExtensionManifest
+from bias_core.extensions.validation import (
+    validate_extension_manifests,
+    validate_extension_manifests_with_available_ids,
+)
+from bias_core.middleware import ExtensionRequestMiddleware
+from bias_core.models import ExtensionInstallation
 
 
 def make_workspace_temp_dir():
@@ -204,7 +250,7 @@ class ExtensionMiddlewareIntegrationTests(TestCase):
                 "name": "Alpha Tools",
                 "version": "1.0.0",
                 "dependencies": ["core", "missing-one"],
-                "frontend_admin_entry": "extensions/alpha-tools/frontend/admin/index.js",
+                "frontend_admin_entry": "frontend/admin/index.js",
                 "settings_pages": ["/admin/extensions/alpha-tools/settings"],
             }, ensure_ascii=False), encoding="utf-8")
 
@@ -606,6 +652,894 @@ class ExtensionMiddlewareIntegrationTests(TestCase):
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
+    def test_validate_extension_manifests_rejects_undeclared_conditional_extension_dependencies(self):
+        temp_dir = make_workspace_temp_dir()
+        try:
+            extensions_dir = Path(temp_dir) / "extensions"
+            alpha_dir = extensions_dir / "alpha-tools"
+            beta_dir = extensions_dir / "beta-tools"
+            alpha_backend_dir = alpha_dir / "backend"
+            alpha_backend_dir.mkdir(parents=True, exist_ok=False)
+            beta_dir.mkdir(parents=True, exist_ok=False)
+            (alpha_dir / "extension.json").write_text(json.dumps({
+                "id": "alpha-tools",
+                "name": "Alpha Tools",
+                "version": "1.0.0",
+                "backend_entry": "extensions.alpha_tools.backend.ext",
+            }, ensure_ascii=False), encoding="utf-8")
+            (alpha_backend_dir / "ext.py").write_text(
+                "from bias_core.extensions import ConditionalExtender\n"
+                "\n"
+                "def beta_extenders():\n"
+                "    return []\n"
+                "\n"
+                "def extend():\n"
+                "    return [ConditionalExtender().when_extension_enabled('beta-tools', beta_extenders)]\n",
+                encoding="utf-8",
+            )
+            (beta_dir / "extension.json").write_text(json.dumps({
+                "id": "beta-tools",
+                "name": "Beta Tools",
+                "version": "1.0.0",
+            }, ensure_ascii=False), encoding="utf-8")
+
+            manifests = [
+                ExtensionManifest(
+                    id="alpha-tools",
+                    name="Alpha Tools",
+                    version="1.0.0",
+                    backend_entry="extensions.alpha_tools.backend.ext",
+                    path=str(alpha_dir),
+                ),
+                ExtensionManifest(
+                    id="beta-tools",
+                    name="Beta Tools",
+                    version="1.0.0",
+                    path=str(beta_dir),
+                ),
+            ]
+            result = validate_extension_manifests_with_available_ids(
+                manifests,
+                available_extension_ids={"core"},
+                extensions_base_path=extensions_dir,
+            )
+
+            self.assertFalse(result.ok)
+            self.assertTrue(any(
+                item.code == "undeclared_conditional_extension_dependency"
+                and item.extension_id == "alpha-tools"
+                and item.field.endswith("extensions/alpha-tools/backend/ext.py")
+                for item in result.issues
+            ))
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_validate_extension_manifests_rejects_dependency_graph_cycles(self):
+        manifests = [
+            ExtensionManifest(
+                id="alpha-tools",
+                name="Alpha Tools",
+                version="1.0.0",
+                dependencies=("beta-tools",),
+            ),
+            ExtensionManifest(
+                id="beta-tools",
+                name="Beta Tools",
+                version="1.0.0",
+                optional_dependencies=("alpha-tools",),
+            ),
+        ]
+
+        result = validate_extension_manifests_with_available_ids(
+            manifests,
+            available_extension_ids={"core"},
+        )
+
+        self.assertFalse(result.ok)
+        self.assertTrue(any(
+            item.code == "dependency_cycle"
+            and item.extension_id == "alpha-tools"
+            for item in result.issues
+        ))
+        self.assertTrue(any(
+            item.code == "dependency_cycle"
+            and item.extension_id == "beta-tools"
+            for item in result.issues
+        ))
+
+    def test_validate_extension_manifests_allows_missing_optional_dependencies(self):
+        manifests = [
+            ExtensionManifest(
+                id="alpha-tools",
+                name="Alpha Tools",
+                version="1.0.0",
+                optional_dependencies=("missing-tools",),
+            ),
+        ]
+
+        result = validate_extension_manifests_with_available_ids(
+            manifests,
+            available_extension_ids={"core"},
+        )
+
+        self.assertTrue(result.ok)
+        self.assertFalse(any(
+            item.field == "optional_dependencies"
+            for item in result.issues
+        ))
+
+    def test_validate_extension_manifests_rejects_ambiguous_dependency_declarations(self):
+        manifests = [
+            ExtensionManifest(
+                id="alpha-tools",
+                name="Alpha Tools",
+                version="1.0.0",
+                dependencies=("alpha-tools", "beta-tools", "conflict-tools"),
+                optional_dependencies=("alpha-tools", "beta-tools", "optional-conflict"),
+                conflicts=("conflict-tools", "optional-conflict"),
+            ),
+            ExtensionManifest(
+                id="beta-tools",
+                name="Beta Tools",
+                version="1.0.0",
+            ),
+            ExtensionManifest(
+                id="conflict-tools",
+                name="Conflict Tools",
+                version="1.0.0",
+            ),
+            ExtensionManifest(
+                id="optional-conflict",
+                name="Optional Conflict",
+                version="1.0.0",
+            ),
+        ]
+
+        result = validate_extension_manifests_with_available_ids(
+            manifests,
+            available_extension_ids={"core"},
+        )
+        issue_codes = {item.code for item in result.issues if item.extension_id == "alpha-tools"}
+
+        self.assertFalse(result.ok)
+        self.assertIn("self_dependency", issue_codes)
+        self.assertIn("self_optional_dependency", issue_codes)
+        self.assertIn("dependency_optional_overlap", issue_codes)
+        self.assertIn("dependency_conflict_overlap", issue_codes)
+        self.assertIn("optional_dependency_conflict_overlap", issue_codes)
+
+    def test_validate_extension_manifests_rejects_frontend_route_conflicts(self):
+        manifests = [
+            ExtensionManifest(
+                id="alpha-tools",
+                name="Alpha Tools",
+                version="1.0.0",
+            ),
+            ExtensionManifest(
+                id="beta-tools",
+                name="Beta Tools",
+                version="1.0.0",
+            ),
+        ]
+
+        result = validate_extension_manifests_with_available_ids(
+            manifests,
+            available_extension_ids={"core"},
+            frontend_routes_by_extension={
+                "alpha-tools": (
+                    ExtensionFrontendRouteDefinition(
+                        path="/alpha",
+                        name="alpha",
+                        component="./AlphaView.vue",
+                        module_id="alpha-tools",
+                    ),
+                ),
+                "beta-tools": (
+                    ExtensionFrontendRouteDefinition(
+                        path="/alpha",
+                        name="alpha",
+                        component="./BetaView.vue",
+                        module_id="beta-tools",
+                    ),
+                ),
+            },
+        )
+
+        self.assertFalse(result.ok)
+        self.assertTrue(any(item.code == "duplicate_frontend_route_name" for item in result.issues))
+        self.assertTrue(any(item.code == "duplicate_frontend_route_path" for item in result.issues))
+
+    def test_validate_extension_manifests_rejects_foreign_frontend_route_owners(self):
+        manifests = [
+            ExtensionManifest(
+                id="alpha-tools",
+                name="Alpha Tools",
+                version="1.0.0",
+            ),
+            ExtensionManifest(
+                id="beta-tools",
+                name="Beta Tools",
+                version="1.0.0",
+            ),
+        ]
+
+        result = validate_extension_manifests_with_available_ids(
+            manifests,
+            available_extension_ids={"core"},
+            frontend_routes_by_extension={
+                "alpha-tools": (
+                    ExtensionFrontendRouteDefinition(
+                        path="alpha",
+                        name="alpha",
+                        component="./AlphaView.vue",
+                        frontend="portal",
+                        module_id="beta-tools",
+                    ),
+                ),
+            },
+        )
+
+        self.assertFalse(result.ok)
+        self.assertTrue(any(item.code == "invalid_frontend_route_target" for item in result.issues))
+        self.assertTrue(any(item.code == "invalid_frontend_route_path" for item in result.issues))
+        self.assertTrue(any(item.code == "foreign_frontend_route_owner" for item in result.issues))
+
+    def test_validate_extension_manifests_rejects_backend_route_conflicts(self):
+        manifests = [
+            ExtensionManifest(
+                id="alpha-tools",
+                name="Alpha Tools",
+                version="1.0.0",
+            ),
+            ExtensionManifest(
+                id="beta-tools",
+                name="Beta Tools",
+                version="1.0.0",
+            ),
+        ]
+
+        result = validate_extension_manifests_with_available_ids(
+            manifests,
+            available_extension_ids={"core"},
+            route_mounts_by_extension={
+                "alpha-tools": (ApplicationRouteMount(prefix="/alpha", router=object()),),
+                "beta-tools": (ApplicationRouteMount(prefix="/alpha", router=object()),),
+            },
+            named_routes_by_extension={
+                "alpha-tools": (
+                    ApplicationNamedRoute(
+                        app_name="api",
+                        method="GET",
+                        path="/alpha",
+                        name="alpha.index",
+                        handler=object(),
+                        module_id="alpha-tools",
+                    ),
+                ),
+                "beta-tools": (
+                    ApplicationNamedRoute(
+                        app_name="api",
+                        method="GET",
+                        path="/alpha",
+                        name="alpha.index",
+                        handler=object(),
+                        module_id="beta-tools",
+                    ),
+                ),
+            },
+            websocket_routes_by_extension={
+                "alpha-tools": (
+                    ApplicationWebSocketRoute(path="ws/alpha/$", name="alpha.socket", consumer=object(), module_id="alpha-tools"),
+                ),
+                "beta-tools": (
+                    ApplicationWebSocketRoute(path="^ws/alpha/$", name="alpha.socket", consumer=object(), module_id="beta-tools"),
+                ),
+            },
+        )
+
+        self.assertFalse(result.ok)
+        self.assertTrue(any(item.code == "duplicate_api_route_name" for item in result.issues))
+        self.assertTrue(any(item.code == "duplicate_api_route_path" for item in result.issues))
+        self.assertTrue(any(item.code == "duplicate_websocket_route_name" for item in result.issues))
+        self.assertTrue(any(item.code == "duplicate_websocket_route_path" for item in result.issues))
+
+    def test_validate_extension_manifests_rejects_runtime_capability_conflicts(self):
+        manifests = [
+            ExtensionManifest(
+                id="alpha-tools",
+                name="Alpha Tools",
+                version="1.0.0",
+            ),
+            ExtensionManifest(
+                id="beta-tools",
+                name="Beta Tools",
+                version="1.0.0",
+            ),
+        ]
+
+        def parse_alpha(token):
+            return token
+
+        def apply_alpha(queryset, value, context):
+            return queryset
+
+        def resolve_alpha(instance, context):
+            return True
+
+        def handle_alpha(context):
+            return {"ok": True}
+
+        alpha_model = RuntimeModel("alpha-tools.service")
+        searcher = object()
+
+        result = validate_extension_manifests_with_available_ids(
+            manifests,
+            available_extension_ids={"core"},
+            permissions_by_extension={
+                "alpha-tools": (
+                    PermissionDefinition(code="alpha.manage", label="Alpha", section="alpha", section_label="Alpha", module_id="alpha-tools"),
+                ),
+                "beta-tools": (
+                    PermissionDefinition(code="alpha.manage", label="Beta", section="beta", section_label="Beta", module_id="beta-tools"),
+                ),
+            },
+            admin_pages_by_extension={
+                "alpha-tools": (
+                    AdminPageDefinition(path="/admin/alpha", label="Alpha", icon="alpha", module_id="alpha-tools"),
+                ),
+                "beta-tools": (
+                    AdminPageDefinition(path="/admin/alpha", label="Beta", icon="beta", module_id="beta-tools"),
+                ),
+            },
+            notification_types_by_extension={
+                "alpha-tools": (
+                    NotificationTypeDefinition(code="alphaPing", label="Alpha", module_id="alpha-tools"),
+                ),
+                "beta-tools": (
+                    NotificationTypeDefinition(code="alphaPing", label="Beta", module_id="beta-tools"),
+                ),
+            },
+            user_preferences_by_extension={
+                "alpha-tools": (
+                    UserPreferenceDefinition(key="alpha.enabled", label="Alpha", module_id="alpha-tools"),
+                ),
+                "beta-tools": (
+                    UserPreferenceDefinition(key="alpha.enabled", label="Beta", module_id="beta-tools"),
+                ),
+            },
+            language_packs_by_extension={
+                "alpha-tools": (
+                    LanguagePackDefinition(code="en", label="English", module_id="alpha-tools"),
+                ),
+                "beta-tools": (
+                    LanguagePackDefinition(code="en", label="English", module_id="beta-tools"),
+                ),
+            },
+            post_types_by_extension={
+                "alpha-tools": (
+                    PostTypeDefinition(code="alpha", label="Alpha", module_id="alpha-tools"),
+                ),
+                "beta-tools": (
+                    PostTypeDefinition(code="alpha", label="Beta", module_id="beta-tools"),
+                ),
+            },
+            search_filters_by_extension={
+                "alpha-tools": (
+                    SearchFilterDefinition(
+                        code="alpha",
+                        label="Alpha",
+                        module_id="alpha-tools",
+                        target="discussion",
+                        parser=parse_alpha,
+                        applier=apply_alpha,
+                    ),
+                ),
+                "beta-tools": (
+                    SearchFilterDefinition(
+                        code="alpha",
+                        label="Beta",
+                        module_id="beta-tools",
+                        target="discussion",
+                        parser=parse_alpha,
+                        applier=apply_alpha,
+                    ),
+                ),
+            },
+            discussion_list_queries_by_extension={
+                "alpha-tools": (
+                    DiscussionListQueryDefinition(key="alpha", module_id="alpha-tools", applier=lambda queryset, context: queryset),
+                ),
+                "beta-tools": (
+                    DiscussionListQueryDefinition(key="alpha", module_id="beta-tools", applier=lambda queryset, context: queryset),
+                ),
+            },
+            discussion_sorts_by_extension={
+                "alpha-tools": (
+                    DiscussionSortDefinition(code="alpha", label="Alpha", module_id="alpha-tools", applier=lambda queryset, context: queryset),
+                ),
+                "beta-tools": (
+                    DiscussionSortDefinition(code="alpha", label="Beta", module_id="beta-tools", applier=lambda queryset, context: queryset),
+                ),
+            },
+            discussion_list_filters_by_extension={
+                "alpha-tools": (
+                    DiscussionListFilterDefinition(code="alpha", label="Alpha", module_id="alpha-tools", applier=lambda queryset, context: queryset),
+                ),
+                "beta-tools": (
+                    DiscussionListFilterDefinition(code="alpha", label="Beta", module_id="beta-tools", applier=lambda queryset, context: queryset),
+                ),
+            },
+            resource_definitions_by_extension={
+                "alpha-tools": (
+                    ExtensionResourceDefinition(resource="alpha", module_id="alpha-tools", resolver=resolve_alpha),
+                ),
+                "beta-tools": (
+                    ExtensionResourceDefinition(resource="alpha", module_id="beta-tools", resolver=resolve_alpha),
+                ),
+            },
+            resource_fields_by_extension={
+                "alpha-tools": (
+                    ExtensionResourceFieldDefinition(resource="forum", field="alpha", module_id="alpha-tools", resolver=resolve_alpha),
+                ),
+                "beta-tools": (
+                    ExtensionResourceFieldDefinition(resource="forum", field="alpha", module_id="beta-tools", resolver=resolve_alpha),
+                ),
+            },
+            resource_relationships_by_extension={
+                "alpha-tools": (
+                    ExtensionResourceRelationshipDefinition(resource="discussion", relationship="alpha", module_id="alpha-tools", resolver=resolve_alpha),
+                ),
+                "beta-tools": (
+                    ExtensionResourceRelationshipDefinition(resource="discussion", relationship="alpha", module_id="beta-tools", resolver=resolve_alpha),
+                ),
+            },
+            resource_endpoints_by_extension={
+                "alpha-tools": (
+                    ExtensionResourceEndpointDefinition(resource="alpha", endpoint="inspect", module_id="alpha-tools", handler=handle_alpha),
+                ),
+                "beta-tools": (
+                    ExtensionResourceEndpointDefinition(resource="alpha", endpoint="inspect", module_id="beta-tools", handler=handle_alpha),
+                ),
+            },
+            resource_sorts_by_extension={
+                "alpha-tools": (
+                    ExtensionResourceSortDefinition(resource="alpha", sort="recent", module_id="alpha-tools"),
+                ),
+                "beta-tools": (
+                    ExtensionResourceSortDefinition(resource="alpha", sort="recent", module_id="beta-tools"),
+                ),
+            },
+            resource_filters_by_extension={
+                "alpha-tools": (
+                    ExtensionResourceFilterDefinition(resource="alpha", filter="visible", module_id="alpha-tools", handler=apply_alpha),
+                ),
+                "beta-tools": (
+                    ExtensionResourceFilterDefinition(resource="alpha", filter="visible", module_id="beta-tools", handler=apply_alpha),
+                ),
+            },
+            model_definitions_by_extension={
+                "alpha-tools": (
+                    ExtensionModelDefinition(model=alpha_model, key="owner", handler=object(), kind="owner"),
+                ),
+                "beta-tools": (
+                    ExtensionModelDefinition(model=alpha_model, key="owner", handler=object(), kind="owner"),
+                ),
+            },
+            model_relations_by_extension={
+                "alpha-tools": (
+                    ExtensionModelRelationDefinition(model=alpha_model, name="tags", resolver=lambda instance: ()),
+                ),
+                "beta-tools": (
+                    ExtensionModelRelationDefinition(model=alpha_model, name="tags", resolver=lambda instance: ()),
+                ),
+            },
+            model_casts_by_extension={
+                "alpha-tools": (
+                    ExtensionModelCastDefinition(model=alpha_model, attribute="meta", cast=dict),
+                ),
+                "beta-tools": (
+                    ExtensionModelCastDefinition(model=alpha_model, attribute="meta", cast=dict),
+                ),
+            },
+            model_defaults_by_extension={
+                "alpha-tools": (
+                    ExtensionModelDefaultDefinition(model=alpha_model, attribute="status", value="new"),
+                ),
+                "beta-tools": (
+                    ExtensionModelDefaultDefinition(model=alpha_model, attribute="status", value="new"),
+                ),
+            },
+            model_slug_drivers_by_extension={
+                "alpha-tools": (
+                    ExtensionModelSlugDriverDefinition(model=alpha_model, identifier="default", driver=object()),
+                ),
+                "beta-tools": (
+                    ExtensionModelSlugDriverDefinition(model=alpha_model, identifier="default", driver=object()),
+                ),
+            },
+            search_drivers_by_extension={
+                "alpha-tools": (
+                    ExtensionSearchDriverDefinition(target="alpha", driver="database", model=alpha_model, searcher=searcher),
+                ),
+                "beta-tools": (
+                    ExtensionSearchDriverDefinition(target="alpha", driver="database", model=alpha_model, searcher=searcher),
+                ),
+            },
+            search_indexes_by_extension={
+                "alpha-tools": (
+                    ExtensionSearchIndexDefinition(name="alpha_index", drop="", create=""),
+                ),
+                "beta-tools": (
+                    ExtensionSearchIndexDefinition(name="alpha_index", drop="", create=""),
+                ),
+            },
+        )
+
+        self.assertFalse(result.ok)
+        self.assertTrue(any(item.code == "duplicate_permission" for item in result.issues))
+        self.assertTrue(any(item.code == "duplicate_admin_page" for item in result.issues))
+        self.assertTrue(any(item.code == "duplicate_notification_type" for item in result.issues))
+        self.assertTrue(any(item.code == "duplicate_user_preference" for item in result.issues))
+        self.assertTrue(any(item.code == "duplicate_language_pack" for item in result.issues))
+        self.assertTrue(any(item.code == "duplicate_post_type" for item in result.issues))
+        self.assertTrue(any(item.code == "duplicate_search_filter" for item in result.issues))
+        self.assertTrue(any(item.code == "duplicate_discussion_list_query" for item in result.issues))
+        self.assertTrue(any(item.code == "duplicate_discussion_sort" for item in result.issues))
+        self.assertTrue(any(item.code == "duplicate_discussion_list_filter" for item in result.issues))
+        self.assertTrue(any(item.code == "duplicate_resource_definition" for item in result.issues))
+        self.assertTrue(any(item.code == "duplicate_resource_field" for item in result.issues))
+        self.assertTrue(any(item.code == "duplicate_resource_relationship" for item in result.issues))
+        self.assertTrue(any(item.code == "duplicate_resource_endpoint" for item in result.issues))
+        self.assertTrue(any(item.code == "duplicate_resource_sort" for item in result.issues))
+        self.assertTrue(any(item.code == "duplicate_resource_filter" for item in result.issues))
+        self.assertTrue(any(item.code == "duplicate_model_definition" for item in result.issues))
+        self.assertTrue(any(item.code == "duplicate_model_relation" for item in result.issues))
+        self.assertTrue(any(item.code == "duplicate_model_cast" for item in result.issues))
+        self.assertTrue(any(item.code == "duplicate_model_default" for item in result.issues))
+        self.assertTrue(any(item.code == "duplicate_model_slug_driver" for item in result.issues))
+        self.assertTrue(any(item.code == "duplicate_search_driver" for item in result.issues))
+        self.assertTrue(any(item.code == "duplicate_search_index" for item in result.issues))
+
+    def test_validate_extension_manifests_allows_declared_conditional_extension_dependencies(self):
+        temp_dir = make_workspace_temp_dir()
+        try:
+            extensions_dir = Path(temp_dir) / "extensions"
+            alpha_dir = extensions_dir / "alpha-tools"
+            beta_dir = extensions_dir / "beta-tools"
+            alpha_backend_dir = alpha_dir / "backend"
+            alpha_backend_dir.mkdir(parents=True, exist_ok=False)
+            beta_dir.mkdir(parents=True, exist_ok=False)
+            (alpha_dir / "extension.json").write_text(json.dumps({
+                "id": "alpha-tools",
+                "name": "Alpha Tools",
+                "version": "1.0.0",
+                "backend_entry": "extensions.alpha_tools.backend.ext",
+                "optional_dependencies": ["beta-tools"],
+            }, ensure_ascii=False), encoding="utf-8")
+            (alpha_backend_dir / "ext.py").write_text(
+                "from bias_core.extensions import ConditionalExtender\n"
+                "\n"
+                "def beta_extenders():\n"
+                "    return []\n"
+                "\n"
+                "def extend():\n"
+                "    return [ConditionalExtender().when_extension_enabled('beta-tools', beta_extenders)]\n",
+                encoding="utf-8",
+            )
+            (beta_dir / "extension.json").write_text(json.dumps({
+                "id": "beta-tools",
+                "name": "Beta Tools",
+                "version": "1.0.0",
+            }, ensure_ascii=False), encoding="utf-8")
+
+            manifests = [
+                ExtensionManifest(
+                    id="alpha-tools",
+                    name="Alpha Tools",
+                    version="1.0.0",
+                    backend_entry="extensions.alpha_tools.backend.ext",
+                    optional_dependencies=("beta-tools",),
+                    path=str(alpha_dir),
+                ),
+                ExtensionManifest(
+                    id="beta-tools",
+                    name="Beta Tools",
+                    version="1.0.0",
+                    path=str(beta_dir),
+                ),
+            ]
+            result = validate_extension_manifests_with_available_ids(
+                manifests,
+                available_extension_ids={"core"},
+                extensions_base_path=extensions_dir,
+            )
+
+            self.assertTrue(result.ok)
+            self.assertFalse(any(
+                item.code == "undeclared_conditional_extension_dependency"
+                for item in result.issues
+            ))
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_validate_extension_manifests_rejects_undeclared_public_contract_dependencies(self):
+        temp_dir = make_workspace_temp_dir()
+        try:
+            extensions_dir = Path(temp_dir) / "extensions"
+            alpha_dir = extensions_dir / "alpha-tools"
+            beta_dir = extensions_dir / "beta-tools"
+            alpha_backend_dir = alpha_dir / "backend"
+            alpha_backend_dir.mkdir(parents=True, exist_ok=False)
+            beta_dir.mkdir(parents=True, exist_ok=False)
+            (alpha_dir / "extension.json").write_text(json.dumps({
+                "id": "alpha-tools",
+                "name": "Alpha Tools",
+                "version": "1.0.0",
+                "backend_entry": "extensions.alpha_tools.backend.ext",
+            }, ensure_ascii=False), encoding="utf-8")
+            (alpha_backend_dir / "ext.py").write_text(
+                "from bias_core.extensions import EventListenersExtender, ExtensionEventListenerDefinition, RuntimeModel\n"
+                "\n"
+                "BETA_MODEL = RuntimeModel('beta-tools.service')\n"
+                "\n"
+                "def handle_beta(event):\n"
+                "    return None\n"
+                "\n"
+                "def extend():\n"
+                "    return [EventListenersExtender(listeners=(ExtensionEventListenerDefinition(\n"
+                "        event_type='beta-tools.item.created', handler=handle_beta,\n"
+                "    ),))]\n",
+                encoding="utf-8",
+            )
+            (beta_dir / "extension.json").write_text(json.dumps({
+                "id": "beta-tools",
+                "name": "Beta Tools",
+                "version": "1.0.0",
+            }, ensure_ascii=False), encoding="utf-8")
+
+            manifests = [
+                ExtensionManifest(
+                    id="alpha-tools",
+                    name="Alpha Tools",
+                    version="1.0.0",
+                    backend_entry="extensions.alpha_tools.backend.ext",
+                    path=str(alpha_dir),
+                ),
+                ExtensionManifest(
+                    id="beta-tools",
+                    name="Beta Tools",
+                    version="1.0.0",
+                    path=str(beta_dir),
+                ),
+            ]
+            result = validate_extension_manifests_with_available_ids(
+                manifests,
+                available_extension_ids={"core"},
+                extensions_base_path=extensions_dir,
+            )
+
+            self.assertFalse(result.ok)
+            issues = [
+                item
+                for item in result.issues
+                if item.code == "undeclared_public_contract_extension_dependency"
+                and item.extension_id == "alpha-tools"
+                and item.field.endswith("extensions/alpha-tools/backend/ext.py")
+            ]
+            self.assertGreaterEqual(len(issues), 2)
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_validate_extension_manifests_allows_declared_public_contract_dependencies(self):
+        temp_dir = make_workspace_temp_dir()
+        try:
+            extensions_dir = Path(temp_dir) / "extensions"
+            alpha_dir = extensions_dir / "alpha-tools"
+            beta_dir = extensions_dir / "beta-tools"
+            alpha_backend_dir = alpha_dir / "backend"
+            alpha_backend_dir.mkdir(parents=True, exist_ok=False)
+            beta_dir.mkdir(parents=True, exist_ok=False)
+            (alpha_dir / "extension.json").write_text(json.dumps({
+                "id": "alpha-tools",
+                "name": "Alpha Tools",
+                "version": "1.0.0",
+                "backend_entry": "extensions.alpha_tools.backend.ext",
+                "dependencies": ["beta-tools"],
+            }, ensure_ascii=False), encoding="utf-8")
+            (alpha_backend_dir / "ext.py").write_text(
+                "from bias_core.extensions import EventListenersExtender, ExtensionEventListenerDefinition, RuntimeModel\n"
+                "\n"
+                "BETA_MODEL = RuntimeModel('beta-tools.service')\n"
+                "\n"
+                "def handle_beta(event):\n"
+                "    return None\n"
+                "\n"
+                "def extend():\n"
+                "    return [EventListenersExtender(listeners=(ExtensionEventListenerDefinition(\n"
+                "        event_type='beta-tools.item.created', handler=handle_beta,\n"
+                "    ),))]\n",
+                encoding="utf-8",
+            )
+            (beta_dir / "extension.json").write_text(json.dumps({
+                "id": "beta-tools",
+                "name": "Beta Tools",
+                "version": "1.0.0",
+            }, ensure_ascii=False), encoding="utf-8")
+
+            manifests = [
+                ExtensionManifest(
+                    id="alpha-tools",
+                    name="Alpha Tools",
+                    version="1.0.0",
+                    backend_entry="extensions.alpha_tools.backend.ext",
+                    dependencies=("beta-tools",),
+                    path=str(alpha_dir),
+                ),
+                ExtensionManifest(
+                    id="beta-tools",
+                    name="Beta Tools",
+                    version="1.0.0",
+                    path=str(beta_dir),
+                ),
+            ]
+            result = validate_extension_manifests_with_available_ids(
+                manifests,
+                available_extension_ids={"core"},
+                extensions_base_path=extensions_dir,
+            )
+
+            self.assertTrue(result.ok)
+            self.assertFalse(any(
+                item.code == "undeclared_public_contract_extension_dependency"
+                for item in result.issues
+            ))
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_validate_extension_manifests_rejects_internal_event_contract_paths(self):
+        temp_dir = make_workspace_temp_dir()
+        try:
+            extensions_dir = Path(temp_dir) / "extensions"
+            alpha_dir = extensions_dir / "alpha-tools"
+            beta_dir = extensions_dir / "beta-tools"
+            alpha_backend_dir = alpha_dir / "backend"
+            alpha_backend_dir.mkdir(parents=True, exist_ok=False)
+            beta_dir.mkdir(parents=True, exist_ok=False)
+            (alpha_dir / "extension.json").write_text(json.dumps({
+                "id": "alpha-tools",
+                "name": "Alpha Tools",
+                "version": "1.0.0",
+                "backend_entry": "extensions.alpha_tools.backend.ext",
+                "dependencies": ["beta-tools"],
+            }, ensure_ascii=False), encoding="utf-8")
+            (alpha_backend_dir / "ext.py").write_text(
+                "from bias_core.extensions import EventListenersExtender, ExtensionEventListenerDefinition, RealtimeExtender\n"
+                "\n"
+                "def handle_beta(event):\n"
+                "    return None\n"
+                "\n"
+                "def resolve_discussion(event):\n"
+                "    return None\n"
+                "\n"
+                "def extend():\n"
+                "    return [\n"
+                "        EventListenersExtender(listeners=(ExtensionEventListenerDefinition(\n"
+                "            event_type='extensions.beta_tools.backend.events.ItemCreatedEvent', handler=handle_beta,\n"
+                "        ),)),\n"
+                "        RealtimeExtender().broadcast_discussion_event(\n"
+                "            'extensions.beta_tools.backend.events.ItemUpdatedEvent',\n"
+                "            'item.updated',\n"
+                "            discussion_getter=resolve_discussion,\n"
+                "        ),\n"
+                "    ]\n",
+                encoding="utf-8",
+            )
+            (beta_dir / "extension.json").write_text(json.dumps({
+                "id": "beta-tools",
+                "name": "Beta Tools",
+                "version": "1.0.0",
+            }, ensure_ascii=False), encoding="utf-8")
+
+            manifests = [
+                ExtensionManifest(
+                    id="alpha-tools",
+                    name="Alpha Tools",
+                    version="1.0.0",
+                    backend_entry="extensions.alpha_tools.backend.ext",
+                    dependencies=("beta-tools",),
+                    path=str(alpha_dir),
+                ),
+                ExtensionManifest(
+                    id="beta-tools",
+                    name="Beta Tools",
+                    version="1.0.0",
+                    path=str(beta_dir),
+                ),
+            ]
+            result = validate_extension_manifests_with_available_ids(
+                manifests,
+                available_extension_ids={"core"},
+                extensions_base_path=extensions_dir,
+            )
+
+            self.assertFalse(result.ok)
+            issues = [
+                item
+                for item in result.issues
+                if item.code == "forbidden_internal_event_contract_path"
+                and item.extension_id == "alpha-tools"
+                and item.field.endswith("extensions/alpha-tools/backend/ext.py")
+            ]
+            self.assertGreaterEqual(len(issues), 2)
+            self.assertTrue(any(
+                item.code == "forbidden_internal_event_contract_path"
+                and item.extension_id == "alpha-tools"
+                and item.field.endswith("extensions/alpha-tools/backend/ext.py")
+                for item in result.issues
+            ))
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_validate_extension_manifests_does_not_treat_service_provider_keys_as_event_aliases(self):
+        temp_dir = make_workspace_temp_dir()
+        try:
+            extensions_dir = Path(temp_dir) / "extensions"
+            alpha_dir = extensions_dir / "alpha-tools"
+            search_dir = extensions_dir / "search"
+            alpha_backend_dir = alpha_dir / "backend"
+            alpha_backend_dir.mkdir(parents=True, exist_ok=False)
+            search_dir.mkdir(parents=True, exist_ok=False)
+            (alpha_dir / "extension.json").write_text(json.dumps({
+                "id": "alpha-tools",
+                "name": "Alpha Tools",
+                "version": "1.0.0",
+                "backend_entry": "extensions.alpha_tools.backend.ext",
+            }, ensure_ascii=False), encoding="utf-8")
+            (alpha_backend_dir / "ext.py").write_text(
+                "from bias_core.extensions import ServiceProviderExtender\n"
+                "\n"
+                "def target_provider():\n"
+                "    return {}\n"
+                "\n"
+                "def extend():\n"
+                "    return [ServiceProviderExtender(key='search.target.discussion', provider=target_provider)]\n",
+                encoding="utf-8",
+            )
+            (search_dir / "extension.json").write_text(json.dumps({
+                "id": "search",
+                "name": "Search",
+                "version": "1.0.0",
+            }, ensure_ascii=False), encoding="utf-8")
+
+            manifests = [
+                ExtensionManifest(
+                    id="alpha-tools",
+                    name="Alpha Tools",
+                    version="1.0.0",
+                    backend_entry="extensions.alpha_tools.backend.ext",
+                    path=str(alpha_dir),
+                ),
+                ExtensionManifest(
+                    id="search",
+                    name="Search",
+                    version="1.0.0",
+                    path=str(search_dir),
+                ),
+            ]
+            result = validate_extension_manifests_with_available_ids(
+                manifests,
+                available_extension_ids={"core"},
+                extensions_base_path=extensions_dir,
+            )
+
+            self.assertTrue(result.ok)
+            self.assertFalse(any(
+                item.code == "undeclared_public_contract_extension_dependency"
+                for item in result.issues
+            ))
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
     def test_validate_extension_manifests_reports_missing_frontend_admin_exports(self):
         temp_dir = make_workspace_temp_dir()
         try:
@@ -671,7 +1605,7 @@ class ExtensionMiddlewareIntegrationTests(TestCase):
                 "id": "alpha-tools",
                 "name": "Alpha Tools",
                 "version": "1.0.0",
-                "frontend_forum_entry": "extensions/alpha-tools/frontend/forum/index.js",
+                "frontend_forum_entry": "frontend/forum/index.js",
             }, ensure_ascii=False), encoding="utf-8")
             (forum_dir / "index.js").write_text(
                 "import { registerForumNavItem } from '@/forum/registry'\n"
@@ -779,7 +1713,7 @@ class ExtensionMiddlewareIntegrationTests(TestCase):
                 "id": "alpha-tools",
                 "name": "Alpha Tools",
                 "version": "1.0.0",
-                "frontend_forum_entry": "extensions/alpha-tools/frontend/forum/index.js",
+                "frontend_forum_entry": "frontend/forum/index.js",
             }, ensure_ascii=False), encoding="utf-8")
 
             loader = ExtensionManifestLoader(Path(temp_dir) / "extensions")
@@ -1128,7 +2062,7 @@ class ExtensionMiddlewareIntegrationTests(TestCase):
                 "backend_entry": "extensions.alpha_tools.backend.ext",
             }, ensure_ascii=False), encoding="utf-8")
             (backend_dir / "ext.py").write_text(
-                "from bias_core import signals\n"
+                "from apps.alpha_tools import signals\n"
                 "\n"
                 "def extend():\n"
                 "    return []\n",
@@ -1191,7 +2125,142 @@ class ExtensionMiddlewareIntegrationTests(TestCase):
                 "backend_entry": "extensions.alpha_tools.backend.ext",
             }, ensure_ascii=False), encoding="utf-8")
             (backend_dir / "ext.py").write_text(
-                "from bias_core.extensions.backend import _build_runtime_action_definition\n"
+                "from bias_core.extensions.policy_runtime_service import PolicyRuntimeService\n"
+                "\n"
+                "def extend():\n"
+                "    return []\n",
+                encoding="utf-8",
+            )
+
+            loader = ExtensionManifestLoader(Path(temp_dir) / "extensions")
+            manifests = loader.discover_manifests()
+            result = validate_extension_manifests_with_available_ids(
+                manifests,
+                available_extension_ids={"core"},
+                extensions_base_path=Path(temp_dir) / "extensions",
+                public_sdk_only=True,
+            )
+
+            self.assertFalse(result.ok)
+            self.assertTrue(any(item.code == "forbidden_core_internal_import" for item in result.issues))
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_validate_extension_manifests_allows_public_sdk_facade_imports(self):
+        temp_dir = make_workspace_temp_dir()
+        try:
+            manifest_dir = Path(temp_dir) / "extensions" / "alpha-tools"
+            backend_dir = manifest_dir / "backend"
+            backend_dir.mkdir(parents=True, exist_ok=False)
+            (manifest_dir / "extension.json").write_text(json.dumps({
+                "id": "alpha-tools",
+                "name": "Alpha Tools",
+                "version": "1.0.0",
+                "backend_entry": "extensions.alpha_tools.backend.ext",
+            }, ensure_ascii=False), encoding="utf-8")
+            (backend_dir / "ext.py").write_text(
+                "from bias_core.extensions.platform import set_access_token_cookie\n"
+                "\n"
+                "def extend():\n"
+                "    return []\n",
+                encoding="utf-8",
+            )
+
+            loader = ExtensionManifestLoader(Path(temp_dir) / "extensions")
+            manifests = loader.discover_manifests()
+            result = validate_extension_manifests_with_available_ids(
+                manifests,
+                available_extension_ids={"core"},
+                extensions_base_path=Path(temp_dir) / "extensions",
+                public_sdk_only=True,
+            )
+
+            self.assertFalse(any(item.code == "forbidden_core_internal_import" for item in result.issues))
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_validate_extension_manifests_rejects_unavailable_public_sdk_submodule_imports(self):
+        temp_dir = make_workspace_temp_dir()
+        try:
+            manifest_dir = Path(temp_dir) / "extensions" / "alpha-tools"
+            backend_dir = manifest_dir / "backend"
+            backend_dir.mkdir(parents=True, exist_ok=False)
+            (manifest_dir / "extension.json").write_text(json.dumps({
+                "id": "alpha-tools",
+                "name": "Alpha Tools",
+                "version": "1.0.0",
+                "backend_entry": "extensions.alpha_tools.backend.ext",
+            }, ensure_ascii=False), encoding="utf-8")
+            (backend_dir / "ext.py").write_text(
+                "from bias_core.extensions.platform.cookies import set_access_token_cookie\n"
+                "\n"
+                "def extend():\n"
+                "    return []\n",
+                encoding="utf-8",
+            )
+
+            loader = ExtensionManifestLoader(Path(temp_dir) / "extensions")
+            manifests = loader.discover_manifests()
+            result = validate_extension_manifests_with_available_ids(
+                manifests,
+                available_extension_ids={"core"},
+                extensions_base_path=Path(temp_dir) / "extensions",
+                public_sdk_only=True,
+            )
+
+            self.assertFalse(result.ok)
+            self.assertTrue(any(item.code == "forbidden_core_internal_import" for item in result.issues))
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_validate_extension_manifests_rejects_extension_application_submodule_imports(self):
+        temp_dir = make_workspace_temp_dir()
+        try:
+            manifest_dir = Path(temp_dir) / "extensions" / "alpha-tools"
+            backend_dir = manifest_dir / "backend"
+            backend_dir.mkdir(parents=True, exist_ok=False)
+            (manifest_dir / "extension.json").write_text(json.dumps({
+                "id": "alpha-tools",
+                "name": "Alpha Tools",
+                "version": "1.0.0",
+                "backend_entry": "extensions.alpha_tools.backend.ext",
+            }, ensure_ascii=False), encoding="utf-8")
+            (backend_dir / "ext.py").write_text(
+                "from bias_core.extensions.application_frontend import ApplicationRouteService\n"
+                "\n"
+                "def extend():\n"
+                "    return []\n",
+                encoding="utf-8",
+            )
+
+            loader = ExtensionManifestLoader(Path(temp_dir) / "extensions")
+            manifests = loader.discover_manifests()
+            result = validate_extension_manifests_with_available_ids(
+                manifests,
+                available_extension_ids={"core"},
+                extensions_base_path=Path(temp_dir) / "extensions",
+                public_sdk_only=True,
+            )
+
+            self.assertFalse(result.ok)
+            self.assertTrue(any(item.code == "forbidden_core_internal_import" for item in result.issues))
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_validate_extension_manifests_rejects_internal_forum_facade_imports(self):
+        temp_dir = make_workspace_temp_dir()
+        try:
+            manifest_dir = Path(temp_dir) / "extensions" / "alpha-tools"
+            backend_dir = manifest_dir / "backend"
+            backend_dir.mkdir(parents=True, exist_ok=False)
+            (manifest_dir / "extension.json").write_text(json.dumps({
+                "id": "alpha-tools",
+                "name": "Alpha Tools",
+                "version": "1.0.0",
+                "backend_entry": "extensions.alpha_tools.backend.ext",
+            }, ensure_ascii=False), encoding="utf-8")
+            (backend_dir / "ext.py").write_text(
+                "from bias_core.extensions.forum import get_forum_registry\n"
                 "\n"
                 "def extend():\n"
                 "    return []\n",

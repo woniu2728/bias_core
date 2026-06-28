@@ -104,6 +104,7 @@ def validate_cross_extension_imports(
     *,
     known_extension_ids: set[str],
     public_sdk_only: bool = False,
+    include_tests: bool = False,
 ) -> None:
     extension_dir = extension_root_path(manifest, base_path)
     if not extension_dir.exists():
@@ -111,13 +112,33 @@ def validate_cross_extension_imports(
 
     required_dependencies = set(manifest.dependencies)
     optional_dependencies = set(manifest.optional_dependencies)
-    for file_path in iter_extension_runtime_python_files(extension_dir):
+    for file_path in iter_extension_runtime_python_files(extension_dir, include_tests=include_tests):
         try:
             source = file_path.read_text(encoding="utf-8")
         except UnicodeDecodeError:
             continue
 
         relative_path = file_path.relative_to(base_path.parent).as_posix()
+        validate_conditional_extension_dependencies(
+            collector,
+            manifest,
+            source,
+            relative_path,
+            known_extension_ids=known_extension_ids,
+        )
+        validate_public_contract_extension_dependencies(
+            collector,
+            manifest,
+            source,
+            relative_path,
+            known_extension_ids=known_extension_ids,
+        )
+        validate_event_contract_paths(
+            collector,
+            manifest,
+            source,
+            relative_path,
+        )
         internal_import_spans: set[tuple[int, int]] = set()
         for match in PYTHON_EXTENSION_INTERNAL_IMPORT_PATTERN.finditer(source):
             imported_module, imported_tail = _extension_import_match_parts(match)
@@ -172,6 +193,202 @@ def validate_cross_extension_imports(
             validate_public_sdk_imports(collector, manifest, source, relative_path)
 
 
+def validate_conditional_extension_dependencies(
+    collector: ExtensionValidationCollector,
+    manifest: ExtensionManifest,
+    source: str,
+    relative_path: str,
+    *,
+    known_extension_ids: set[str],
+) -> None:
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return
+
+    declared_dependency_ids = set(manifest.dependencies) | set(manifest.optional_dependencies)
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        function = node.func
+        if not isinstance(function, ast.Attribute):
+            continue
+        if function.attr not in {"when_extension_enabled", "when_extension_disabled"}:
+            continue
+        if not node.args:
+            continue
+        extension_id_node = node.args[0]
+        if not isinstance(extension_id_node, ast.Constant) or not isinstance(extension_id_node.value, str):
+            continue
+        extension_id = extension_id_node.value.strip()
+        if not _is_missing_extension_dependency(
+            manifest,
+            extension_id,
+            known_extension_ids=known_extension_ids,
+            declared_dependency_ids=declared_dependency_ids,
+        ):
+            continue
+        collector.add_error(
+            "undeclared_conditional_extension_dependency",
+            f"扩展源码条件接入了 {extension_id}，但未在 optional_dependencies 中声明。"
+            "ConditionalExtender 的扩展 ID 会影响启动顺序，必须通过 optional_dependencies 显式表达。",
+            extension_id=manifest.id,
+            field=relative_path,
+        )
+
+
+def validate_public_contract_extension_dependencies(
+    collector: ExtensionValidationCollector,
+    manifest: ExtensionManifest,
+    source: str,
+    relative_path: str,
+    *,
+    known_extension_ids: set[str],
+) -> None:
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return
+
+    declared_dependency_ids = set(manifest.dependencies) | set(manifest.optional_dependencies)
+    for extension_id, kind, value in iter_public_contract_extension_references(tree):
+        if not _is_missing_extension_dependency(
+            manifest,
+            extension_id,
+            known_extension_ids=known_extension_ids,
+            declared_dependency_ids=declared_dependency_ids,
+        ):
+            continue
+        collector.add_error(
+            "undeclared_public_contract_extension_dependency",
+            f"扩展源码通过公开 {kind} 契约引用了 {extension_id}（{value}），"
+            "但未在 dependencies 或 optional_dependencies 中声明。"
+            "事件别名、RuntimeModel 与 runtime service 字符串同样会影响启动顺序，必须显式表达依赖关系。",
+            extension_id=manifest.id,
+            field=relative_path,
+        )
+
+
+def validate_event_contract_paths(
+    collector: ExtensionValidationCollector,
+    manifest: ExtensionManifest,
+    source: str,
+    relative_path: str,
+) -> None:
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return
+
+    for value in iter_event_contract_values(tree):
+        if _is_legacy_extension_internal_event_path(value):
+            collector.add_error(
+                "forbidden_internal_event_contract_path",
+                f"扩展事件契约使用了内部事件类路径 {value}。"
+                "跨扩展事件必须通过提供方公开的事件别名引用，例如 posts.post.created。",
+                extension_id=manifest.id,
+                field=relative_path,
+            )
+
+
+def iter_public_contract_extension_references(tree: ast.AST):
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            function = node.func
+            if (
+                isinstance(function, ast.Name)
+                and function.id == "RuntimeModel"
+                and node.args
+                and isinstance(node.args[0], ast.Constant)
+                and isinstance(node.args[0].value, str)
+            ):
+                value = node.args[0].value.strip()
+                extension_id = _extension_id_from_runtime_service_key(value)
+                if extension_id:
+                    yield extension_id, "RuntimeModel", value
+            event_alias = _event_alias_from_event_contract_call(node)
+            if event_alias:
+                extension_id = _extension_id_from_event_alias(event_alias)
+                if extension_id:
+                    yield extension_id, "event alias", event_alias
+
+
+def iter_event_contract_values(tree: ast.AST):
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            value = _event_alias_from_event_contract_call(node)
+            if value:
+                yield value
+
+
+def _is_legacy_extension_internal_event_path(value: str) -> bool:
+    normalized = str(value or "").strip()
+    return normalized.startswith("extensions.") and ".backend." in normalized
+
+
+def _extension_id_from_runtime_service_key(value: str) -> str:
+    normalized = str(value or "").strip()
+    if "." not in normalized:
+        return ""
+    extension_id, suffix = normalized.split(".", 1)
+    if suffix != "service" and not suffix.startswith("service."):
+        return ""
+    return extension_id.strip()
+
+
+def _extension_id_from_event_alias(value: str) -> str:
+    normalized = str(value or "").strip()
+    parts = normalized.split(".")
+    if len(parts) < 3:
+        return ""
+    extension_id = parts[0].strip()
+    domain = parts[1].strip()
+    event_name = ".".join(parts[2:]).strip()
+    if not extension_id or not domain or not event_name:
+        return ""
+    return extension_id
+
+
+def _event_alias_from_event_contract_call(node: ast.Call) -> str:
+    function = node.func
+    if isinstance(function, ast.Name) and function.id == "ExtensionEventListenerDefinition":
+        for keyword in node.keywords:
+            if keyword.arg == "event_type":
+                return _string_constant_value(keyword.value)
+        if node.args:
+            return _string_constant_value(node.args[0])
+        return ""
+    if isinstance(function, ast.Attribute) and function.attr == "broadcast_discussion_event":
+        if node.args:
+            return _string_constant_value(node.args[0])
+        for keyword in node.keywords:
+            if keyword.arg == "event_type":
+                return _string_constant_value(keyword.value)
+    return ""
+
+
+def _string_constant_value(node: ast.AST) -> str:
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value.strip()
+    return ""
+
+
+def _is_missing_extension_dependency(
+    manifest: ExtensionManifest,
+    extension_id: str,
+    *,
+    known_extension_ids: set[str],
+    declared_dependency_ids: set[str],
+) -> bool:
+    normalized = str(extension_id or "").strip()
+    return bool(
+        normalized
+        and normalized != manifest.id
+        and normalized in known_extension_ids
+        and normalized not in declared_dependency_ids
+    )
+
+
 def validate_public_sdk_imports(
     collector: ExtensionValidationCollector,
     manifest: ExtensionManifest,
@@ -192,7 +409,7 @@ def validate_public_sdk_imports(
                 field=relative_path,
             )
             continue
-        if imported_path in PUBLIC_EXTENSION_IMPORT_MODULES:
+        if is_public_extension_sdk_import(imported_path):
             continue
         collector.add_error(
             "forbidden_core_internal_import",
@@ -200,6 +417,11 @@ def validate_public_sdk_imports(
             extension_id=manifest.id,
             field=relative_path,
         )
+
+
+def is_public_extension_sdk_import(imported_path: str) -> bool:
+    normalized = str(imported_path or "").strip()
+    return normalized in PUBLIC_EXTENSION_IMPORT_MODULES
 
 
 def iter_core_import_paths(tree: ast.AST):
@@ -222,9 +444,12 @@ def iter_core_import_paths(tree: ast.AST):
 def normalize_core_public_import_path(module: str) -> str:
     parts = str(module or "").strip().split(".")
     if parts[:2] == ["bias_core", "extensions"]:
-        if len(parts) <= 3:
+        if len(parts) <= 2:
             return ".".join(parts[:2])
-        return ".".join(parts[:4])
+        facade = ".".join(parts[:3])
+        if facade in PUBLIC_EXTENSION_IMPORT_MODULES:
+            return ".".join(parts)
+        return ".".join(parts[:3])
     if len(parts) <= 2:
         return "bias_core"
     return ".".join(parts[:3])
@@ -241,13 +466,16 @@ def iter_extension_source_files(extension_dir: Path):
         yield file_path
 
 
-def iter_extension_runtime_python_files(extension_dir: Path):
+def iter_extension_runtime_python_files(extension_dir: Path, *, include_tests: bool = False):
     for file_path in extension_dir.rglob("*.py"):
         if not file_path.is_file():
             continue
-        if any(part in SKIPPED_SOURCE_DIRS for part in file_path.parts):
+        skipped_source_dirs = SKIPPED_SOURCE_DIRS - {"tests"} if include_tests else SKIPPED_SOURCE_DIRS
+        if any(part in skipped_source_dirs for part in file_path.parts):
             continue
-        if file_path.name == "tests.py" or file_path.name.startswith("test_") or file_path.name.endswith("_test.py"):
+        if not include_tests and (
+            file_path.name == "tests.py" or file_path.name.startswith("test_") or file_path.name.endswith("_test.py")
+        ):
             continue
         yield file_path
 

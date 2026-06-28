@@ -67,7 +67,16 @@ class QueueService:
         return task_module.startswith("apps.") or (
             task_module.startswith("extensions.")
             and ".backend.tasks" in task_module
+        ) or (
+            task_module.startswith("bias_ext_")
+            and ".backend.tasks" in task_module
         )
+
+    @staticmethod
+    def _get_celery_app():
+        from config.celery import app as celery_app
+
+        return celery_app
 
     @staticmethod
     def get_runtime_config() -> dict:
@@ -122,8 +131,7 @@ class QueueService:
             }
 
         try:
-            from config.celery import app as celery_app
-
+            celery_app = QueueService._get_celery_app()
             inspector = celery_app.control.inspect(timeout=3.0)
             ping_result = inspector.ping() or {}
             if not ping_result:

@@ -98,6 +98,19 @@ class LifecycleExtender:
     disable: Callable[["ExtensionBackendContext"], Any] | None = None
     uninstall: Callable[["ExtensionBackendContext"], Any] | None = None
 
+    @property
+    def lifecycle_hook_keys(self) -> tuple[str, ...]:
+        hooks = []
+        if self.install is not None:
+            hooks.append("install")
+        if self.enable is not None:
+            hooks.append("enable")
+        if self.disable is not None:
+            hooks.append("disable")
+        if self.uninstall is not None:
+            hooks.append("uninstall")
+        return tuple(hooks)
+
     def extend(self, app: "ExtensionHost", extension: "ExtensionRuntimeView") -> None:
         app.register_lifecycle_extender(extension.extension_id, self)
 

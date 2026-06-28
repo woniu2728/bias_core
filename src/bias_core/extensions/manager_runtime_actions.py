@@ -6,7 +6,7 @@ from bias_core.extensions.product import is_extension_protected
 from bias_core.extensions.types import ExtensionRuntimeActionDefinition
 
 
-def build_runtime_actions(extension: Extension) -> tuple[ExtensionRuntimeActionDefinition, ...]:
+def build_runtime_actions(extension: Extension, extensions: tuple[Extension, ...] = ()) -> tuple[ExtensionRuntimeActionDefinition, ...]:
     manifest_actions = build_manifest_runtime_actions(extension)
     migration_action = build_migration_runtime_action(extension)
     protected = is_extension_protected(extension)
@@ -59,7 +59,37 @@ def build_runtime_actions(extension: Extension) -> tuple[ExtensionRuntimeActionD
             requires_installed=True,
             order=10,
         ))
+        disabled_dependencies = build_disabled_dependency_ids(extension, extensions)
+        if disabled_dependencies:
+            actions.append(ExtensionRuntimeActionDefinition(
+                key="enable-with-dependencies",
+                label="启用扩展及依赖",
+                action="enable",
+                payload={"include_dependencies": True},
+                tone="primary",
+                confirm_title="启用扩展及依赖",
+                confirm_message=f"确定启用 {extension.name} 及其依赖扩展吗？将先启用：{', '.join(disabled_dependencies)}。",
+                confirm_text="启用全部",
+                success_message="扩展及依赖已启用。",
+                requires_installed=True,
+                order=11,
+            ))
         if not protected:
+            installed_dependents = build_dependent_ids(extension, extensions, uninstalling=True)
+            if installed_dependents:
+                actions.append(ExtensionRuntimeActionDefinition(
+                    key="uninstall-with-dependents",
+                    label="卸载扩展及依赖它的扩展",
+                    action="uninstall",
+                    payload={"include_dependents": True},
+                    tone="danger",
+                    confirm_title="卸载扩展及关联扩展",
+                    confirm_message=f"确定卸载 {extension.name} 及依赖它的扩展吗？将先卸载：{', '.join(installed_dependents)}。",
+                    confirm_text="卸载全部",
+                    success_message="扩展及关联扩展已卸载。",
+                    requires_installed=True,
+                    order=29,
+                ))
             actions.append(ExtensionRuntimeActionDefinition(
                 key="uninstall",
                 label="卸载扩展",
@@ -72,8 +102,25 @@ def build_runtime_actions(extension: Extension) -> tuple[ExtensionRuntimeActionD
                 requires_installed=True,
                 order=30,
             ))
+    if extension.runtime.enabled and not protected:
+        enabled_dependents = build_dependent_ids(extension, extensions, uninstalling=False)
+        if enabled_dependents:
+            actions.append(ExtensionRuntimeActionDefinition(
+                key="disable-with-dependents",
+                label="停用扩展及依赖它的扩展",
+                action="disable",
+                payload={"include_dependents": True},
+                tone="danger",
+                confirm_title="停用扩展及关联扩展",
+                confirm_message=f"确定停用 {extension.name} 及依赖它的扩展吗？将先停用：{', '.join(enabled_dependents)}。",
+                confirm_text="停用全部",
+                success_message="扩展及关联扩展已停用。",
+                requires_enabled=True,
+                requires_installed=True,
+                order=19,
+            ))
 
-    return tuple(actions)
+    return tuple(sorted(actions, key=lambda item: (item.order, item.key)))
 
 
 def build_manifest_runtime_actions(extension: Extension) -> tuple[ExtensionRuntimeActionDefinition, ...]:
@@ -121,4 +168,32 @@ def build_uninstall_confirm_message(extension: Extension) -> str:
 
     body = "；".join(warnings[:2])
     return f"确定卸载 {extension.name} 吗？{body}"
+
+
+def build_disabled_dependency_ids(extension: Extension, extensions: tuple[Extension, ...]) -> list[str]:
+    extension_map = {item.id: item for item in extensions}
+    dependency_ids = []
+    for dependency_id in extension.manifest.dependencies:
+        dependency = extension_map.get(dependency_id)
+        if dependency is None:
+            continue
+        if dependency.runtime.installed and not dependency.runtime.enabled:
+            dependency_ids.append(dependency_id)
+    return dependency_ids
+
+
+def build_dependent_ids(extension: Extension, extensions: tuple[Extension, ...], *, uninstalling: bool) -> list[str]:
+    dependent_ids = []
+    for candidate in extensions:
+        if candidate.id == extension.id:
+            continue
+        if extension.id not in candidate.manifest.dependencies:
+            continue
+        if uninstalling:
+            if not candidate.runtime.installed:
+                continue
+        elif not candidate.runtime.enabled:
+            continue
+        dependent_ids.append(candidate.id)
+    return sorted(dependent_ids)
 

@@ -323,6 +323,7 @@ class ResourceRelationship(ResourceField):
     inverse: str = ""
     includable: bool = True
     linkage: Callable[[Any, ResourceContext], Any] | bool = True
+    plain_output: str = ""
     relationship_setter: Callable[[Any, Any, ResourceContext], None] | None = None
 
     @property
@@ -589,12 +590,14 @@ class Resource:
     module_id = "core"
     _endpoint_modifiers: dict[type, list[Callable[[list[Any], "Resource"], list[Any]]]] = {}
     _field_modifiers: dict[type, list[Callable[[list[Any], "Resource"], list[Any]]]] = {}
+    _relationship_modifiers: dict[type, list[Callable[[list[Any], "Resource"], list[Any]]]] = {}
     _sort_modifiers: dict[type, list[Callable[[list[Any], "Resource"], list[Any]]]] = {}
     _filter_modifiers: dict[type, list[Callable[[list[Any], "Resource"], list[Any]]]] = {}
 
     def __init__(self) -> None:
         self._cached_endpoints = None
         self._cached_fields = None
+        self._cached_relationships = None
         self._cached_sorts = None
         self._cached_filters = None
 
@@ -607,6 +610,11 @@ class Resource:
     def mutate_fields(cls, modifier: Callable[[list[Any], "Resource"], list[Any]]) -> None:
         if callable(modifier):
             cls._field_modifiers.setdefault(cls, []).append(modifier)
+
+    @classmethod
+    def mutate_relationships(cls, modifier: Callable[[list[Any], "Resource"], list[Any]]) -> None:
+        if callable(modifier):
+            cls._relationship_modifiers.setdefault(cls, []).append(modifier)
 
     @classmethod
     def mutate_sorts(cls, modifier: Callable[[list[Any], "Resource"], list[Any]]) -> None:
@@ -623,6 +631,7 @@ class Resource:
         modifier_maps = {
             "endpoints": cls._endpoint_modifiers,
             "fields": cls._field_modifiers,
+            "relationships": cls._relationship_modifiers,
             "sorts": cls._sort_modifiers,
             "filters": cls._filter_modifiers,
         }
@@ -644,6 +653,9 @@ class Resource:
     def fields(self) -> list[ResourceField | ResourceRelationship]:
         return []
 
+    def relationships(self) -> list[ResourceRelationship]:
+        return []
+
     def sorts(self) -> list[ResourceSort]:
         return []
 
@@ -663,6 +675,18 @@ class Resource:
             self._cached_fields = self._resolve_items("fields", list(self.fields()))
         return list(self._cached_fields)
 
+    def resolve_relationships(self) -> list[ResourceRelationship]:
+        self._ensure_resolve_cache()
+        if self._cached_relationships is None:
+            field_relationships = [
+                item
+                for item in self.resolve_fields()
+                if isinstance(item, ResourceRelationship)
+            ]
+            relationships = [*field_relationships, *list(self.relationships())]
+            self._cached_relationships = self._resolve_items("relationships", relationships)
+        return list(self._cached_relationships)
+
     def resolve_sorts(self) -> list[ResourceSort]:
         self._ensure_resolve_cache()
         if self._cached_sorts is None:
@@ -679,6 +703,7 @@ class Resource:
         self._ensure_resolve_cache()
         self._cached_endpoints = None
         self._cached_fields = None
+        self._cached_relationships = None
         self._cached_sorts = None
         self._cached_filters = None
 
@@ -687,6 +712,8 @@ class Resource:
             self._cached_endpoints = None
         if not hasattr(self, "_cached_fields"):
             self._cached_fields = None
+        if not hasattr(self, "_cached_relationships"):
+            self._cached_relationships = None
         if not hasattr(self, "_cached_sorts"):
             self._cached_sorts = None
         if not hasattr(self, "_cached_filters"):
@@ -696,6 +723,7 @@ class Resource:
         modifier_map = {
             "endpoints": self._endpoint_modifiers,
             "fields": self._field_modifiers,
+            "relationships": self._relationship_modifiers,
             "sorts": self._sort_modifiers,
             "filters": self._filter_modifiers,
         }.get(kind, {})

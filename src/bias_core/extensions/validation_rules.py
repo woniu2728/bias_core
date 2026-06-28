@@ -27,9 +27,10 @@ PUBLIC_EXTENSION_IMPORT_MODULES = {
     "bias_core.extensions",
     "bias_core.extensions.runtime",
     "bias_core.extensions.platform",
-    "bias_core.extensions.forum",
     "bias_core.extensions.contracts",
     "bias_core.extensions.sdk",
+    "bias_core.extensions.notifications",
+    "bias_core.extensions.testing",
 }
 FORBIDDEN_CROSS_EXTENSION_INTERNAL_IMPORT_RE = re.compile(
     r"^\.backend\.(?:models|services|tasks|signals|events|visibility|admin|admin_api|api|handlers|resources|resource|listeners)(?:\.|$)"
@@ -61,6 +62,11 @@ FORBIDDEN_EXTENSION_MANIFEST_FIELD_PATTERNS = (
         "forbidden_migration_namespace_manifest_field",
         re.compile(r'"migration_namespace"\s*:'),
         "扩展清单不能声明 migration_namespace；扩展迁移必须通过 django_app_config 与 backend/django_migrations 接入。",
+    ),
+    (
+        "forbidden_django_migration_module_manifest_field",
+        re.compile(r'"django_migration_module"\s*:'),
+        "扩展清单不能在顶层声明 django_migration_module；扩展迁移必须通过 django.migration_module 接入。",
     ),
 )
 

@@ -27,8 +27,10 @@ def get_extension_application(*, force: bool = False):
 def clear_bootstrapped_extension_application() -> None:
     global _extension_application
     global _extension_application_base_dir
+    _invalidate_runtime_service_proxies()
     _extension_application = None
     _extension_application_base_dir = ""
+    reset_extension_host_bootstrap_state()
 
 
 def clear_bootstrapped_extension_host() -> None:
@@ -38,6 +40,7 @@ def clear_bootstrapped_extension_host() -> None:
 def set_bootstrapped_extension_host(application) -> None:
     global _extension_application
     global _extension_application_base_dir
+    _invalidate_runtime_service_proxies()
     _extension_application = application
     _extension_application_base_dir = _current_base_dir()
     mark_extension_host_bootstrapped()
@@ -53,7 +56,6 @@ def reset_extension_application_bootstrap_state() -> None:
 
 def reset_extension_host_bootstrap() -> None:
     clear_bootstrapped_extension_host()
-    reset_extension_host_bootstrap_state()
 
 
 def build_extension_application(
@@ -115,6 +117,8 @@ def bootstrap_extension_host(*, force: bool = False):
     global _extension_application
     global _extension_application_base_dir
     current_base_dir = _current_base_dir()
+    if force:
+        _invalidate_runtime_service_proxies()
 
     if (
         is_extension_host_bootstrapped()
@@ -147,3 +151,9 @@ def _current_base_dir() -> str:
     from django.conf import settings
 
     return str(settings.BASE_DIR)
+
+
+def _invalidate_runtime_service_proxies() -> None:
+    from bias_core.extensions.runtime_core import invalidate_runtime_service_proxies
+
+    invalidate_runtime_service_proxies()

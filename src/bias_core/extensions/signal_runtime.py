@@ -160,6 +160,9 @@ def _build_dispatch_uid(extension_id: str, definition: ExtensionSignalDefinition
 def _label_for(value: Any, *, fallback: str) -> str:
     if value is None:
         return fallback
+    callback_label = str(getattr(value, "__bias_callback_label__", "") or "").strip()
+    if callback_label:
+        return callback_label
     module = str(getattr(value, "__module__", "") or "").strip()
     qualname = str(getattr(value, "__qualname__", "") or getattr(value, "__name__", "") or "").strip()
     if module or qualname:

@@ -204,10 +204,16 @@ def _model_db_table(model) -> str:
 
 def _model_storage_origin(model, extension_id: str) -> str:
     module = _model_module(model)
-    extension_module = f"extensions.{str(extension_id or '').replace('-', '_')}."
+    normalized_extension_id = str(extension_id or "").replace("-", "_")
+    extension_module = f"extensions.{normalized_extension_id}."
+    split_extension_module = f"bias_ext_{normalized_extension_id}."
     if module.startswith(extension_module):
         return "extension"
+    if module.startswith(split_extension_module):
+        return "extension"
     if module.startswith("extensions."):
+        return "extension-other"
+    if module.startswith("bias_ext_"):
         return "extension-other"
     if module.startswith("apps."):
         return "django_app"

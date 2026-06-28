@@ -15,4 +15,9 @@ class AuthBearer(HttpBearer):
 def get_optional_user(request) -> Any:
     if hasattr(request, "auth") and request.auth:
         return request.auth
-    return None
+    try:
+        from bias_core.api.jwt_auth import resolve_authenticated_user
+
+        return resolve_authenticated_user(request)
+    except Exception:
+        return None

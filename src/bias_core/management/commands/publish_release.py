@@ -6,6 +6,8 @@ from django.conf import settings
 from django.core.management import BaseCommand, call_command
 from django.core.management.base import CommandParser
 
+from bias_core.release import get_frontend_package_json_path
+from bias_core.release import get_frontend_package_lock_path
 from bias_core.release import run_git_command
 
 
@@ -21,6 +23,12 @@ class Command(BaseCommand):
         parser.add_argument("--push", action="store_true", help="创建 tag 后自动 push 到 origin main --tags")
         parser.add_argument("--dry-run", action="store_true", help="只做校验和预演，不写文件、不创建 tag")
         parser.add_argument("--extension-report", help="可选：把扩展诊断快照写入指定 JSON 文件")
+        parser.add_argument("--contract-baseline", help="可选：传递给 prepare_release 的扩展契约基线 JSON")
+        parser.add_argument(
+            "--skip-frontend-platform-check",
+            action="store_true",
+            help="传递给 prepare_release，跳过站点前端 SDK/扩展边界检查",
+        )
         parser.add_argument(
             "--allow-extension-attention",
             action="store_true",
@@ -36,7 +44,9 @@ class Command(BaseCommand):
         push = bool(options.get("push"))
         dry_run = bool(options.get("dry_run"))
         extension_report = str(options.get("extension_report") or "").strip()
+        contract_baseline = str(options.get("contract_baseline") or "").strip()
         allow_extension_attention = bool(options.get("allow_extension_attention"))
+        skip_frontend_platform_check = bool(options.get("skip_frontend_platform_check"))
 
         self.stdout.write(self.style.MIGRATE_HEADING("开始准备发布 Bias"))
 
@@ -62,11 +72,21 @@ class Command(BaseCommand):
             finalize_args.extend(["--message", str(message)])
         if extension_report:
             prepare_args.extend(["--extension-report", extension_report])
+        if contract_baseline:
+            prepare_args.extend(["--contract-baseline", contract_baseline])
+        if skip_frontend_platform_check:
+            prepare_args.append("--skip-frontend-platform-check")
 
         call_command("prepare_release", *prepare_args)
 
         if not dry_run:
-            self._run_git_command(["git", "add", "VERSION", "frontend/package.json", "frontend/package-lock.json"])
+            self._run_git_command([
+                "git",
+                "add",
+                "VERSION",
+                str(get_frontend_package_json_path(settings.BASE_DIR)),
+                str(get_frontend_package_lock_path(settings.BASE_DIR)),
+            ])
             self._run_git_command(["git", "commit", "-m", commit_message])
 
         call_command("finalize_release", *finalize_args)

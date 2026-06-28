@@ -62,6 +62,7 @@ class ResourceRelationshipDefinition:
     setter: Callable[[Any, Any, dict], None] | None = None
     writable: Callable[[Any, dict], bool] | bool = False
     linkage: Callable[[Any, dict], Any] | bool = True
+    plain_output: str = ""
     required_on_create: bool = False
     required_on_update: bool = False
     nullable: bool = False

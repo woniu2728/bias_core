@@ -17,6 +17,33 @@ class ExtensionServiceTests(TestCase):
     def _record_alpha_tools_django_migration(self):
         MigrationRecorder(connection).record_applied("alpha_tools", "0001_bootstrap")
 
+    def _create_beta_tools_dependency_fixture(self):
+        beta_dir = self.extension_base_dir / "extensions" / "beta-tools"
+        beta_dir.mkdir(parents=True, exist_ok=True)
+        (beta_dir / "extension.json").write_text(json.dumps({
+            "id": "beta-tools",
+            "name": "Beta Tools",
+            "version": "0.1.0",
+            "dependencies": ["core"],
+            "description": "Dependency fixture for lifecycle tests.",
+            "extra": {"product_hidden": True},
+        }, ensure_ascii=False), encoding="utf-8")
+        manifest_path = self.extension_base_dir / "extensions" / "alpha-tools" / "extension.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["dependencies"] = ["core", "beta-tools"]
+        manifest_path.write_text(json.dumps(manifest, ensure_ascii=False), encoding="utf-8")
+        ExtensionInstallation.objects.update_or_create(
+            extension_id="beta-tools",
+            defaults={
+                "version": "0.1.0",
+                "source": "filesystem",
+                "enabled": False,
+                "installed": True,
+                "booted": False,
+            },
+        )
+        reset_extension_runtime_state()
+
     def test_install_and_uninstall_transition_filesystem_extension(self):
         installed = ExtensionService.install_extension("alpha-tools")
         self.assertTrue(installed.runtime.installed)
@@ -147,6 +174,7 @@ class ExtensionServiceTests(TestCase):
         call_command("migrate_extensions", "--all", "--dry-run", "--format", "json", stdout=stdout)
         payload = json.loads(stdout.getvalue())
 
+        self.assertGreaterEqual(payload["summary"]["target_count"], 1)
         sample_extension = next(item for item in payload["extensions"] if item["id"] == "alpha-tools")
         self.assertEqual(sample_extension["status"], "ok")
         self.assertIn("0001_bootstrap.py", sample_extension["migration_plan"]["pending_files"])
@@ -178,12 +206,291 @@ class ExtensionServiceTests(TestCase):
 
         self.assertTrue(enabled.runtime.enabled)
 
+    def test_install_raises_when_required_dependency_is_disabled(self):
+        self._create_beta_tools_dependency_fixture()
+
+        with self.assertRaises(ExtensionStateError) as context:
+            ExtensionService.install_extension("alpha-tools")
+
+        self.assertEqual(context.exception.code, "extension_install_blocked")
+        self.assertEqual(context.exception.details["disabled_dependencies"], ["beta-tools"])
+        self.assertFalse(ExtensionInstallation.objects.filter(extension_id="alpha-tools").exists())
+
+    def test_lifecycle_plan_reports_dependency_and_dependent_blockers(self):
+        self._create_beta_tools_dependency_fixture()
+
+        plan = ExtensionService.build_extension_lifecycle_plan("alpha-tools")
+
+        self.assertFalse(plan["install"]["can_execute"])
+        self.assertEqual(plan["install"]["disabled_dependencies"], ["beta-tools"])
+        self.assertIn("disabled_dependencies", plan["install"]["blockers"])
+        self.assertFalse(plan["enable"]["dependency_transaction"]["can_execute"])
+        self.assertIn("not_installed", plan["enable"]["dependency_transaction"]["blockers"])
+
+        ExtensionInstallation.objects.update_or_create(
+            extension_id="alpha-tools",
+            defaults={
+                "version": "0.1.0",
+                "source": "filesystem",
+                "enabled": False,
+                "installed": True,
+                "booted": False,
+            },
+        )
+        reset_extension_runtime_state()
+        installed_plan = ExtensionService.build_extension_lifecycle_plan("alpha-tools")
+        self.assertTrue(installed_plan["enable"]["dependency_transaction"]["can_execute"])
+        self.assertEqual(
+            installed_plan["enable"]["dependency_transaction"]["order"],
+            ["beta-tools", "alpha-tools"],
+        )
+
+        ExtensionInstallation.objects.filter(extension_id="alpha-tools").update(enabled=True, booted=True)
+        ExtensionInstallation.objects.filter(extension_id="beta-tools").update(enabled=True, booted=True)
+        reset_extension_runtime_state()
+        beta_plan = ExtensionService.build_extension_lifecycle_plan("beta-tools")
+
+        self.assertFalse(beta_plan["disable"]["can_execute"])
+        self.assertEqual(beta_plan["disable"]["blocking_dependents"], ["alpha-tools"])
+        self.assertIn("blocking_dependents", beta_plan["disable"]["blockers"])
+        self.assertTrue(beta_plan["disable"]["dependent_transaction"]["can_execute"])
+        self.assertEqual(beta_plan["disable"]["dependent_transaction"]["order"], ["alpha-tools", "beta-tools"])
+        self.assertFalse(beta_plan["uninstall"]["can_execute"])
+        self.assertEqual(beta_plan["uninstall"]["blocking_dependents"], ["alpha-tools"])
+        self.assertEqual(beta_plan["uninstall"]["dependent_transaction"]["order"], ["alpha-tools", "beta-tools"])
+
+    def test_runtime_actions_include_lifecycle_transaction_payloads(self):
+        self._create_beta_tools_dependency_fixture()
+        ExtensionInstallation.objects.update_or_create(
+            extension_id="alpha-tools",
+            defaults={
+                "version": "0.1.0",
+                "source": "filesystem",
+                "enabled": False,
+                "installed": True,
+                "booted": False,
+            },
+        )
+        reset_extension_runtime_state()
+
+        alpha = ExtensionService.get_extension("alpha-tools")
+        alpha_actions = {action.key: action for action in alpha.runtime.runtime_actions}
+        self.assertEqual(alpha_actions["enable-with-dependencies"].action, "enable")
+        self.assertEqual(alpha_actions["enable-with-dependencies"].payload, {"include_dependencies": True})
+
+        ExtensionInstallation.objects.filter(extension_id="alpha-tools").update(enabled=True, booted=True)
+        ExtensionInstallation.objects.filter(extension_id="beta-tools").update(enabled=True, booted=True)
+        reset_extension_runtime_state()
+        beta = ExtensionService.get_extension("beta-tools")
+        beta_actions = {action.key: action for action in beta.runtime.runtime_actions}
+        self.assertEqual(beta_actions["disable-with-dependents"].payload, {"include_dependents": True})
+
+        ExtensionInstallation.objects.filter(extension_id="alpha-tools").update(enabled=False, booted=False)
+        ExtensionInstallation.objects.filter(extension_id="beta-tools").update(enabled=False, booted=False)
+        reset_extension_runtime_state()
+        beta = ExtensionService.get_extension("beta-tools")
+        beta_actions = {action.key: action for action in beta.runtime.runtime_actions}
+        self.assertEqual(beta_actions["uninstall-with-dependents"].payload, {"include_dependents": True})
+
+    def test_enable_with_dependencies_enables_installed_required_dependencies_first(self):
+        self._record_alpha_tools_django_migration()
+        self._create_beta_tools_dependency_fixture()
+        ExtensionInstallation.objects.update_or_create(
+            extension_id="alpha-tools",
+            defaults={
+                "version": "0.1.0",
+                "source": "filesystem",
+                "enabled": False,
+                "installed": True,
+                "booted": False,
+            },
+        )
+        with self.assertRaises(ExtensionStateError) as context:
+            ExtensionService.set_extension_enabled("alpha-tools", True)
+        self.assertEqual(context.exception.code, "extension_enable_blocked")
+
+        enabled = ExtensionService.set_extension_enabled("alpha-tools", True, include_dependencies=True)
+
+        self.assertTrue(enabled.runtime.enabled)
+        beta_installation = ExtensionInstallation.objects.get(extension_id="beta-tools")
+        alpha_installation = ExtensionInstallation.objects.get(extension_id="alpha-tools")
+        self.assertTrue(beta_installation.enabled)
+        self.assertTrue(alpha_installation.enabled)
+        self.assertIn("run_enable", beta_installation.meta["backend_hooks"])
+        self.assertIn("run_enable", alpha_installation.meta["backend_hooks"])
+
+    def test_enable_with_dependencies_rejects_uninstalled_target_before_enabling_dependencies(self):
+        self._record_alpha_tools_django_migration()
+        self._create_beta_tools_dependency_fixture()
+
+        with self.assertRaises(ExtensionStateError) as context:
+            ExtensionService.set_extension_enabled("alpha-tools", True, include_dependencies=True)
+
+        self.assertEqual(context.exception.code, "extension_enable_not_installed")
+        beta_installation = ExtensionInstallation.objects.get(extension_id="beta-tools")
+        self.assertFalse(beta_installation.enabled)
+        self.assertFalse(beta_installation.booted)
+
+    def test_enable_with_dependencies_rolls_back_when_target_enable_fails(self):
+        self._record_alpha_tools_django_migration()
+        self._create_beta_tools_dependency_fixture()
+        ExtensionInstallation.objects.update_or_create(
+            extension_id="alpha-tools",
+            defaults={
+                "version": "0.1.0",
+                "source": "filesystem",
+                "enabled": False,
+                "installed": True,
+                "booted": False,
+            },
+        )
+        backend_path = self.extension_base_dir / "extensions" / "alpha-tools" / "backend" / "ext.py"
+        backend_source = backend_path.read_text(encoding="utf-8")
+        backend_path.write_text(
+            backend_source.replace(
+                "def enable(context):\n"
+                "    return {'status': 'ok', 'status_label': '已启用'}\n",
+                "def enable(context):\n"
+                "    return {'status': 'error', 'message': 'enable exploded'}\n",
+            ),
+            encoding="utf-8",
+        )
+        reset_extension_runtime_state()
+
+        with self.assertRaises(ExtensionStateError) as context:
+            ExtensionService.set_extension_enabled("alpha-tools", True, include_dependencies=True)
+
+        self.assertEqual(context.exception.code, "extension_lifecycle_failed")
+        beta_installation = ExtensionInstallation.objects.get(extension_id="beta-tools")
+        alpha_installation = ExtensionInstallation.objects.get(extension_id="alpha-tools")
+        self.assertFalse(beta_installation.enabled)
+        self.assertFalse(beta_installation.booted)
+        self.assertFalse(alpha_installation.enabled)
+        self.assertFalse(alpha_installation.booted)
+
+    @patch("bias_core.extensions.manager.validate_bias_compatibility")
+    def test_manager_enable_validates_bias_compatibility(self, validate_bias_compatibility_mock):
+        ExtensionService.install_extension("alpha-tools")
+        validate_bias_compatibility_mock.reset_mock()
+
+        from bias_core.extensions.manager import get_extension_manager
+
+        manager = get_extension_manager()
+        manager.set_extension_enabled("alpha-tools", False)
+        manager.set_extension_enabled("alpha-tools", True)
+
+        checked_extension = validate_bias_compatibility_mock.call_args.kwargs
+        self.assertEqual(validate_bias_compatibility_mock.call_args.args[0].id, "alpha-tools")
+        self.assertEqual(checked_extension["action"], "enable")
+
     def test_disable_raises_when_enabled_dependents_exist(self):
         with self.assertRaises(ExtensionStateError) as context:
             ExtensionService.set_extension_enabled("notifications", False)
 
         self.assertEqual(context.exception.code, "extension_disable_blocked")
         self.assertIn("approval", context.exception.details["blocking_dependents"])
+
+    def test_disable_with_dependents_disables_dependents_before_target(self):
+        self._record_alpha_tools_django_migration()
+        self._create_beta_tools_dependency_fixture()
+        ExtensionInstallation.objects.update_or_create(
+            extension_id="alpha-tools",
+            defaults={
+                "version": "0.1.0",
+                "source": "filesystem",
+                "enabled": True,
+                "installed": True,
+                "booted": True,
+            },
+        )
+        ExtensionInstallation.objects.filter(extension_id="beta-tools").update(enabled=True, booted=True)
+        reset_extension_runtime_state()
+
+        with self.assertRaises(ExtensionStateError) as context:
+            ExtensionService.set_extension_enabled("beta-tools", False)
+        self.assertEqual(context.exception.code, "extension_disable_blocked")
+
+        disabled = ExtensionService.set_extension_enabled("beta-tools", False, include_dependents=True)
+
+        self.assertFalse(disabled.runtime.enabled)
+        beta_installation = ExtensionInstallation.objects.get(extension_id="beta-tools")
+        alpha_installation = ExtensionInstallation.objects.get(extension_id="alpha-tools")
+        self.assertFalse(alpha_installation.enabled)
+        self.assertFalse(alpha_installation.booted)
+        self.assertFalse(beta_installation.enabled)
+        self.assertFalse(beta_installation.booted)
+        self.assertIn("run_disable", alpha_installation.meta["backend_hooks"])
+        self.assertIn("run_disable", beta_installation.meta["backend_hooks"])
+
+    def test_disable_with_dependents_rejects_disabled_target_before_disabling_dependents(self):
+        self._record_alpha_tools_django_migration()
+        self._create_beta_tools_dependency_fixture()
+        ExtensionInstallation.objects.update_or_create(
+            extension_id="alpha-tools",
+            defaults={
+                "version": "0.1.0",
+                "source": "filesystem",
+                "enabled": True,
+                "installed": True,
+                "booted": True,
+            },
+        )
+        reset_extension_runtime_state()
+
+        with self.assertRaises(ExtensionStateError) as context:
+            ExtensionService.set_extension_enabled("beta-tools", False, include_dependents=True)
+
+        self.assertEqual(context.exception.code, "extension_disable_not_enabled")
+        alpha_installation = ExtensionInstallation.objects.get(extension_id="alpha-tools")
+        beta_installation = ExtensionInstallation.objects.get(extension_id="beta-tools")
+        self.assertTrue(alpha_installation.enabled)
+        self.assertTrue(alpha_installation.booted)
+        self.assertFalse(beta_installation.enabled)
+        self.assertFalse(beta_installation.booted)
+
+    def test_disable_with_dependents_rolls_back_when_target_disable_fails(self):
+        self._record_alpha_tools_django_migration()
+        self._create_beta_tools_dependency_fixture()
+        ExtensionInstallation.objects.update_or_create(
+            extension_id="alpha-tools",
+            defaults={
+                "version": "0.1.0",
+                "source": "filesystem",
+                "enabled": True,
+                "installed": True,
+                "booted": True,
+            },
+        )
+        ExtensionInstallation.objects.filter(extension_id="beta-tools").update(enabled=True, booted=True)
+        beta_dir = self.extension_base_dir / "extensions" / "beta-tools"
+        (beta_dir / "backend").mkdir(parents=True, exist_ok=True)
+        (beta_dir / "backend" / "__init__.py").write_text("", encoding="utf-8")
+        (beta_dir / "backend" / "ext.py").write_text(
+            "from bias_core.extensions import LifecycleExtender\n"
+            "\n"
+            "def extend():\n"
+            "    return [LifecycleExtender(disable=disable)]\n"
+            "\n"
+            "def disable(context):\n"
+            "    return {'status': 'error', 'message': 'disable exploded'}\n",
+            encoding="utf-8",
+        )
+        manifest_path = beta_dir / "extension.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["backend_entry"] = "extensions.beta_tools.backend.ext"
+        manifest_path.write_text(json.dumps(manifest, ensure_ascii=False), encoding="utf-8")
+        reset_extension_runtime_state()
+
+        with self.assertRaises(ExtensionStateError) as context:
+            ExtensionService.set_extension_enabled("beta-tools", False, include_dependents=True)
+
+        self.assertEqual(context.exception.code, "extension_lifecycle_failed")
+        beta_installation = ExtensionInstallation.objects.get(extension_id="beta-tools")
+        alpha_installation = ExtensionInstallation.objects.get(extension_id="alpha-tools")
+        self.assertTrue(alpha_installation.enabled)
+        self.assertTrue(alpha_installation.booted)
+        self.assertTrue(beta_installation.enabled)
+        self.assertTrue(beta_installation.booted)
 
     def test_disable_raises_for_protected_extension(self):
         with self.assertRaises(ExtensionStateError) as context:
@@ -209,6 +516,53 @@ class ExtensionServiceTests(TestCase):
         self.assertFalse(uninstalled.runtime.enabled)
         self.assertEqual(uninstalled.runtime.backend_hooks["run_disable"]["status"], "ok")
         self.assertEqual(uninstalled.runtime.backend_hooks["run_uninstall"]["status"], "ok")
+
+    def test_uninstall_blocks_when_installed_disabled_dependents_exist(self):
+        self._create_beta_tools_dependency_fixture()
+        ExtensionInstallation.objects.update_or_create(
+            extension_id="alpha-tools",
+            defaults={
+                "version": "0.1.0",
+                "source": "filesystem",
+                "enabled": False,
+                "installed": True,
+                "booted": False,
+            },
+        )
+        reset_extension_runtime_state()
+
+        with self.assertRaises(ExtensionStateError) as context:
+            ExtensionService.uninstall_extension("beta-tools")
+
+        self.assertEqual(context.exception.code, "extension_uninstall_blocked")
+        self.assertEqual(context.exception.details["blocking_dependents"], ["alpha-tools"])
+
+    def test_uninstall_with_dependents_uninstalls_dependents_before_target(self):
+        self._record_alpha_tools_django_migration()
+        self._create_beta_tools_dependency_fixture()
+        ExtensionInstallation.objects.update_or_create(
+            extension_id="alpha-tools",
+            defaults={
+                "version": "0.1.0",
+                "source": "filesystem",
+                "enabled": False,
+                "installed": True,
+                "booted": False,
+            },
+        )
+        reset_extension_runtime_state()
+
+        uninstalled = ExtensionService.uninstall_extension("beta-tools", include_dependents=True)
+
+        self.assertFalse(uninstalled.runtime.installed)
+        beta_installation = ExtensionInstallation.objects.get(extension_id="beta-tools")
+        alpha_installation = ExtensionInstallation.objects.get(extension_id="alpha-tools")
+        self.assertFalse(alpha_installation.installed)
+        self.assertFalse(alpha_installation.enabled)
+        self.assertFalse(beta_installation.installed)
+        self.assertFalse(beta_installation.enabled)
+        self.assertIn("run_uninstall", alpha_installation.meta["backend_hooks"])
+        self.assertIn("run_uninstall", beta_installation.meta["backend_hooks"])
 
     @patch("bias_core.extensions.compatibility_guard.resolve_bias_version_compatibility")
     def test_install_raises_when_bias_version_incompatible(self, resolve_bias_version_compatibility_mock):

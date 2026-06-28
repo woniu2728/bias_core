@@ -12,6 +12,86 @@ class ResourceRegistryTests(TestCase):
 
         self.assertIn(ContractResource, app.make("bias.api.resources"))
 
+    def test_application_resource_service_replaces_same_runtime_definition_keys(self):
+        from bias_core.extensions import (
+            ExtensionResourceFieldDefinition,
+            ExtensionResourceFilterDefinition,
+            ExtensionResourceRelationshipDefinition,
+        )
+
+        app = ExtensionApplication()
+        extension_id = "alpha-tools"
+
+        app.resources.register_field(
+            ExtensionResourceFieldDefinition(
+                resource="discussion",
+                field="summary",
+                module_id=extension_id,
+                resolver=lambda instance, context: "old",
+            ),
+            extension_id=extension_id,
+        )
+        app.resources.register_field(
+            ExtensionResourceFieldDefinition(
+                resource="discussion",
+                field="summary",
+                module_id=extension_id,
+                resolver=lambda instance, context: "new",
+            ),
+            extension_id=extension_id,
+        )
+        app.resources.register_relationship(
+            ExtensionResourceRelationshipDefinition(
+                resource="discussion",
+                relationship="tags",
+                module_id=extension_id,
+                resolver=lambda instance, context: ["old"],
+            ),
+            extension_id=extension_id,
+        )
+        app.resources.register_relationship(
+            ExtensionResourceRelationshipDefinition(
+                resource="discussion",
+                relationship="tags",
+                module_id=extension_id,
+                resolver=lambda instance, context: ["new"],
+            ),
+            extension_id=extension_id,
+        )
+        app.resources.register_filter(
+            ExtensionResourceFilterDefinition(
+                resource="discussion",
+                filter="tag",
+                module_id=extension_id,
+                handler=lambda queryset, value, context: ["old"],
+            ),
+            extension_id=extension_id,
+        )
+        app.resources.register_filter(
+            ExtensionResourceFilterDefinition(
+                resource="discussion",
+                filter="tag",
+                module_id=extension_id,
+                handler=lambda queryset, value, context: ["new"],
+            ),
+            extension_id=extension_id,
+        )
+
+        runtime_view = app.get_runtime_view(extension_id)
+
+        self.assertEqual(len(runtime_view.resource_fields), 1)
+        self.assertEqual(runtime_view.resource_fields[0].resolver(None, {}), "new")
+        self.assertEqual(len(runtime_view.resource_relationships), 1)
+        self.assertEqual(runtime_view.resource_relationships[0].resolver(None, {}), ["new"])
+        self.assertEqual(len(runtime_view.resource_filters), 1)
+        self.assertEqual(runtime_view.resource_filters[0].handler([], "tag", {}), ["new"])
+        self.assertEqual(len(app.resources.get_fields("discussion")), 1)
+        self.assertEqual(app.resources.get_fields("discussion")[0].resolver(None, {}), "new")
+        self.assertEqual(len(app.resources.get_relationships("discussion")), 1)
+        self.assertEqual(app.resources.get_relationships("discussion")[0].resolver(None, {}), ["new"])
+        self.assertEqual(len(app.resources.get_filters("discussion")), 1)
+        self.assertEqual(app.resources.get_filters("discussion")[0].handler([], "tag", {}), ["new"])
+
     def test_extension_runtime_reset_allows_core_resources_to_rebootstrap(self):
         from bias_core.forum_resources import bootstrap_forum_resource_fields
 
@@ -221,6 +301,30 @@ class ResourceRegistryTests(TestCase):
         )
 
         self.assertEqual(result.results, ["mutated:b"])
+
+    def test_search_manager_replaces_indexer_with_same_component_key(self):
+        manager = ResourceSearchManager()
+        received = []
+
+        class Item:
+            pass
+
+        class DemoIndexer:
+            def __init__(self, label):
+                self.label = label
+
+            def index(self, instance, context):
+                received.append(self.label)
+
+        first = DemoIndexer("first")
+        replacement = DemoIndexer("replacement")
+
+        manager.register_indexer(Item, first)
+        manager.register_indexer(Item, replacement)
+        manager.index(Item, Item())
+
+        self.assertEqual(received, ["replacement"])
+        self.assertEqual(manager.indexers(Item), (replacement,))
 
     def test_search_manager_registers_driver_class_contract(self):
         manager = ResourceSearchManager()
@@ -1759,6 +1863,115 @@ class ResourceRegistryTests(TestCase):
         finally:
             DemoResource.reset_modifiers("fields")
 
+    def test_resource_object_relationships_method_is_resolved(self):
+        registry = ResourceRegistry()
+
+        class DemoResource(Resource):
+            def type(self):
+                return "relationship_method_demo"
+
+            def fields(self):
+                return [ResourceField("title", resolver=lambda instance, context: "title")]
+
+            def relationships(self):
+                return [
+                    ResourceRelationship(
+                        "owner",
+                        resolver=lambda instance, context: getattr(instance, "owner", None),
+                        resource_type="users",
+                    )
+                ]
+
+        registry.register_resource(DemoResource())
+
+        self.assertEqual(
+            [field.field for field in registry.get_effective_fields("relationship_method_demo")],
+            ["title"],
+        )
+        self.assertEqual(
+            [relationship.relationship for relationship in registry.get_effective_relationships("relationship_method_demo")],
+            ["owner"],
+        )
+
+    def test_resource_relationship_modifiers_are_deduped_and_can_be_reset(self):
+        registry = ResourceRegistry()
+
+        class DemoResource(Resource):
+            def type(self):
+                return "relationship_modifier_reset_demo"
+
+            def relationships(self):
+                return [
+                    ResourceRelationship(
+                        "owner",
+                        resolver=lambda instance, context: getattr(instance, "owner", None),
+                        resource_type="users",
+                    )
+                ]
+
+        def add_relationship(relationships, resource):
+            return [
+                *relationships,
+                ResourceRelationship(
+                    "last_editor",
+                    resolver=lambda instance, context: getattr(instance, "last_editor", None),
+                    resource_type="users",
+                ),
+            ]
+
+        registry.register_resource_modifier(DemoResource, "relationships", add_relationship)
+        registry.register_resource_modifier(DemoResource, "relationships", add_relationship)
+        registry.register_resource(DemoResource())
+
+        self.assertEqual(
+            [relationship.relationship for relationship in registry.get_effective_relationships("relationship_modifier_reset_demo")],
+            ["owner", "last_editor"],
+        )
+
+        registry.reset_resource_modifiers(DemoResource, "relationships")
+
+        self.assertEqual(
+            [relationship.relationship for relationship in registry.get_effective_relationships("relationship_modifier_reset_demo")],
+            ["owner"],
+        )
+
+    def test_resource_class_level_relationship_modifiers_resolve(self):
+        registry = ResourceRegistry()
+
+        class DemoResource(Resource):
+            def type(self):
+                return "class_relationship_modifier_demo"
+
+            def relationships(self):
+                return [
+                    ResourceRelationship(
+                        "owner",
+                        resolver=lambda instance, context: getattr(instance, "owner", None),
+                        resource_type="users",
+                    )
+                ]
+
+        def add_extra(relationships, resource):
+            return [
+                *relationships,
+                ResourceRelationship(
+                    "last_editor",
+                    resolver=lambda instance, context: getattr(instance, "last_editor", None),
+                    resource_type="users",
+                ),
+            ]
+
+        DemoResource.mutate_relationships(add_extra)
+        registry.register_resource(DemoResource())
+
+        try:
+            self.assertEqual(
+                [relationship.relationship for relationship in registry.get_effective_relationships("class_relationship_modifier_demo")],
+                ["owner", "last_editor"],
+            )
+        finally:
+            DemoResource.reset_modifiers("relationships")
+
     def test_resource_extender_resolves_import_path_callbacks_like_upstream_container(self):
         registry = ResourceRegistry()
         app = ExtensionApplication(resource_registry=registry)
@@ -1770,7 +1983,7 @@ class ResourceRegistryTests(TestCase):
                     resource="path_resource",
                     field="username",
                     module_id="",
-                    resolver="bias_core.tests.resolve_test_username",
+                    resolver="tests.common.resolve_test_username",
                 ),
             )
         )
@@ -2210,6 +2423,34 @@ class ResourceRegistryTests(TestCase):
 
         self.assertEqual(primary[0]["relationships"]["owner"]["data"], {"type": "owned_serializer_users", "id": "7"})
         self.assertEqual(included[0]["attributes"]["username"], "neo")
+
+    def test_plain_serializer_can_emit_relationship_linkage(self):
+        registry = ResourceRegistry()
+
+        class UserResource(Resource):
+            def type(self):
+                return "plain_linkage_users"
+
+        class DiscussionResource(Resource):
+            def type(self):
+                return "plain_linkage_discussions"
+
+        owner = SimpleNamespace(id=7)
+        discussion = SimpleNamespace(id=1, owner=owner)
+        registry.register_resource(UserResource())
+        registry.register_resource(DiscussionResource())
+        registry.register_relationship(ResourceRelationshipDefinition(
+            resource="plain_linkage_discussions",
+            relationship="owner",
+            module_id="test",
+            resolver=lambda instance, context: instance.owner,
+            resource_type="plain_linkage_users",
+            plain_output="linkage",
+        ))
+
+        payload = registry.serialize("plain_linkage_discussions", discussion, include=("owner",))
+
+        self.assertEqual(payload["owner"], {"type": "plain_linkage_users", "id": "7"})
 
     def test_resource_serializer_uses_schema_object_visibility_and_value_methods(self):
         registry = ResourceRegistry()

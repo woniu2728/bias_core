@@ -116,5 +116,19 @@ def wrap_callback(callback: Any, container: Any = None):
             return resolved
         return resolved(*args, **kwargs)
 
+    if isinstance(callback, str):
+        invoke.__bias_callback_label__ = callback.strip()
+    elif isinstance(callback, type):
+        invoke.__bias_callback_label__ = _annotation_key(callback)
+    elif callable(callback):
+        invoke.__bias_callback_label__ = _callable_label(callback)
+
     return invoke if lazy or callable(callback) else callback
 
+
+def _callable_label(callback: Any) -> str:
+    module = str(getattr(callback, "__module__", "") or "").strip()
+    qualname = str(getattr(callback, "__qualname__", "") or getattr(callback, "__name__", "") or "").strip()
+    if module or qualname:
+        return ".".join(item for item in (module, qualname) if item)
+    return _annotation_key(type(callback))

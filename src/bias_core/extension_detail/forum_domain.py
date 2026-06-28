@@ -208,6 +208,8 @@ def _build_extension_language_packs(extension):
 
 def _build_extension_delivery_assets(extension):
     from bias_core.extensions.assets import inspect_published_extension_assets
+    from bias_core.extensions.module_loader import resolve_extension_backend_file
+    from bias_core.extensions.paths import extension_django_migration_dir
 
     if extension.source != "filesystem":
         return {
@@ -219,18 +221,25 @@ def _build_extension_delivery_assets(extension):
 
     manifest_path = _manifest_attr(extension, "path")
     root_path = Path(manifest_path) if manifest_path else None
+    backend_entry_path = resolve_extension_backend_file(extension)
+    migration_path = (
+        extension_django_migration_dir(root_path, extension.id)
+        if root_path is not None
+        else None
+    )
     asset_specs = [
         {
             "key": "backend_entry",
             "label": "后端入口",
-            "path": root_path / "backend" / "ext.py" if root_path else None,
+            "path": backend_entry_path,
             "kind": "backend",
         },
         {
             "key": "migrations",
             "label": "迁移目录",
-            "path": root_path / "backend" / "migrations" if root_path else None,
+            "path": migration_path,
             "kind": "migration",
+            "requires_files": True,
         },
         {
             "key": "frontend_admin_entry",
@@ -282,6 +291,11 @@ def _build_extension_delivery_assets(extension):
         normalized_path = ""
         if isinstance(asset_path, Path):
             exists = asset_path.exists()
+            if exists and item.get("requires_files"):
+                exists = any(
+                    child.is_file() and child.name != "__init__.py"
+                    for child in asset_path.glob("*.py")
+                )
             normalized_path = str(asset_path)
         elif asset_path:
             normalized_path = str(asset_path)

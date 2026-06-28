@@ -23,6 +23,36 @@ def generate_runtime_model_slug(model: Any, source: Any, **kwargs) -> str | None
         return None
 
 
+def to_runtime_model_slug(model: Any, instance: Any, **kwargs) -> str | None:
+    service = get_runtime_model_url_service()
+    if service is None:
+        return None
+    try:
+        return service.to_slug(model, instance, **kwargs)
+    except KeyError:
+        return None
+
+
+def resolve_runtime_model_slug(model: Any, slug: str, **kwargs):
+    service = get_runtime_model_url_service()
+    if service is None:
+        return None
+    try:
+        return service.resolve_slug(model, slug, **kwargs)
+    except KeyError:
+        return None
+
+
+def resolve_runtime_model_slugs(model: Any, slugs: list[str] | tuple[str, ...], **kwargs) -> dict[str, Any]:
+    service = get_runtime_model_url_service()
+    if service is None:
+        return {}
+    try:
+        return service.resolve_slugs(model, slugs, **kwargs)
+    except KeyError:
+        return {}
+
+
 def get_runtime_model_relation(model: Any, name: str):
     service = get_runtime_model_service()
     if service is None or not hasattr(service, "get_relation"):

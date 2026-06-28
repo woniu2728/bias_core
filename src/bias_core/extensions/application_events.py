@@ -29,6 +29,7 @@ class ApplicationEventService:
     def __init__(self, host: "ExtensionHost", event_bus: DomainEventBus) -> None:
         self._host = host
         self._event_bus = event_bus
+        self._pending_listeners: list[tuple[str, Any]] = []
 
     def register_listener(self, extension_id: str, definition) -> None:
         normalized_extension_id = str(extension_id or "").strip()
@@ -36,17 +37,47 @@ class ApplicationEventService:
             return
         event_type = resolve_event_type(getattr(definition, "event_type", None))
         if event_type is None:
-            raise RuntimeError(f"无法解析扩展事件类型: {getattr(definition, 'event_type', None)}")
+            pending = (normalized_extension_id, definition)
+            if pending not in self._pending_listeners:
+                self._pending_listeners.append(pending)
+            return
         definition = replace(definition, event_type=event_type)
 
         view = self._host._get_or_create_runtime_view(normalized_extension_id)
-        view.event_listeners = tuple([*view.event_listeners, definition])
+        listener_key = build_event_bus_listener_key(normalized_extension_id, definition)
+        view.event_listeners = tuple([
+            *(
+                item
+                for item in view.event_listeners
+                if build_event_bus_listener_key(normalized_extension_id, item) != listener_key
+            ),
+            definition,
+        ])
         self._host.forum.register_event_listener(build_forum_event_listener_definition(normalized_extension_id, definition))
         self._event_bus.register(
             event_type,
             definition.handler,
-            listener_key=build_event_bus_listener_key(normalized_extension_id, definition),
+            listener_key=listener_key,
+            replace=True,
         )
+
+    def resolve_pending_listeners(self, *, strict: bool = False) -> None:
+        pending = list(self._pending_listeners)
+        self._pending_listeners = []
+        unresolved: list[tuple[str, Any]] = []
+        for extension_id, definition in pending:
+            before_count = len(self.get_listeners(extension_id=extension_id))
+            self.register_listener(extension_id, definition)
+            after_count = len(self.get_listeners(extension_id=extension_id))
+            if before_count == after_count and resolve_event_type(getattr(definition, "event_type", None)) is None:
+                unresolved.append((extension_id, definition))
+        self._pending_listeners = unresolved
+        if strict and self._pending_listeners:
+            unresolved_types = ", ".join(
+                str(getattr(definition, "event_type", None))
+                for _, definition in self._pending_listeners
+            )
+            raise RuntimeError(f"无法解析扩展事件类型: {unresolved_types}")
 
     def get_listeners(self, *, extension_id: str | None = None) -> list[ExtensionEventListenerDefinition]:
         if extension_id is not None:
@@ -65,6 +96,7 @@ class ApplicationRealtimeService:
     def __init__(self, host: "ExtensionHost") -> None:
         self._host = host
         self._discussion_transports_by_extension: dict[str, tuple[ExtensionRealtimeDiscussionTransportDefinition, ...]] = {}
+        self._pending_discussion_broadcasts: list[tuple[str, ExtensionRealtimeDiscussionBroadcastDefinition]] = []
 
     def register_included_enricher(self, extension_id: str, definition: ExtensionRealtimeIncludedDefinition) -> None:
         normalized_extension_id = str(extension_id or "").strip()
@@ -132,7 +164,12 @@ class ApplicationRealtimeService:
 
         event_type = resolve_event_type(definition.event_type)
         event_name_key = event_value_key(definition.event_name)
-        if event_type is None or not event_name_key:
+        if not event_name_key:
+            return
+        if event_type is None:
+            pending = (normalized_extension_id, definition)
+            if pending not in self._pending_discussion_broadcasts:
+                self._pending_discussion_broadcasts.append(pending)
             return
 
         view = self._host._get_or_create_runtime_view(normalized_extension_id)
@@ -158,7 +195,26 @@ class ApplicationRealtimeService:
                 event_type_key(event_type),
                 event_name_key,
             ),
+            replace=True,
         )
+
+    def resolve_pending_discussion_broadcasts(self, *, strict: bool = False) -> None:
+        pending = list(self._pending_discussion_broadcasts)
+        self._pending_discussion_broadcasts = []
+        unresolved: list[tuple[str, ExtensionRealtimeDiscussionBroadcastDefinition]] = []
+        for extension_id, definition in pending:
+            before_count = len(self.get_discussion_broadcasts(extension_id=extension_id))
+            self.register_discussion_broadcast(extension_id, definition)
+            after_count = len(self.get_discussion_broadcasts(extension_id=extension_id))
+            if before_count == after_count and resolve_event_type(definition.event_type) is None:
+                unresolved.append((extension_id, definition))
+        self._pending_discussion_broadcasts = unresolved
+        if strict and self._pending_discussion_broadcasts:
+            unresolved_types = ", ".join(
+                str(definition.event_type)
+                for _, definition in self._pending_discussion_broadcasts
+            )
+            raise RuntimeError(f"无法解析实时讨论事件类型: {unresolved_types}")
 
     def get_included_enrichers(self, *, extension_id: str | None = None) -> list[ExtensionRealtimeIncludedDefinition]:
         if extension_id is not None:

@@ -297,16 +297,31 @@ class ModelPrivateExtender:
 
         def apply(models, host: "ExtensionHost"):
             for index, checker in enumerate(self.checkers):
+                wrapped_checker = wrap_callback(checker, host)
+                checker_key = _private_checker_key(checker, wrapped_checker, index)
                 models.register_private_checker(extension_id, ExtensionModelDefinition(
                     model=self.model,
-                    key=f"private_checker:{index}",
-                    handler=wrap_callback(checker, host),
+                    key=f"private_checker:{checker_key}",
+                    handler=wrapped_checker,
                     kind="private_checker",
                     description="Model privacy checker",
                 ))
             return models
 
         app.resolving("models", apply)
+
+
+def _private_checker_key(checker: Any, wrapped_checker: Any, index: int) -> str:
+    label = str(getattr(wrapped_checker, "__bias_callback_label__", "") or "").strip()
+    code = getattr(checker, "__code__", None)
+    if code is not None:
+        location = ":".join((
+            str(getattr(code, "co_filename", "") or "").strip(),
+            str(getattr(code, "co_firstlineno", "") or "").strip(),
+        )).strip(":")
+        if location:
+            return f"{label or '<callable>'}@{location}"
+    return label or str(index)
 
 
 def _model_definition_key(model: Any) -> str:

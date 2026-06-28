@@ -95,6 +95,9 @@ def resolve_extension_discovery_result(manifest: ExtensionManifest) -> Extension
         post_lifecycle=tuple(record.post_lifecycle),
         runtime_actions=tuple(record.runtime_actions),
         admin_actions=tuple(record.admin_actions),
+        route_mounts=tuple(record.route_mounts),
+        named_routes=tuple(record.named_routes),
+        websocket_routes=tuple(record.websocket_routes),
     )
 
 

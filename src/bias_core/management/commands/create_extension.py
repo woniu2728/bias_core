@@ -80,6 +80,14 @@ class Command(BaseCommand):
             self._build_manifest(extension_id, extension_package, python_package, app_config_class, name, description, author, category, version),
         )
         self._write_text(
+            extension_dir / "pyproject.toml",
+            self._build_pyproject_source(extension_id, name, description, python_package, version),
+        )
+        self._write_text(
+            extension_dir / "MANIFEST.in",
+            self._build_manifest_in_source(),
+        )
+        self._write_text(
             frontend_admin_dir / "index.js",
             self._build_admin_index_source(extension_id),
         )
@@ -98,6 +106,56 @@ class Command(BaseCommand):
         self._write_text(
             backend_dir / "apps.py",
             self._build_app_config_source(extension_package, python_package, app_config_class, name),
+        )
+        self._write_text(
+            backend_dir / "constants.py",
+            self._build_constants_source(extension_id, name),
+        )
+        self._write_text(
+            backend_dir / "frontend.py",
+            self._build_frontend_source(),
+        )
+        self._write_text(
+            backend_dir / "settings.py",
+            self._build_empty_contract_module_source(
+                "setting_field_definitions",
+                "扩展设置字段声明。需要设置项时返回 setting_field(...) 定义。",
+            ),
+        )
+        self._write_text(
+            backend_dir / "resources.py",
+            self._build_empty_contract_module_source(
+                "resource_definitions",
+                "API 资源、字段、关系和端点声明。需要资源能力时返回对应公开 SDK 定义。",
+            ),
+        )
+        self._write_text(
+            backend_dir / "policies.py",
+            self._build_empty_contract_module_source(
+                "policy_definitions",
+                "权限策略声明。需要策略时在这里定义策略类或工厂函数。",
+            ),
+        )
+        self._write_text(
+            backend_dir / "listeners.py",
+            self._build_empty_contract_module_source(
+                "event_listener_definitions",
+                "事件监听声明。需要监听宿主事件时返回 event_listener(...) 定义。",
+            ),
+        )
+        self._write_text(
+            backend_dir / "runtime.py",
+            self._build_empty_contract_module_source(
+                "service_providers",
+                "运行时服务声明。需要向宿主暴露服务时返回服务 provider 定义。",
+            ),
+        )
+        self._write_text(
+            backend_dir / "admin_surface.py",
+            self._build_empty_contract_module_source(
+                "admin_page_definitions",
+                "后台页面与权限声明。需要后台表面时返回 AdminPageDefinition/PermissionDefinition。",
+            ),
         )
         self._write_text(
             backend_dir / "ext.py",
@@ -127,6 +185,7 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS("[OK] 已创建扩展脚手架"))
         self.stdout.write(f"- 扩展目录: {extension_dir}")
         self.stdout.write(f"- manifest: {extension_dir / 'extension.json'}")
+        self.stdout.write(f"- package metadata: {extension_dir / 'pyproject.toml'}")
         self.stdout.write(f"- 前端后台入口: {frontend_admin_dir / 'index.js'}")
         self.stdout.write(f"- 前台入口: {frontend_forum_dir / 'index.js'}")
         self.stdout.write("- 校验扩展: python manage.py validate_extensions --strict")
@@ -177,10 +236,14 @@ class Command(BaseCommand):
             "documentation_url": f"/admin.html#/admin/docs?guide=extension-system-roadmap&extension={extension_id}",
             "dependencies": ["core"],
             "provides": [f"{extension_id}-panel"],
-            "backend_entry": f"{python_package}.backend.ext",
-            "django_app_config": f"{python_package}.backend.apps.{app_config_class}",
-            "django_app_label": extension_package,
-            "django_migration_module": f"{python_package}.backend.django_migrations",
+            "backend": {
+                "entry": f"{python_package}.backend.ext",
+            },
+            "django": {
+                "app_config": f"{python_package}.backend.apps.{app_config_class}",
+                "app_label": extension_package,
+                "migration_module": f"{python_package}.backend.django_migrations",
+            },
             "compatibility": {
                 "bias_version": _default_bias_version_range(),
                 "api_version": "1.0",
@@ -203,6 +266,48 @@ class Command(BaseCommand):
                 "experimental": True,
             },
         }
+
+    def _build_pyproject_source(
+        self,
+        extension_id: str,
+        name: str,
+        description: str,
+        python_package: str,
+        version: str,
+    ) -> str:
+        package_name = extension_workspace_dir_name(extension_id)
+        summary = description or f"{name} Bias extension"
+        return (
+            "[project]\n"
+            f"name = {package_name!r}\n"
+            f"version = {version!r}\n"
+            f"description = {summary!r}\n"
+            'requires-python = ">=3.11"\n'
+            'dependencies = ["bias-core>=0.1,<0.2"]\n'
+            "\n"
+            '[project.entry-points."bias.extensions"]\n'
+            f"{extension_id.replace('-', '_')} = \"{python_package}.backend.ext:extend\"\n"
+            "\n"
+            "[tool.setuptools]\n"
+            "include-package-data = true\n"
+            "\n"
+            "[tool.setuptools.packages.find]\n"
+            'where = ["."]\n'
+            f"include = [\"{python_package}*\"]\n"
+            "\n"
+            "[tool.setuptools.data-files]\n"
+            f"\"bias_extensions/{extension_id}\" = [\"extension.json\"]\n"
+            f"\"bias_extensions/{extension_id}/frontend/admin\" = [\"frontend/admin/index.js\"]\n"
+            f"\"bias_extensions/{extension_id}/frontend/forum\" = [\"frontend/forum/index.js\"]\n"
+            f"\"bias_extensions/{extension_id}/locale\" = [\"locale/zh-CN.json\"]\n"
+        )
+
+    def _build_manifest_in_source(self) -> str:
+        return (
+            "include extension.json\n"
+            "recursive-include frontend *\n"
+            "recursive-include locale *\n"
+        )
 
     def _build_admin_index_source(self, extension_id: str) -> str:
         return (
@@ -227,16 +332,39 @@ class Command(BaseCommand):
     def _build_backend_entry_source(self, extension_id: str, extension_package: str, name: str) -> str:
         return (
             "from __future__ import annotations\n\n"
-            "from bias_core.extensions import FrontendExtender\n\n"
-            f"EXTENSION_ID = '{extension_id}'\n"
-            f"EXTENSION_NAME = '{name}'\n\n"
+            "from .frontend import frontend_extender\n\n"
             "\n"
             "def extend():\n"
             "    return [\n"
-            "        (FrontendExtender()\n"
-            "            .admin('frontend/admin/index.js')\n"
-            "            .forum('frontend/forum/index.js')),\n"
+            "        frontend_extender(),\n"
             "    ]\n\n"
+        )
+
+    def _build_constants_source(self, extension_id: str, name: str) -> str:
+        return (
+            "from __future__ import annotations\n\n"
+            f"EXTENSION_ID = {extension_id!r}\n"
+            f"EXTENSION_NAME = {name!r}\n"
+        )
+
+    def _build_frontend_source(self) -> str:
+        return (
+            "from __future__ import annotations\n\n"
+            "from bias_core.extensions import FrontendExtender\n\n\n"
+            "def frontend_extender():\n"
+            "    return (\n"
+            "        FrontendExtender()\n"
+            "        .admin('frontend/admin/index.js')\n"
+            "        .forum('frontend/forum/index.js')\n"
+            "    )\n"
+        )
+
+    def _build_empty_contract_module_source(self, function_name: str, description: str) -> str:
+        return (
+            "from __future__ import annotations\n\n"
+            f"# {description}\n"
+            f"def {function_name}():\n"
+            "    return ()\n"
         )
 
     def _build_app_config_source(self, extension_package: str, python_package: str, app_config_class: str, name: str) -> str:
@@ -255,12 +383,14 @@ class Command(BaseCommand):
             f"# {name}\n\n"
             f"- 扩展 ID: `{extension_id}`\n"
             "- 用途：通过脚手架生成的 Bias 最小扩展样板。\n"
-            "- 后端入口：`backend/ext.py` 的 `extend()` 返回扩展器列表，是扩展接入 Bias 运行时的主入口。\n"
-            "- 后端 SDK：扩展代码只应从 `bias_core.extensions`、`bias_core.extensions.runtime`、`bias_core.extensions.platform`、`bias_core.extensions.forum` 获取宿主能力，不直接 import `bias_core.*` 内部实现。\n"
+            "- 后端入口：`backend/ext.py` 的 `extend()` 只负责组装扩展器列表，是扩展接入 Bias 运行时的主入口。\n"
+            "- 后端布局：`backend/frontend.py`、`resources.py`、`settings.py`、`policies.py`、`listeners.py`、`runtime.py`、`admin_surface.py` 分别承载前端、资源、设置、权限、事件、服务和后台表面声明。\n"
+            "- 后端 SDK：扩展代码只应从 `bias_core.extensions`、`bias_core.extensions.runtime`、`bias_core.extensions.platform` 获取宿主能力，不直接 import `bias_core.*` 内部实现。\n"
             "- Django AppConfig：`backend/apps.py` 绑定扩展 app label，确保模型与迁移归属能被审计。\n"
             "- 前端入口：`frontend/admin/index.js` 与 `frontend/forum/index.js` 导出 `extend`，由 Bias 前端扩展注册中心加载。\n"
             "- API 资源：如需扩展 JSON:API 资源，请在 `backend/ext.py` 中加入 `ApiResourceExtender(...)`。\n"
             "- 迁移：如需扩展迁移，请添加到 `backend/django_migrations`；Bias 会按扩展 app label 注册 Django migration 模块。\n"
+            "- 打包：`pyproject.toml` 与 `MANIFEST.in` 已声明扩展 manifest、前端入口和语言资源，发布 wheel 后仍可被 Bias 扩展发现器识别。\n"
             "- 模型归属：如需拥有模型，请在 `backend/ext.py` 中使用 `ModelExtender().owns(...)` 声明，并通过 `python manage.py inspect_extensions --extension-id "
             f"{extension_id}` 查看模型归属审计。\n"
             "- 校验命令：`python manage.py validate_extensions --strict`\n"

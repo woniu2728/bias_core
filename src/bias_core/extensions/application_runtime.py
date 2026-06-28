@@ -150,6 +150,7 @@ class ExtensionApplicationRecord:
     service_providers: list[str] = field(default_factory=list)
     extender_keys: list[str] = field(default_factory=list)
     lifecycle_extender_keys: list[str] = field(default_factory=list)
+    lifecycle_hook_keys: list[str] = field(default_factory=list)
     lifecycle_phase_keys: list[str] = field(default_factory=list)
     use_generated_settings_page: bool = False
     use_generated_permissions_page: bool = False
@@ -248,6 +249,7 @@ class ExtensionRuntimeView:
     service_providers: tuple[str, ...] = ()
     extender_keys: tuple[str, ...] = ()
     lifecycle_extender_keys: tuple[str, ...] = ()
+    lifecycle_hook_keys: tuple[str, ...] = ()
     lifecycle_phase_keys: tuple[str, ...] = ()
     use_generated_settings_page: bool = False
     use_generated_permissions_page: bool = False

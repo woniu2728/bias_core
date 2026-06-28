@@ -55,19 +55,25 @@ filterwarnings = [
 ]
 
 [tool.importlinter]
-root_packages = ["bias_core"]
+root_packages = ["bias_core", "bias_ext_users"]
 include_external_packages = true
 
 [[tool.importlinter.contracts]]
+id = "bias_core_must_not_import_extensions"
 name = "bias_core_must_not_import_extensions"
 type = "forbidden"
 source_modules = ["bias_core"]
 forbidden_modules = ["bias_ext_"]
 
 [[tool.importlinter.contracts]]
+id = "extensions_must_not_import_core_internals"
 name = "extensions_must_not_import_core_internals"
 type = "forbidden"
-source_modules = ["bias_ext_users.backend"]
+source_modules = ["bias_ext_users.backend.**"]
+allow_indirect_imports = true
+ignore_imports = [
+    "bias_ext_users.backend.tests -> bias_core.**",
+]
 forbidden_modules = [
     "bias_core.models",
     "bias_core.resource_registry",
@@ -78,6 +84,8 @@ forbidden_modules = [
     "bias_core.conf",
     "bias_core.release",
     "bias_core.middleware",
+    "bias_core.jwt_auth",
+    "bias_core.websocket_auth",
     "bias_core.db",
     "bias_core.schemas",
 ]

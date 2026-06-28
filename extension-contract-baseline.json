@@ -1,0 +1,6113 @@
+{
+  "schema_version": 1,
+  "contract_snapshots": {
+    "approval": {
+      "schema_version": 1,
+      "extension_id": "approval",
+      "source": "filesystem",
+      "module_ids": [
+        "approval"
+      ],
+      "dependencies": [
+        "core",
+        "discussions",
+        "posts"
+      ],
+      "optional_dependencies": [],
+      "conflicts": [],
+      "provides": [],
+      "backend": {
+        "entry": "bias_ext_approval.backend.ext:extend",
+        "django_app_config": "bias_ext_approval.backend.apps.ApprovalExtensionConfig",
+        "django_app_label": "approval"
+      },
+      "frontend": {
+        "admin_entry": "extensions/approval/frontend/admin/index.js",
+        "forum_entry": "extensions/approval/frontend/forum/index.js",
+        "routes": [],
+        "settings_pages": [],
+        "permissions_pages": [
+          "/admin/extensions/approval/permissions"
+        ],
+        "operations_pages": [
+          "/admin/extensions/approval/operations"
+        ]
+      },
+      "settings": {
+        "fields": [],
+        "defaults": [],
+        "reset_rules": [],
+        "frontend_cache_keys": [],
+        "theme_variables": [],
+        "forum_serializations": [],
+        "forum_settings_keys": []
+      },
+      "presentation": {
+        "frontend_assets": {
+          "css": [],
+          "js_directories": [],
+          "preloads": [],
+          "document_attributes": [],
+          "head_tags": [],
+          "theme_variables": [],
+          "content_callbacks": [],
+          "title_driver": ""
+        },
+        "locale_paths": [],
+        "view_namespaces": [],
+        "formatter_callbacks": [],
+        "formatter_pipeline": []
+      },
+      "admin": {
+        "pages": [
+          {
+            "path": "/admin/approval",
+            "label": "审核队列",
+            "module_id": "approval"
+          }
+        ],
+        "permission_modules": []
+      },
+      "forum": {
+        "permissions": [],
+        "notification_types": [
+          {
+            "code": "discussionApproved",
+            "label": "讨论审核通过",
+            "module_id": "approval"
+          },
+          {
+            "code": "discussionRejected",
+            "label": "讨论审核拒绝",
+            "module_id": "approval"
+          },
+          {
+            "code": "postApproved",
+            "label": "回复审核通过",
+            "module_id": "approval"
+          },
+          {
+            "code": "postRejected",
+            "label": "回复审核拒绝",
+            "module_id": "approval"
+          }
+        ],
+        "user_preferences": [
+          {
+            "key": "notify_discussion_approval",
+            "label": "讨论审核结果通知",
+            "module_id": "approval"
+          },
+          {
+            "key": "notify_post_approval",
+            "label": "回复审核结果通知",
+            "module_id": "approval"
+          }
+        ],
+        "language_packs": [],
+        "post_types": [
+          {
+            "code": "discussionApproved",
+            "label": "讨论审核通过",
+            "module_id": "approval"
+          },
+          {
+            "code": "discussionRejected",
+            "label": "讨论审核拒绝",
+            "module_id": "approval"
+          },
+          {
+            "code": "discussionResubmitted",
+            "label": "讨论重新提交审核",
+            "module_id": "approval"
+          },
+          {
+            "code": "postApproved",
+            "label": "回复审核通过",
+            "module_id": "approval"
+          },
+          {
+            "code": "postRejected",
+            "label": "回复审核拒绝",
+            "module_id": "approval"
+          },
+          {
+            "code": "postResubmitted",
+            "label": "回复重新提交审核",
+            "module_id": "approval"
+          }
+        ],
+        "search_filters": [],
+        "discussion_sorts": [],
+        "discussion_list_filters": []
+      },
+      "resources": {
+        "definitions": [],
+        "fields": [
+          {
+            "resource": "admin_stats",
+            "field": "pendingApprovals",
+            "module_id": "approval",
+            "description": "后台统计中的待审核内容数量。"
+          }
+        ],
+        "relationships": [],
+        "endpoints": [],
+        "sorts": [],
+        "filters": []
+      },
+      "models": {
+        "definitions": [],
+        "owned": [],
+        "relations": [],
+        "visibility": []
+      },
+      "search": {
+        "drivers": []
+      },
+      "events": {
+        "listeners": [
+          {
+            "event": "DiscussionApprovedEvent",
+            "listener": "handle_discussion_approved",
+            "module_id": "approval",
+            "source": "runtime"
+          },
+          {
+            "event": "DiscussionRejectedEvent",
+            "listener": "handle_discussion_rejected",
+            "module_id": "approval",
+            "source": "runtime"
+          },
+          {
+            "event": "DiscussionResubmittedEvent",
+            "listener": "handle_discussion_resubmitted",
+            "module_id": "approval",
+            "source": "runtime"
+          },
+          {
+            "event": "PostApprovedEvent",
+            "listener": "handle_post_approved",
+            "module_id": "approval",
+            "source": "runtime"
+          },
+          {
+            "event": "PostRejectedEvent",
+            "listener": "handle_post_rejected",
+            "module_id": "approval",
+            "source": "runtime"
+          },
+          {
+            "event": "PostResubmittedEvent",
+            "listener": "handle_post_resubmitted",
+            "module_id": "approval",
+            "source": "runtime"
+          }
+        ],
+        "realtime_broadcasts": [
+          {
+            "event_name": "discussion.approved"
+          },
+          {
+            "event_name": "discussion.rejected"
+          },
+          {
+            "event_name": "discussion.resubmitted"
+          },
+          {
+            "event_name": "post.approved"
+          },
+          {
+            "event_name": "post.rejected"
+          },
+          {
+            "event_name": "post.resubmitted"
+          }
+        ],
+        "post_lifecycle": []
+      },
+      "runtime": {
+        "validators": [],
+        "mailers": [],
+        "error_handlers": [],
+        "auth_handlers": [],
+        "csrf_handlers": [],
+        "filesystem_drivers": [],
+        "console_commands": [],
+        "session_handlers": [],
+        "theme_handlers": [],
+        "throttle_api_handlers": [],
+        "user_handlers": [],
+        "signal_handlers": [],
+        "websocket_routes": [],
+        "middleware_mounts": [],
+        "policy_mounts": [],
+        "route_mounts": [
+          {
+            "prefix": "/admin",
+            "tags": [
+              "Admin"
+            ]
+          }
+        ],
+        "service_providers": [
+          "approval.service"
+        ]
+      },
+      "lifecycle": {
+        "extenders": [
+          "AdminSurfaceExtender",
+          "ApiResourceExtender",
+          "ApiRoutesExtender",
+          "EventListenersExtender",
+          "ForumCapabilitiesExtender",
+          "FrontendExtender",
+          "LifecycleExtender",
+          "NotificationsExtender",
+          "PostEventExtender",
+          "RealtimeExtender",
+          "ServiceProviderExtender"
+        ],
+        "lifecycle_extenders": [
+          "LifecycleExtender"
+        ],
+        "phases": [
+          "boot",
+          "ready",
+          "register"
+        ]
+      },
+      "summary": {
+        "notification_type_count": 4,
+        "user_preference_count": 2,
+        "event_listener_count": 6,
+        "realtime_broadcast_count": 6,
+        "post_lifecycle_count": 0,
+        "post_type_count": 6,
+        "search_filter_count": 0,
+        "discussion_sort_count": 0,
+        "discussion_list_filter_count": 0,
+        "resource_definition_count": 0,
+        "resource_relationship_count": 0,
+        "resource_field_count": 1,
+        "resource_endpoint_count": 0,
+        "resource_sort_count": 0,
+        "resource_filter_count": 0,
+        "owned_model_count": 0,
+        "model_package_migration_required_count": 0,
+        "model_app_label_migration_required_count": 0,
+        "model_relation_count": 0,
+        "language_pack_count": 0,
+        "settings_field_count": 0,
+        "settings_default_count": 0,
+        "settings_reset_rule_count": 0,
+        "settings_frontend_cache_key_count": 0,
+        "settings_theme_variable_count": 0,
+        "settings_forum_serialization_count": 0,
+        "forum_settings_key_count": 0,
+        "frontend_css_count": 0,
+        "frontend_js_directory_count": 0,
+        "frontend_preload_count": 0,
+        "frontend_document_attribute_count": 0,
+        "frontend_head_tag_count": 0,
+        "frontend_theme_variable_count": 0,
+        "frontend_content_callback_count": 0,
+        "frontend_title_driver_count": 0,
+        "locale_path_count": 0,
+        "view_namespace_count": 0,
+        "formatter_callback_count": 0,
+        "formatter_pipeline_count": 0,
+        "validator_count": 0,
+        "mailer_count": 0,
+        "error_handler_count": 0,
+        "auth_handler_count": 0,
+        "csrf_handler_count": 0,
+        "filesystem_driver_count": 0,
+        "console_command_count": 0,
+        "session_handler_count": 0,
+        "theme_handler_count": 0,
+        "throttle_api_handler_count": 0,
+        "user_handler_count": 0,
+        "signal_handler_count": 0,
+        "websocket_route_count": 0,
+        "middleware_mount_count": 0,
+        "policy_mount_count": 0,
+        "route_mount_count": 1,
+        "service_provider_count": 1
+      }
+    },
+    "core": {
+      "schema_version": 1,
+      "extension_id": "core",
+      "source": "core-module",
+      "module_ids": [
+        "core"
+      ],
+      "dependencies": [],
+      "optional_dependencies": [],
+      "conflicts": [],
+      "provides": [
+        "advanced",
+        "appearance",
+        "audit-log",
+        "developer-docs",
+        "mail",
+        "permissions",
+        "settings"
+      ],
+      "backend": {
+        "entry": "",
+        "django_app_config": "",
+        "django_app_label": "core"
+      },
+      "frontend": {
+        "admin_entry": "",
+        "forum_entry": "",
+        "routes": [],
+        "settings_pages": [
+          "/admin/advanced",
+          "/admin/appearance",
+          "/admin/basics",
+          "/admin/mail"
+        ],
+        "permissions_pages": [],
+        "operations_pages": []
+      },
+      "settings": {
+        "fields": [],
+        "defaults": [],
+        "reset_rules": [],
+        "frontend_cache_keys": [],
+        "theme_variables": [],
+        "forum_serializations": [],
+        "forum_settings_keys": []
+      },
+      "presentation": {
+        "frontend_assets": {
+          "css": [],
+          "js_directories": [],
+          "preloads": [],
+          "document_attributes": [],
+          "head_tags": [],
+          "theme_variables": [],
+          "content_callbacks": [],
+          "title_driver": ""
+        },
+        "locale_paths": [],
+        "view_namespaces": [],
+        "formatter_callbacks": [],
+        "formatter_pipeline": []
+      },
+      "admin": {
+        "pages": [
+          {
+            "path": "/admin",
+            "label": "仪表盘",
+            "module_id": "core"
+          },
+          {
+            "path": "/admin/basics",
+            "label": "基础设置",
+            "module_id": "core"
+          },
+          {
+            "path": "/admin/appearance",
+            "label": "外观设置",
+            "module_id": "core"
+          },
+          {
+            "path": "/admin/audit-logs",
+            "label": "审计日志",
+            "module_id": "core"
+          },
+          {
+            "path": "/admin/docs",
+            "label": "开发者文档",
+            "module_id": "core"
+          },
+          {
+            "path": "/admin/permissions",
+            "label": "权限管理",
+            "module_id": "core"
+          },
+          {
+            "path": "/admin/mail",
+            "label": "邮件设置",
+            "module_id": "core"
+          },
+          {
+            "path": "/admin/advanced",
+            "label": "高级设置",
+            "module_id": "core"
+          }
+        ],
+        "permission_modules": []
+      },
+      "forum": {
+        "permissions": [],
+        "notification_types": [],
+        "user_preferences": [],
+        "language_packs": [
+          {
+            "code": "zh-CN",
+            "label": "简体中文",
+            "module_id": "core"
+          }
+        ],
+        "post_types": [],
+        "search_filters": [],
+        "discussion_sorts": [],
+        "discussion_list_filters": []
+      },
+      "resources": {
+        "definitions": [],
+        "fields": [
+          {
+            "resource": "flag",
+            "field": "reason",
+            "module_id": "core",
+            "operation": "add",
+            "anchor": ""
+          },
+          {
+            "resource": "flag",
+            "field": "reason_detail",
+            "module_id": "core",
+            "operation": "add",
+            "anchor": ""
+          }
+        ],
+        "relationships": [
+          {
+            "resource": "flag",
+            "relationship": "post",
+            "module_id": "core"
+          },
+          {
+            "resource": "flag",
+            "relationship": "user",
+            "module_id": "core"
+          }
+        ],
+        "endpoints": [],
+        "sorts": [
+          {
+            "resource": "flag",
+            "sort": "created_at",
+            "module_id": "core",
+            "operation": "add",
+            "anchor": ""
+          }
+        ],
+        "filters": []
+      },
+      "models": {
+        "definitions": [],
+        "owned": [],
+        "relations": [],
+        "visibility": []
+      },
+      "search": {
+        "drivers": []
+      },
+      "events": {
+        "listeners": [],
+        "realtime_broadcasts": [],
+        "post_lifecycle": []
+      },
+      "runtime": {
+        "validators": [],
+        "mailers": [],
+        "error_handlers": [],
+        "auth_handlers": [],
+        "csrf_handlers": [],
+        "filesystem_drivers": [],
+        "console_commands": [],
+        "session_handlers": [],
+        "theme_handlers": [],
+        "throttle_api_handlers": [],
+        "user_handlers": [],
+        "signal_handlers": [],
+        "websocket_routes": [],
+        "middleware_mounts": [],
+        "policy_mounts": [],
+        "route_mounts": [],
+        "service_providers": []
+      },
+      "lifecycle": {
+        "extenders": [],
+        "lifecycle_extenders": [],
+        "phases": []
+      },
+      "summary": {
+        "notification_type_count": 0,
+        "user_preference_count": 0,
+        "event_listener_count": 0,
+        "realtime_broadcast_count": 0,
+        "post_lifecycle_count": 0,
+        "post_type_count": 0,
+        "search_filter_count": 0,
+        "discussion_sort_count": 0,
+        "discussion_list_filter_count": 0,
+        "resource_definition_count": 0,
+        "resource_relationship_count": 2,
+        "resource_field_count": 2,
+        "resource_endpoint_count": 0,
+        "resource_sort_count": 1,
+        "resource_filter_count": 0,
+        "owned_model_count": 0,
+        "model_package_migration_required_count": 0,
+        "model_app_label_migration_required_count": 0,
+        "model_relation_count": 0,
+        "language_pack_count": 1,
+        "settings_field_count": 0,
+        "settings_default_count": 0,
+        "settings_reset_rule_count": 0,
+        "settings_frontend_cache_key_count": 0,
+        "settings_theme_variable_count": 0,
+        "settings_forum_serialization_count": 0,
+        "forum_settings_key_count": 0,
+        "frontend_css_count": 0,
+        "frontend_js_directory_count": 0,
+        "frontend_preload_count": 0,
+        "frontend_document_attribute_count": 0,
+        "frontend_head_tag_count": 0,
+        "frontend_theme_variable_count": 0,
+        "frontend_content_callback_count": 0,
+        "frontend_title_driver_count": 0,
+        "locale_path_count": 0,
+        "view_namespace_count": 0,
+        "formatter_callback_count": 0,
+        "formatter_pipeline_count": 0,
+        "validator_count": 0,
+        "mailer_count": 0,
+        "error_handler_count": 0,
+        "auth_handler_count": 0,
+        "csrf_handler_count": 0,
+        "filesystem_driver_count": 0,
+        "console_command_count": 0,
+        "session_handler_count": 0,
+        "theme_handler_count": 0,
+        "throttle_api_handler_count": 0,
+        "user_handler_count": 0,
+        "signal_handler_count": 0,
+        "websocket_route_count": 0,
+        "middleware_mount_count": 0,
+        "policy_mount_count": 0,
+        "route_mount_count": 0,
+        "service_provider_count": 0
+      }
+    },
+    "discussions": {
+      "schema_version": 1,
+      "extension_id": "discussions",
+      "source": "filesystem",
+      "module_ids": [
+        "discussions"
+      ],
+      "dependencies": [
+        "core",
+        "users"
+      ],
+      "optional_dependencies": [],
+      "conflicts": [],
+      "provides": [
+        "discussion_lifecycle",
+        "discussions"
+      ],
+      "backend": {
+        "entry": "bias_ext_discussions.backend.ext",
+        "django_app_config": "bias_ext_discussions.backend.apps.DiscussionsExtensionConfig",
+        "django_app_label": "discussions"
+      },
+      "frontend": {
+        "admin_entry": "extensions/discussions/frontend/admin/index.js",
+        "forum_entry": "extensions/discussions/frontend/forum/index.js",
+        "routes": [
+          {
+            "frontend": "forum",
+            "name": "discussion-create",
+            "path": "/discussions/create",
+            "component": "./DiscussionCreateView.vue"
+          },
+          {
+            "frontend": "forum",
+            "name": "discussion-detail",
+            "path": "/d/:id",
+            "component": "./DiscussionDetailView.vue"
+          },
+          {
+            "frontend": "forum",
+            "name": "home",
+            "path": "/",
+            "component": "./DiscussionListView.vue"
+          }
+        ],
+        "settings_pages": [],
+        "permissions_pages": [
+          "/admin/extensions/discussions/permissions"
+        ],
+        "operations_pages": []
+      },
+      "settings": {
+        "fields": [],
+        "defaults": [],
+        "reset_rules": [],
+        "frontend_cache_keys": [],
+        "theme_variables": [],
+        "forum_serializations": [],
+        "forum_settings_keys": []
+      },
+      "presentation": {
+        "frontend_assets": {
+          "css": [],
+          "js_directories": [],
+          "preloads": [],
+          "document_attributes": [],
+          "head_tags": [],
+          "theme_variables": [],
+          "content_callbacks": [],
+          "title_driver": ""
+        },
+        "locale_paths": [],
+        "view_namespaces": [],
+        "formatter_callbacks": [],
+        "formatter_pipeline": []
+      },
+      "admin": {
+        "pages": [],
+        "permission_modules": []
+      },
+      "forum": {
+        "permissions": [],
+        "notification_types": [],
+        "user_preferences": [],
+        "language_packs": [],
+        "post_types": [
+          {
+            "code": "discussionHidden",
+            "label": "讨论隐藏状态变更",
+            "module_id": "discussions"
+          },
+          {
+            "code": "discussionLocked",
+            "label": "讨论锁定状态变更",
+            "module_id": "discussions"
+          },
+          {
+            "code": "discussionRenamed",
+            "label": "讨论改标题",
+            "module_id": "discussions"
+          },
+          {
+            "code": "discussionSticky",
+            "label": "讨论置顶状态变更",
+            "module_id": "discussions"
+          }
+        ],
+        "search_filters": [],
+        "discussion_sorts": [
+          {
+            "code": "latest",
+            "label": "最新活跃",
+            "module_id": "discussions"
+          },
+          {
+            "code": "newest",
+            "label": "新主题",
+            "module_id": "discussions"
+          },
+          {
+            "code": "oldest",
+            "label": "最早发布",
+            "module_id": "discussions"
+          },
+          {
+            "code": "top",
+            "label": "热门",
+            "module_id": "discussions"
+          },
+          {
+            "code": "unanswered",
+            "label": "零回复",
+            "module_id": "discussions"
+          }
+        ],
+        "discussion_list_filters": [
+          {
+            "code": "all",
+            "label": "全部讨论",
+            "module_id": "discussions",
+            "route_path": "/"
+          },
+          {
+            "code": "my",
+            "label": "我发起的",
+            "module_id": "discussions",
+            "route_path": "/"
+          },
+          {
+            "code": "unread",
+            "label": "未读",
+            "module_id": "discussions",
+            "route_path": "/"
+          }
+        ]
+      },
+      "resources": {
+        "definitions": [
+          {
+            "resource": "search_discussion",
+            "module_id": "discussions",
+            "description": "搜索讨论结果资源。"
+          }
+        ],
+        "fields": [
+          {
+            "resource": "admin_stats",
+            "field": "totalDiscussions",
+            "module_id": "discussions",
+            "description": "后台统计中的讨论总数。"
+          },
+          {
+            "resource": "discussion",
+            "field": "can_delete",
+            "module_id": "discussions",
+            "description": "当前用户是否可以删除讨论。"
+          },
+          {
+            "resource": "discussion",
+            "field": "can_reply",
+            "module_id": "discussions",
+            "description": "当前用户是否可以回复讨论。"
+          },
+          {
+            "resource": "discussion",
+            "field": "can_edit",
+            "module_id": "discussions",
+            "description": "当前用户是否可以编辑讨论。"
+          }
+        ],
+        "relationships": [],
+        "endpoints": [
+          {
+            "resource": "discussion",
+            "endpoint": "create",
+            "path": "discussions/",
+            "module_id": "discussions",
+            "operation": "mutate",
+            "anchor": "",
+            "description": ""
+          },
+          {
+            "resource": "discussion",
+            "endpoint": "delete",
+            "path": "discussions/{object_id}",
+            "module_id": "discussions",
+            "operation": "mutate",
+            "anchor": "",
+            "description": ""
+          },
+          {
+            "resource": "discussion",
+            "endpoint": "hide",
+            "path": "discussions/{object_id}/hide",
+            "module_id": "discussions",
+            "operation": "mutate",
+            "anchor": "",
+            "description": ""
+          },
+          {
+            "resource": "discussion",
+            "endpoint": "index",
+            "path": "discussions/",
+            "module_id": "discussions",
+            "operation": "mutate",
+            "anchor": "",
+            "description": ""
+          },
+          {
+            "resource": "discussion",
+            "endpoint": "lock",
+            "path": "discussions/{object_id}/lock",
+            "module_id": "discussions",
+            "operation": "mutate",
+            "anchor": "",
+            "description": ""
+          },
+          {
+            "resource": "discussion",
+            "endpoint": "pin",
+            "path": "discussions/{object_id}/pin",
+            "module_id": "discussions",
+            "operation": "mutate",
+            "anchor": "",
+            "description": ""
+          },
+          {
+            "resource": "discussion",
+            "endpoint": "read",
+            "path": "discussions/{object_id}/read",
+            "module_id": "discussions",
+            "operation": "mutate",
+            "anchor": "",
+            "description": ""
+          },
+          {
+            "resource": "discussion",
+            "endpoint": "read-all",
+            "path": "discussions/read-all",
+            "module_id": "discussions",
+            "operation": "mutate",
+            "anchor": "",
+            "description": ""
+          },
+          {
+            "resource": "discussion",
+            "endpoint": "show",
+            "path": "discussions/{object_id}",
+            "module_id": "discussions",
+            "operation": "mutate",
+            "anchor": "",
+            "description": ""
+          },
+          {
+            "resource": "discussion",
+            "endpoint": "update",
+            "path": "discussions/{object_id}",
+            "module_id": "discussions",
+            "operation": "mutate",
+            "anchor": "",
+            "description": ""
+          }
+        ],
+        "sorts": [],
+        "filters": []
+      },
+      "models": {
+        "definitions": [
+          {
+            "model": "Discussion",
+            "kind": "owner",
+            "key": "discussions.discussion"
+          },
+          {
+            "model": "DiscussionUser",
+            "kind": "owner",
+            "key": "discussions.discussionuser"
+          }
+        ],
+        "owned": [
+          {
+            "module_id": "discussions",
+            "model": "Discussion",
+            "app_label": "discussions",
+            "target_app_label": "discussions"
+          },
+          {
+            "module_id": "discussions",
+            "model": "DiscussionUser",
+            "app_label": "discussions",
+            "target_app_label": "discussions"
+          }
+        ],
+        "relations": [],
+        "visibility": [
+          {
+            "model": "Discussion",
+            "ability": "view"
+          }
+        ]
+      },
+      "search": {
+        "drivers": []
+      },
+      "events": {
+        "listeners": [
+          {
+            "event": "DiscussionHiddenEvent",
+            "listener": "handle_discussion_hidden",
+            "module_id": "discussions",
+            "source": "runtime"
+          },
+          {
+            "event": "DiscussionLockedEvent",
+            "listener": "handle_discussion_locked",
+            "module_id": "discussions",
+            "source": "runtime"
+          },
+          {
+            "event": "DiscussionRenamedEvent",
+            "listener": "handle_discussion_renamed",
+            "module_id": "discussions",
+            "source": "runtime"
+          },
+          {
+            "event": "DiscussionStickyChangedEvent",
+            "listener": "handle_discussion_sticky_changed",
+            "module_id": "discussions",
+            "source": "runtime"
+          }
+        ],
+        "realtime_broadcasts": [
+          {
+            "event_name": "discussion.created"
+          },
+          {
+            "event_name": "discussion.hidden"
+          },
+          {
+            "event_name": "discussion.locked"
+          },
+          {
+            "event_name": "discussion.renamed"
+          },
+          {
+            "event_name": "discussion.sticky_changed"
+          }
+        ],
+        "post_lifecycle": []
+      },
+      "runtime": {
+        "validators": [],
+        "mailers": [],
+        "error_handlers": [],
+        "auth_handlers": [],
+        "csrf_handlers": [],
+        "filesystem_drivers": [],
+        "console_commands": [],
+        "session_handlers": [],
+        "theme_handlers": [],
+        "throttle_api_handlers": [],
+        "user_handlers": [],
+        "signal_handlers": [],
+        "websocket_routes": [],
+        "middleware_mounts": [],
+        "policy_mounts": [],
+        "route_mounts": [],
+        "service_providers": [
+          "discussions.service",
+          "discussions.timeline",
+          "realtime.discussion_broadcaster",
+          "search.target.discussion",
+          "search.target.post"
+        ]
+      },
+      "lifecycle": {
+        "extenders": [
+          "AdminSurfaceExtender",
+          "ApiResourceExtender",
+          "EventListenersExtender",
+          "ForumCapabilitiesExtender",
+          "FrontendExtender",
+          "LifecycleExtender",
+          "ModelExtender",
+          "ModelVisibilityExtender",
+          "RealtimeExtender",
+          "SearchIndexExtender",
+          "ServiceProviderExtender"
+        ],
+        "lifecycle_extenders": [
+          "LifecycleExtender"
+        ],
+        "phases": [
+          "boot",
+          "ready",
+          "register"
+        ]
+      },
+      "summary": {
+        "notification_type_count": 0,
+        "user_preference_count": 0,
+        "event_listener_count": 4,
+        "realtime_broadcast_count": 5,
+        "post_lifecycle_count": 0,
+        "post_type_count": 4,
+        "search_filter_count": 0,
+        "discussion_sort_count": 5,
+        "discussion_list_filter_count": 3,
+        "resource_definition_count": 1,
+        "resource_relationship_count": 0,
+        "resource_field_count": 4,
+        "resource_endpoint_count": 10,
+        "resource_sort_count": 0,
+        "resource_filter_count": 0,
+        "owned_model_count": 2,
+        "model_package_migration_required_count": 0,
+        "model_app_label_migration_required_count": 0,
+        "model_relation_count": 0,
+        "language_pack_count": 0,
+        "settings_field_count": 0,
+        "settings_default_count": 0,
+        "settings_reset_rule_count": 0,
+        "settings_frontend_cache_key_count": 0,
+        "settings_theme_variable_count": 0,
+        "settings_forum_serialization_count": 0,
+        "forum_settings_key_count": 0,
+        "frontend_css_count": 0,
+        "frontend_js_directory_count": 0,
+        "frontend_preload_count": 0,
+        "frontend_document_attribute_count": 0,
+        "frontend_head_tag_count": 0,
+        "frontend_theme_variable_count": 0,
+        "frontend_content_callback_count": 0,
+        "frontend_title_driver_count": 0,
+        "locale_path_count": 0,
+        "view_namespace_count": 0,
+        "formatter_callback_count": 0,
+        "formatter_pipeline_count": 0,
+        "validator_count": 0,
+        "mailer_count": 0,
+        "error_handler_count": 0,
+        "auth_handler_count": 0,
+        "csrf_handler_count": 0,
+        "filesystem_driver_count": 0,
+        "console_command_count": 0,
+        "session_handler_count": 0,
+        "theme_handler_count": 0,
+        "throttle_api_handler_count": 0,
+        "user_handler_count": 0,
+        "signal_handler_count": 0,
+        "websocket_route_count": 0,
+        "middleware_mount_count": 0,
+        "policy_mount_count": 0,
+        "route_mount_count": 0,
+        "service_provider_count": 5
+      }
+    },
+    "emoji": {
+      "schema_version": 1,
+      "extension_id": "emoji",
+      "source": "filesystem",
+      "module_ids": [
+        "emoji"
+      ],
+      "dependencies": [
+        "core"
+      ],
+      "optional_dependencies": [],
+      "conflicts": [],
+      "provides": [
+        "emoji-composer",
+        "emoji-renderer"
+      ],
+      "backend": {
+        "entry": "bias_ext_emoji.backend.ext:extend",
+        "django_app_config": "bias_ext_emoji.backend.apps.EmojiExtensionConfig",
+        "django_app_label": "emoji"
+      },
+      "frontend": {
+        "admin_entry": "",
+        "forum_entry": "extensions/emoji/frontend/forum/index.js",
+        "routes": [],
+        "settings_pages": [
+          "/admin/extensions/emoji/settings"
+        ],
+        "permissions_pages": [],
+        "operations_pages": []
+      },
+      "settings": {
+        "fields": [
+          {
+            "key": "cdn_url",
+            "label": "Twemoji CDN",
+            "type": "text",
+            "default": "",
+            "order": 10
+          }
+        ],
+        "defaults": [
+          {
+            "key": "cdn_url",
+            "value": "https://cdn.jsdelivr.net/gh/jdecked/twemoji@15.1.0/assets/"
+          }
+        ],
+        "reset_rules": [
+          {
+            "key": "cdn_url"
+          }
+        ],
+        "frontend_cache_keys": [
+          "cdn_url"
+        ],
+        "theme_variables": [
+          {
+            "name": "bias-emoji-cdn",
+            "key": "cdn_url"
+          }
+        ],
+        "forum_serializations": [],
+        "forum_settings_keys": [
+          "cdn_url"
+        ]
+      },
+      "presentation": {
+        "frontend_assets": {
+          "css": [],
+          "js_directories": [],
+          "preloads": [],
+          "document_attributes": [],
+          "head_tags": [],
+          "theme_variables": [],
+          "content_callbacks": [],
+          "title_driver": ""
+        },
+        "locale_paths": [
+          "D:\\files\\project\\tmp\\bias-ext-emoji\\locale"
+        ],
+        "view_namespaces": [],
+        "formatter_callbacks": [
+          {
+            "phase": "parse",
+            "callback": "bias_ext_emoji.backend.formatter.parse_emoticons",
+            "module_id": "emoji",
+            "description": ""
+          }
+        ],
+        "formatter_pipeline": []
+      },
+      "admin": {
+        "pages": [],
+        "permission_modules": []
+      },
+      "forum": {
+        "permissions": [],
+        "notification_types": [],
+        "user_preferences": [],
+        "language_packs": [],
+        "post_types": [],
+        "search_filters": [],
+        "discussion_sorts": [],
+        "discussion_list_filters": []
+      },
+      "resources": {
+        "definitions": [],
+        "fields": [],
+        "relationships": [],
+        "endpoints": [],
+        "sorts": [],
+        "filters": []
+      },
+      "models": {
+        "definitions": [],
+        "owned": [],
+        "relations": [],
+        "visibility": []
+      },
+      "search": {
+        "drivers": []
+      },
+      "events": {
+        "listeners": [],
+        "realtime_broadcasts": [],
+        "post_lifecycle": []
+      },
+      "runtime": {
+        "validators": [],
+        "mailers": [],
+        "error_handlers": [],
+        "auth_handlers": [],
+        "csrf_handlers": [],
+        "filesystem_drivers": [],
+        "console_commands": [],
+        "session_handlers": [],
+        "theme_handlers": [],
+        "throttle_api_handlers": [],
+        "user_handlers": [],
+        "signal_handlers": [],
+        "websocket_routes": [],
+        "middleware_mounts": [],
+        "policy_mounts": [],
+        "route_mounts": [],
+        "service_providers": []
+      },
+      "lifecycle": {
+        "extenders": [
+          "FormatterExtender",
+          "FrontendExtender",
+          "LifecycleExtender",
+          "LocalesExtender",
+          "SettingsExtender"
+        ],
+        "lifecycle_extenders": [
+          "LifecycleExtender"
+        ],
+        "phases": [
+          "boot",
+          "ready",
+          "register"
+        ]
+      },
+      "summary": {
+        "notification_type_count": 0,
+        "user_preference_count": 0,
+        "event_listener_count": 0,
+        "realtime_broadcast_count": 0,
+        "post_lifecycle_count": 0,
+        "post_type_count": 0,
+        "search_filter_count": 0,
+        "discussion_sort_count": 0,
+        "discussion_list_filter_count": 0,
+        "resource_definition_count": 0,
+        "resource_relationship_count": 0,
+        "resource_field_count": 0,
+        "resource_endpoint_count": 0,
+        "resource_sort_count": 0,
+        "resource_filter_count": 0,
+        "owned_model_count": 0,
+        "model_package_migration_required_count": 0,
+        "model_app_label_migration_required_count": 0,
+        "model_relation_count": 0,
+        "language_pack_count": 0,
+        "settings_field_count": 1,
+        "settings_default_count": 1,
+        "settings_reset_rule_count": 1,
+        "settings_frontend_cache_key_count": 1,
+        "settings_theme_variable_count": 1,
+        "settings_forum_serialization_count": 0,
+        "forum_settings_key_count": 1,
+        "frontend_css_count": 0,
+        "frontend_js_directory_count": 0,
+        "frontend_preload_count": 0,
+        "frontend_document_attribute_count": 0,
+        "frontend_head_tag_count": 0,
+        "frontend_theme_variable_count": 0,
+        "frontend_content_callback_count": 0,
+        "frontend_title_driver_count": 0,
+        "locale_path_count": 1,
+        "view_namespace_count": 0,
+        "formatter_callback_count": 1,
+        "formatter_pipeline_count": 0,
+        "validator_count": 0,
+        "mailer_count": 0,
+        "error_handler_count": 0,
+        "auth_handler_count": 0,
+        "csrf_handler_count": 0,
+        "filesystem_driver_count": 0,
+        "console_command_count": 0,
+        "session_handler_count": 0,
+        "theme_handler_count": 0,
+        "throttle_api_handler_count": 0,
+        "user_handler_count": 0,
+        "signal_handler_count": 0,
+        "websocket_route_count": 0,
+        "middleware_mount_count": 0,
+        "policy_mount_count": 0,
+        "route_mount_count": 0,
+        "service_provider_count": 0
+      }
+    },
+    "flags": {
+      "schema_version": 1,
+      "extension_id": "flags",
+      "source": "filesystem",
+      "module_ids": [
+        "flags"
+      ],
+      "dependencies": [
+        "core",
+        "discussions",
+        "posts",
+        "users"
+      ],
+      "optional_dependencies": [],
+      "conflicts": [],
+      "provides": [],
+      "backend": {
+        "entry": "bias_ext_flags.backend.ext:extend",
+        "django_app_config": "bias_ext_flags.backend.apps.FlagsExtensionConfig",
+        "django_app_label": "flags"
+      },
+      "frontend": {
+        "admin_entry": "extensions/flags/frontend/admin/index.js",
+        "forum_entry": "extensions/flags/frontend/forum/index.js",
+        "routes": [],
+        "settings_pages": [
+          "/admin/extensions/flags/settings"
+        ],
+        "permissions_pages": [
+          "/admin/extensions/flags/permissions"
+        ],
+        "operations_pages": [
+          "/admin/extensions/flags/operations"
+        ]
+      },
+      "settings": {
+        "fields": [
+          {
+            "key": "guidelines_url",
+            "label": "社区规则 URL",
+            "type": "text",
+            "default": "",
+            "order": 10
+          },
+          {
+            "key": "can_flag_own",
+            "label": "允许举报自己的帖子",
+            "type": "boolean",
+            "default": false,
+            "order": 20
+          }
+        ],
+        "defaults": [],
+        "reset_rules": [],
+        "frontend_cache_keys": [],
+        "theme_variables": [],
+        "forum_serializations": [],
+        "forum_settings_keys": [
+          "guidelines_url"
+        ]
+      },
+      "presentation": {
+        "frontend_assets": {
+          "css": [],
+          "js_directories": [],
+          "preloads": [],
+          "document_attributes": [],
+          "head_tags": [],
+          "theme_variables": [],
+          "content_callbacks": [],
+          "title_driver": ""
+        },
+        "locale_paths": [],
+        "view_namespaces": [],
+        "formatter_callbacks": [],
+        "formatter_pipeline": []
+      },
+      "admin": {
+        "pages": [
+          {
+            "path": "/admin/flags",
+            "label": "举报管理",
+            "module_id": "flags"
+          }
+        ],
+        "permission_modules": []
+      },
+      "forum": {
+        "permissions": [],
+        "notification_types": [],
+        "user_preferences": [],
+        "language_packs": [],
+        "post_types": [],
+        "search_filters": [],
+        "discussion_sorts": [],
+        "discussion_list_filters": []
+      },
+      "resources": {
+        "definitions": [
+          {
+            "resource": "flag",
+            "module_id": "flags",
+            "description": "帖子举报 JSON:API 资源。"
+          }
+        ],
+        "fields": [
+          {
+            "resource": "admin_stats",
+            "field": "openFlags",
+            "module_id": "flags",
+            "description": "后台统计中的待处理举报数量。"
+          },
+          {
+            "resource": "post",
+            "field": "open_flag_count",
+            "module_id": "flags",
+            "description": "当前回复的待处理举报数量。"
+          },
+          {
+            "resource": "post",
+            "field": "open_flags",
+            "module_id": "flags",
+            "description": "当前回复的待处理举报明细。"
+          },
+          {
+            "resource": "forum",
+            "field": "flag_count",
+            "module_id": "flags",
+            "description": "当前用户可见的待处理举报帖子数量。"
+          },
+          {
+            "resource": "user_detail",
+            "field": "new_flag_count",
+            "module_id": "flags",
+            "description": "当前用户可见的待处理举报帖子数量。"
+          },
+          {
+            "resource": "post",
+            "field": "can_flag",
+            "module_id": "flags",
+            "description": "当前用户是否可以举报该回复。"
+          },
+          {
+            "resource": "forum",
+            "field": "can_view_flags",
+            "module_id": "flags",
+            "description": "当前用户是否可以查看举报队列。"
+          },
+          {
+            "resource": "post",
+            "field": "can_moderate_flags",
+            "module_id": "flags",
+            "description": "当前用户是否可在前台处理举报。"
+          },
+          {
+            "resource": "post",
+            "field": "viewer_has_open_flag",
+            "module_id": "flags",
+            "description": "当前用户是否已对该回复提交待处理举报。"
+          }
+        ],
+        "relationships": [
+          {
+            "resource": "post",
+            "relationship": "flags",
+            "module_id": "flags",
+            "resource_type": "flag",
+            "description": "当前回复可见的待处理举报关系。"
+          }
+        ],
+        "endpoints": [
+          {
+            "resource": "post",
+            "endpoint": "flags/delete",
+            "path": "posts/{object_id}/flags",
+            "module_id": "flags",
+            "operation": "mutate",
+            "anchor": "",
+            "description": ""
+          },
+          {
+            "resource": "post",
+            "endpoint": "flags/resolve",
+            "path": "posts/{object_id}/flags/resolve",
+            "module_id": "flags",
+            "operation": "mutate",
+            "anchor": "",
+            "description": ""
+          },
+          {
+            "resource": "post",
+            "endpoint": "index",
+            "path": "",
+            "module_id": "flags",
+            "operation": "mutate",
+            "anchor": "",
+            "description": ""
+          },
+          {
+            "resource": "post",
+            "endpoint": "report",
+            "path": "posts/{object_id}/report",
+            "module_id": "flags",
+            "operation": "mutate",
+            "anchor": "",
+            "description": ""
+          },
+          {
+            "resource": "post",
+            "endpoint": "show",
+            "path": "",
+            "module_id": "flags",
+            "operation": "mutate",
+            "anchor": "",
+            "description": ""
+          }
+        ],
+        "sorts": [],
+        "filters": []
+      },
+      "models": {
+        "definitions": [
+          {
+            "model": "PostFlag",
+            "kind": "owner",
+            "key": "flags.postflag"
+          }
+        ],
+        "owned": [
+          {
+            "module_id": "flags",
+            "model": "PostFlag",
+            "app_label": "flags",
+            "target_app_label": "flags"
+          }
+        ],
+        "relations": [],
+        "visibility": [
+          {
+            "model": "PostFlag",
+            "ability": "view"
+          }
+        ]
+      },
+      "search": {
+        "drivers": []
+      },
+      "events": {
+        "listeners": [],
+        "realtime_broadcasts": [
+          {
+            "event_name": "post.flagged"
+          },
+          {
+            "event_name": "post.flags_deleted"
+          },
+          {
+            "event_name": "post.flags_resolved"
+          }
+        ],
+        "post_lifecycle": [
+          {
+            "key": "flags",
+            "module_id": "flags"
+          }
+        ]
+      },
+      "runtime": {
+        "validators": [],
+        "mailers": [],
+        "error_handlers": [],
+        "auth_handlers": [],
+        "csrf_handlers": [],
+        "filesystem_drivers": [],
+        "console_commands": [],
+        "session_handlers": [],
+        "theme_handlers": [],
+        "throttle_api_handlers": [],
+        "user_handlers": [],
+        "signal_handlers": [],
+        "websocket_routes": [],
+        "middleware_mounts": [],
+        "policy_mounts": [],
+        "route_mounts": [
+          {
+            "prefix": "/admin",
+            "tags": [
+              "Admin"
+            ]
+          }
+        ],
+        "service_providers": [
+          "flags.service"
+        ]
+      },
+      "lifecycle": {
+        "extenders": [
+          "AdminSurfaceExtender",
+          "ApiResourceExtender",
+          "ApiRoutesExtender",
+          "FrontendExtender",
+          "LifecycleExtender",
+          "ModelExtender",
+          "ModelVisibilityExtender",
+          "PostLifecycleExtender",
+          "RealtimeExtender",
+          "ServiceProviderExtender",
+          "SettingsExtender"
+        ],
+        "lifecycle_extenders": [
+          "LifecycleExtender"
+        ],
+        "phases": [
+          "boot",
+          "ready",
+          "register"
+        ]
+      },
+      "summary": {
+        "notification_type_count": 0,
+        "user_preference_count": 0,
+        "event_listener_count": 0,
+        "realtime_broadcast_count": 3,
+        "post_lifecycle_count": 1,
+        "post_type_count": 0,
+        "search_filter_count": 0,
+        "discussion_sort_count": 0,
+        "discussion_list_filter_count": 0,
+        "resource_definition_count": 1,
+        "resource_relationship_count": 1,
+        "resource_field_count": 9,
+        "resource_endpoint_count": 5,
+        "resource_sort_count": 0,
+        "resource_filter_count": 0,
+        "owned_model_count": 1,
+        "model_package_migration_required_count": 0,
+        "model_app_label_migration_required_count": 0,
+        "model_relation_count": 0,
+        "language_pack_count": 0,
+        "settings_field_count": 2,
+        "settings_default_count": 0,
+        "settings_reset_rule_count": 0,
+        "settings_frontend_cache_key_count": 0,
+        "settings_theme_variable_count": 0,
+        "settings_forum_serialization_count": 0,
+        "forum_settings_key_count": 1,
+        "frontend_css_count": 0,
+        "frontend_js_directory_count": 0,
+        "frontend_preload_count": 0,
+        "frontend_document_attribute_count": 0,
+        "frontend_head_tag_count": 0,
+        "frontend_theme_variable_count": 0,
+        "frontend_content_callback_count": 0,
+        "frontend_title_driver_count": 0,
+        "locale_path_count": 0,
+        "view_namespace_count": 0,
+        "formatter_callback_count": 0,
+        "formatter_pipeline_count": 0,
+        "validator_count": 0,
+        "mailer_count": 0,
+        "error_handler_count": 0,
+        "auth_handler_count": 0,
+        "csrf_handler_count": 0,
+        "filesystem_driver_count": 0,
+        "console_command_count": 0,
+        "session_handler_count": 0,
+        "theme_handler_count": 0,
+        "throttle_api_handler_count": 0,
+        "user_handler_count": 0,
+        "signal_handler_count": 0,
+        "websocket_route_count": 0,
+        "middleware_mount_count": 0,
+        "policy_mount_count": 0,
+        "route_mount_count": 1,
+        "service_provider_count": 1
+      }
+    },
+    "likes": {
+      "schema_version": 1,
+      "extension_id": "likes",
+      "source": "filesystem",
+      "module_ids": [
+        "likes"
+      ],
+      "dependencies": [
+        "core",
+        "posts",
+        "users"
+      ],
+      "optional_dependencies": [],
+      "conflicts": [],
+      "provides": [],
+      "backend": {
+        "entry": "bias_ext_likes.backend.ext",
+        "django_app_config": "bias_ext_likes.backend.apps.LikesExtensionConfig",
+        "django_app_label": "likes"
+      },
+      "frontend": {
+        "admin_entry": "",
+        "forum_entry": "extensions/likes/frontend/forum/index.js",
+        "routes": [],
+        "settings_pages": [
+          "/admin/extensions/likes/settings"
+        ],
+        "permissions_pages": [],
+        "operations_pages": []
+      },
+      "settings": {
+        "fields": [
+          {
+            "key": "like_own_post",
+            "label": "允许点赞自己的回复",
+            "type": "boolean",
+            "default": false,
+            "order": 10
+          }
+        ],
+        "defaults": [
+          {
+            "key": "like_own_post",
+            "value": false
+          }
+        ],
+        "reset_rules": [],
+        "frontend_cache_keys": [],
+        "theme_variables": [],
+        "forum_serializations": [],
+        "forum_settings_keys": []
+      },
+      "presentation": {
+        "frontend_assets": {
+          "css": [],
+          "js_directories": [],
+          "preloads": [],
+          "document_attributes": [],
+          "head_tags": [],
+          "theme_variables": [],
+          "content_callbacks": [],
+          "title_driver": ""
+        },
+        "locale_paths": [],
+        "view_namespaces": [],
+        "formatter_callbacks": [],
+        "formatter_pipeline": []
+      },
+      "admin": {
+        "pages": [],
+        "permission_modules": []
+      },
+      "forum": {
+        "permissions": [],
+        "notification_types": [
+          {
+            "code": "postLiked",
+            "label": "回复被点赞",
+            "module_id": "likes"
+          }
+        ],
+        "user_preferences": [
+          {
+            "key": "notify_post_liked",
+            "label": "回复被点赞通知",
+            "module_id": "likes"
+          }
+        ],
+        "language_packs": [],
+        "post_types": [],
+        "search_filters": [
+          {
+            "target": "post",
+            "code": "likedBy",
+            "module_id": "likes",
+            "syntax": "likedBy:<username>"
+          }
+        ],
+        "discussion_sorts": [],
+        "discussion_list_filters": []
+      },
+      "resources": {
+        "definitions": [],
+        "fields": [
+          {
+            "resource": "post",
+            "field": "like_count",
+            "module_id": "likes",
+            "description": "当前回复的点赞数量。"
+          },
+          {
+            "resource": "post",
+            "field": "can_like",
+            "module_id": "likes",
+            "description": "当前用户是否可以点赞该回复。"
+          },
+          {
+            "resource": "post",
+            "field": "is_liked",
+            "module_id": "likes",
+            "description": "当前用户是否已点赞该回复。"
+          }
+        ],
+        "relationships": [
+          {
+            "resource": "post",
+            "relationship": "likes",
+            "module_id": "likes",
+            "resource_type": "post_user",
+            "description": "点赞该回复的用户列表。"
+          }
+        ],
+        "endpoints": [
+          {
+            "resource": "post",
+            "endpoint": "index",
+            "path": "",
+            "module_id": "likes",
+            "operation": "mutate",
+            "anchor": "",
+            "description": ""
+          },
+          {
+            "resource": "post",
+            "endpoint": "like",
+            "path": "posts/{object_id}/like",
+            "module_id": "likes",
+            "operation": "mutate",
+            "anchor": "",
+            "description": ""
+          },
+          {
+            "resource": "post",
+            "endpoint": "show",
+            "path": "",
+            "module_id": "likes",
+            "operation": "mutate",
+            "anchor": "",
+            "description": ""
+          }
+        ],
+        "sorts": [],
+        "filters": [
+          {
+            "resource": "post",
+            "filter": "likedBy",
+            "module_id": "likes",
+            "operation": "add",
+            "anchor": "",
+            "description": "仅返回被指定用户点赞过的回复。"
+          }
+        ]
+      },
+      "models": {
+        "definitions": [
+          {
+            "model": "Post",
+            "kind": "relation:belongsToMany",
+            "key": "likes"
+          },
+          {
+            "model": "PostLike",
+            "kind": "owner",
+            "key": "likes.postlike"
+          }
+        ],
+        "owned": [
+          {
+            "module_id": "likes",
+            "model": "PostLike",
+            "app_label": "likes",
+            "target_app_label": "likes"
+          }
+        ],
+        "relations": [
+          {
+            "model": "Post",
+            "name": "likes",
+            "relation_type": "belongsToMany",
+            "related_model": "User"
+          }
+        ],
+        "visibility": []
+      },
+      "search": {
+        "drivers": [
+          {
+            "target": "post",
+            "driver": "database",
+            "filter_count": 1
+          }
+        ]
+      },
+      "events": {
+        "listeners": [
+          {
+            "event": "PostLikedEvent",
+            "listener": "handle_post_liked_notification",
+            "module_id": "likes",
+            "source": "runtime"
+          },
+          {
+            "event": "PostUnlikedEvent",
+            "listener": "handle_post_unliked_notification",
+            "module_id": "likes",
+            "source": "runtime"
+          }
+        ],
+        "realtime_broadcasts": [],
+        "post_lifecycle": []
+      },
+      "runtime": {
+        "validators": [],
+        "mailers": [],
+        "error_handlers": [],
+        "auth_handlers": [],
+        "csrf_handlers": [],
+        "filesystem_drivers": [],
+        "console_commands": [],
+        "session_handlers": [],
+        "theme_handlers": [],
+        "throttle_api_handlers": [],
+        "user_handlers": [],
+        "signal_handlers": [],
+        "websocket_routes": [],
+        "middleware_mounts": [],
+        "policy_mounts": [
+          {
+            "key": "post.like",
+            "model": "",
+            "global_policy": false,
+            "query_policy": false
+          }
+        ],
+        "route_mounts": [],
+        "service_providers": [
+          "likes.service"
+        ]
+      },
+      "lifecycle": {
+        "extenders": [
+          "ApiResourceExtender",
+          "EventListenersExtender",
+          "ForumCapabilitiesExtender",
+          "FrontendExtender",
+          "LifecycleExtender",
+          "ModelExtender",
+          "NotificationsExtender",
+          "PolicyExtender",
+          "SearchDriverExtender",
+          "ServiceProviderExtender",
+          "SettingsExtender"
+        ],
+        "lifecycle_extenders": [
+          "LifecycleExtender"
+        ],
+        "phases": [
+          "boot",
+          "ready",
+          "register"
+        ]
+      },
+      "summary": {
+        "notification_type_count": 1,
+        "user_preference_count": 1,
+        "event_listener_count": 2,
+        "realtime_broadcast_count": 0,
+        "post_lifecycle_count": 0,
+        "post_type_count": 0,
+        "search_filter_count": 1,
+        "discussion_sort_count": 0,
+        "discussion_list_filter_count": 0,
+        "resource_definition_count": 0,
+        "resource_relationship_count": 1,
+        "resource_field_count": 3,
+        "resource_endpoint_count": 3,
+        "resource_sort_count": 0,
+        "resource_filter_count": 1,
+        "owned_model_count": 1,
+        "model_package_migration_required_count": 0,
+        "model_app_label_migration_required_count": 0,
+        "model_relation_count": 1,
+        "language_pack_count": 0,
+        "settings_field_count": 1,
+        "settings_default_count": 1,
+        "settings_reset_rule_count": 0,
+        "settings_frontend_cache_key_count": 0,
+        "settings_theme_variable_count": 0,
+        "settings_forum_serialization_count": 0,
+        "forum_settings_key_count": 0,
+        "frontend_css_count": 0,
+        "frontend_js_directory_count": 0,
+        "frontend_preload_count": 0,
+        "frontend_document_attribute_count": 0,
+        "frontend_head_tag_count": 0,
+        "frontend_theme_variable_count": 0,
+        "frontend_content_callback_count": 0,
+        "frontend_title_driver_count": 0,
+        "locale_path_count": 0,
+        "view_namespace_count": 0,
+        "formatter_callback_count": 0,
+        "formatter_pipeline_count": 0,
+        "validator_count": 0,
+        "mailer_count": 0,
+        "error_handler_count": 0,
+        "auth_handler_count": 0,
+        "csrf_handler_count": 0,
+        "filesystem_driver_count": 0,
+        "console_command_count": 0,
+        "session_handler_count": 0,
+        "theme_handler_count": 0,
+        "throttle_api_handler_count": 0,
+        "user_handler_count": 0,
+        "signal_handler_count": 0,
+        "websocket_route_count": 0,
+        "middleware_mount_count": 0,
+        "policy_mount_count": 1,
+        "route_mount_count": 0,
+        "service_provider_count": 1
+      }
+    },
+    "mentions": {
+      "schema_version": 1,
+      "extension_id": "mentions",
+      "source": "filesystem",
+      "module_ids": [
+        "mentions"
+      ],
+      "dependencies": [
+        "core",
+        "posts",
+        "users"
+      ],
+      "optional_dependencies": [
+        "tags"
+      ],
+      "conflicts": [],
+      "provides": [],
+      "backend": {
+        "entry": "bias_ext_mentions.backend.ext:extend",
+        "django_app_config": "bias_ext_mentions.backend.apps.MentionsExtensionConfig",
+        "django_app_label": "mentions"
+      },
+      "frontend": {
+        "admin_entry": "extensions/mentions/frontend/admin/index.js",
+        "forum_entry": "extensions/mentions/frontend/forum/index.js",
+        "routes": [],
+        "settings_pages": [],
+        "permissions_pages": [
+          "/admin/extensions/mentions/permissions"
+        ],
+        "operations_pages": []
+      },
+      "settings": {
+        "fields": [],
+        "defaults": [],
+        "reset_rules": [],
+        "frontend_cache_keys": [],
+        "theme_variables": [],
+        "forum_serializations": [],
+        "forum_settings_keys": []
+      },
+      "presentation": {
+        "frontend_assets": {
+          "css": [],
+          "js_directories": [],
+          "preloads": [],
+          "document_attributes": [],
+          "head_tags": [],
+          "theme_variables": [],
+          "content_callbacks": [],
+          "title_driver": ""
+        },
+        "locale_paths": [],
+        "view_namespaces": [],
+        "formatter_callbacks": [
+          {
+            "phase": "render",
+            "callback": "bias_ext_mentions.backend.formatter.render_mentions_html",
+            "module_id": "mentions",
+            "description": ""
+          },
+          {
+            "phase": "render",
+            "callback": "bias_ext_mentions.backend.tag_mentions.render_tag_mentions_html",
+            "module_id": "mentions",
+            "description": ""
+          }
+        ],
+        "formatter_pipeline": [
+          "bias_ext_mentions.backend.formatter.render_mentions_html",
+          "bias_ext_mentions.backend.tag_mentions.render_tag_mentions_html"
+        ]
+      },
+      "admin": {
+        "pages": [],
+        "permission_modules": []
+      },
+      "forum": {
+        "permissions": [],
+        "notification_types": [
+          {
+            "code": "userMentioned",
+            "label": "@提及通知",
+            "module_id": "mentions"
+          }
+        ],
+        "user_preferences": [
+          {
+            "key": "notify_user_mentioned",
+            "label": "@提及通知",
+            "module_id": "mentions"
+          }
+        ],
+        "language_packs": [],
+        "post_types": [],
+        "search_filters": [
+          {
+            "target": "post",
+            "code": "mentioned_me",
+            "module_id": "mentions",
+            "syntax": "mentioned:me"
+          }
+        ],
+        "discussion_sorts": [],
+        "discussion_list_filters": []
+      },
+      "resources": {
+        "definitions": [],
+        "fields": [
+          {
+            "resource": "user_detail",
+            "field": "canMentionGroups",
+            "module_id": "mentions",
+            "description": "当前用户是否可以提及用户组。"
+          }
+        ],
+        "relationships": [
+          {
+            "resource": "post",
+            "relationship": "mentionsUsers",
+            "module_id": "mentions",
+            "resource_type": "user_summary",
+            "description": "帖子中被提及的用户摘要列表。"
+          }
+        ],
+        "endpoints": [],
+        "sorts": [],
+        "filters": []
+      },
+      "models": {
+        "definitions": [
+          {
+            "model": "PostMentionsUser",
+            "kind": "owner",
+            "key": "mentions.postmentionsuser"
+          },
+          {
+            "model": "Post",
+            "kind": "relation:belongsToMany",
+            "key": "mentionsUsers"
+          }
+        ],
+        "owned": [
+          {
+            "module_id": "mentions",
+            "model": "PostMentionsUser",
+            "app_label": "mentions",
+            "target_app_label": "mentions"
+          }
+        ],
+        "relations": [
+          {
+            "model": "Post",
+            "name": "mentionsUsers",
+            "relation_type": "belongsToMany",
+            "related_model": "User"
+          }
+        ],
+        "visibility": []
+      },
+      "search": {
+        "drivers": []
+      },
+      "events": {
+        "listeners": [
+          {
+            "event": "UserMentionedEvent",
+            "listener": "handle_user_mentioned_notification",
+            "module_id": "mentions",
+            "source": "runtime"
+          }
+        ],
+        "realtime_broadcasts": [],
+        "post_lifecycle": [
+          {
+            "key": "mentions",
+            "module_id": "mentions"
+          }
+        ]
+      },
+      "runtime": {
+        "validators": [],
+        "mailers": [],
+        "error_handlers": [],
+        "auth_handlers": [],
+        "csrf_handlers": [],
+        "filesystem_drivers": [],
+        "console_commands": [],
+        "session_handlers": [],
+        "theme_handlers": [],
+        "throttle_api_handlers": [],
+        "user_handlers": [],
+        "signal_handlers": [],
+        "websocket_routes": [],
+        "middleware_mounts": [],
+        "policy_mounts": [],
+        "route_mounts": [],
+        "service_providers": [
+          "mentions.service"
+        ]
+      },
+      "lifecycle": {
+        "extenders": [
+          "AdminSurfaceExtender",
+          "ApiResourceExtender",
+          "ConditionalExtender",
+          "EventListenersExtender",
+          "FormatterExtender",
+          "ForumCapabilitiesExtender",
+          "FrontendExtender",
+          "LifecycleExtender",
+          "ModelExtender",
+          "NotificationsExtender",
+          "PostLifecycleExtender",
+          "ServiceProviderExtender"
+        ],
+        "lifecycle_extenders": [
+          "LifecycleExtender"
+        ],
+        "phases": [
+          "boot",
+          "ready",
+          "register"
+        ]
+      },
+      "summary": {
+        "notification_type_count": 1,
+        "user_preference_count": 1,
+        "event_listener_count": 1,
+        "realtime_broadcast_count": 0,
+        "post_lifecycle_count": 1,
+        "post_type_count": 0,
+        "search_filter_count": 1,
+        "discussion_sort_count": 0,
+        "discussion_list_filter_count": 0,
+        "resource_definition_count": 0,
+        "resource_relationship_count": 1,
+        "resource_field_count": 1,
+        "resource_endpoint_count": 0,
+        "resource_sort_count": 0,
+        "resource_filter_count": 0,
+        "owned_model_count": 1,
+        "model_package_migration_required_count": 0,
+        "model_app_label_migration_required_count": 0,
+        "model_relation_count": 1,
+        "language_pack_count": 0,
+        "settings_field_count": 0,
+        "settings_default_count": 0,
+        "settings_reset_rule_count": 0,
+        "settings_frontend_cache_key_count": 0,
+        "settings_theme_variable_count": 0,
+        "settings_forum_serialization_count": 0,
+        "forum_settings_key_count": 0,
+        "frontend_css_count": 0,
+        "frontend_js_directory_count": 0,
+        "frontend_preload_count": 0,
+        "frontend_document_attribute_count": 0,
+        "frontend_head_tag_count": 0,
+        "frontend_theme_variable_count": 0,
+        "frontend_content_callback_count": 0,
+        "frontend_title_driver_count": 0,
+        "locale_path_count": 0,
+        "view_namespace_count": 0,
+        "formatter_callback_count": 2,
+        "formatter_pipeline_count": 2,
+        "validator_count": 0,
+        "mailer_count": 0,
+        "error_handler_count": 0,
+        "auth_handler_count": 0,
+        "csrf_handler_count": 0,
+        "filesystem_driver_count": 0,
+        "console_command_count": 0,
+        "session_handler_count": 0,
+        "theme_handler_count": 0,
+        "throttle_api_handler_count": 0,
+        "user_handler_count": 0,
+        "signal_handler_count": 0,
+        "websocket_route_count": 0,
+        "middleware_mount_count": 0,
+        "policy_mount_count": 0,
+        "route_mount_count": 0,
+        "service_provider_count": 1
+      }
+    },
+    "notifications": {
+      "schema_version": 1,
+      "extension_id": "notifications",
+      "source": "filesystem",
+      "module_ids": [
+        "notifications"
+      ],
+      "dependencies": [
+        "core",
+        "posts",
+        "users"
+      ],
+      "optional_dependencies": [],
+      "conflicts": [],
+      "provides": [],
+      "backend": {
+        "entry": "bias_ext_notifications.backend.ext",
+        "django_app_config": "bias_ext_notifications.backend.apps.NotificationsExtensionConfig",
+        "django_app_label": "notifications"
+      },
+      "frontend": {
+        "admin_entry": "",
+        "forum_entry": "extensions/notifications/frontend/forum/index.js",
+        "routes": [
+          {
+            "frontend": "forum",
+            "name": "notifications",
+            "path": "/notifications",
+            "component": "./NotificationView.vue"
+          }
+        ],
+        "settings_pages": [],
+        "permissions_pages": [],
+        "operations_pages": []
+      },
+      "settings": {
+        "fields": [],
+        "defaults": [],
+        "reset_rules": [],
+        "frontend_cache_keys": [],
+        "theme_variables": [],
+        "forum_serializations": [],
+        "forum_settings_keys": []
+      },
+      "presentation": {
+        "frontend_assets": {
+          "css": [],
+          "js_directories": [],
+          "preloads": [],
+          "document_attributes": [],
+          "head_tags": [],
+          "theme_variables": [],
+          "content_callbacks": [],
+          "title_driver": ""
+        },
+        "locale_paths": [],
+        "view_namespaces": [],
+        "formatter_callbacks": [],
+        "formatter_pipeline": []
+      },
+      "admin": {
+        "pages": [],
+        "permission_modules": []
+      },
+      "forum": {
+        "permissions": [],
+        "notification_types": [
+          {
+            "code": "postReply",
+            "label": "回复被回应",
+            "module_id": "notifications"
+          },
+          {
+            "code": "userSuspended",
+            "label": "账号封禁通知",
+            "module_id": "notifications"
+          },
+          {
+            "code": "userUnsuspended",
+            "label": "账号解除封禁",
+            "module_id": "notifications"
+          }
+        ],
+        "user_preferences": [
+          {
+            "key": "notify_account_status",
+            "label": "账号状态通知",
+            "module_id": "notifications"
+          },
+          {
+            "key": "notify_post_reply",
+            "label": "回复被回应通知",
+            "module_id": "notifications"
+          }
+        ],
+        "language_packs": [],
+        "post_types": [],
+        "search_filters": [],
+        "discussion_sorts": [],
+        "discussion_list_filters": []
+      },
+      "resources": {
+        "definitions": [
+          {
+            "resource": "notification",
+            "module_id": "notifications",
+            "description": "论坛通知主资源。"
+          }
+        ],
+        "fields": [
+          {
+            "resource": "notification",
+            "field": "from_user",
+            "module_id": "notifications",
+            "description": "通知来源用户摘要。"
+          }
+        ],
+        "relationships": [
+          {
+            "resource": "notification",
+            "relationship": "from_user",
+            "module_id": "notifications",
+            "resource_type": "",
+            "description": "通知来源用户摘要。"
+          }
+        ],
+        "endpoints": [
+          {
+            "resource": "notification",
+            "endpoint": "clear-filtered-read",
+            "path": "notifications/read/clear-filtered",
+            "module_id": "notifications",
+            "operation": "mutate",
+            "anchor": "",
+            "description": ""
+          },
+          {
+            "resource": "notification",
+            "endpoint": "clear-read",
+            "path": "notifications/read/clear",
+            "module_id": "notifications",
+            "operation": "mutate",
+            "anchor": "",
+            "description": ""
+          },
+          {
+            "resource": "notification",
+            "endpoint": "delete",
+            "path": "notifications/{object_id}",
+            "module_id": "notifications",
+            "operation": "mutate",
+            "anchor": "",
+            "description": ""
+          },
+          {
+            "resource": "notification",
+            "endpoint": "index",
+            "path": "notifications",
+            "module_id": "notifications",
+            "operation": "mutate",
+            "anchor": "",
+            "description": ""
+          },
+          {
+            "resource": "notification",
+            "endpoint": "read",
+            "path": "notifications/{object_id}/read",
+            "module_id": "notifications",
+            "operation": "mutate",
+            "anchor": "",
+            "description": ""
+          },
+          {
+            "resource": "notification",
+            "endpoint": "read-all",
+            "path": "notifications/read-all",
+            "module_id": "notifications",
+            "operation": "mutate",
+            "anchor": "",
+            "description": ""
+          },
+          {
+            "resource": "notification",
+            "endpoint": "read-filtered",
+            "path": "notifications/read-filtered",
+            "module_id": "notifications",
+            "operation": "mutate",
+            "anchor": "",
+            "description": ""
+          },
+          {
+            "resource": "notification",
+            "endpoint": "show",
+            "path": "notifications/{object_id}",
+            "module_id": "notifications",
+            "operation": "mutate",
+            "anchor": "",
+            "description": ""
+          },
+          {
+            "resource": "notification",
+            "endpoint": "stats",
+            "path": "notifications/stats",
+            "module_id": "notifications",
+            "operation": "mutate",
+            "anchor": "",
+            "description": ""
+          }
+        ],
+        "sorts": [],
+        "filters": []
+      },
+      "models": {
+        "definitions": [
+          {
+            "model": "Notification",
+            "kind": "owner",
+            "key": "notifications.notification"
+          }
+        ],
+        "owned": [
+          {
+            "module_id": "notifications",
+            "model": "Notification",
+            "app_label": "notifications",
+            "target_app_label": "notifications"
+          }
+        ],
+        "relations": [],
+        "visibility": []
+      },
+      "search": {
+        "drivers": []
+      },
+      "events": {
+        "listeners": [
+          {
+            "event": "PostCreatedEvent",
+            "listener": "handle_post_created_direct_reply_notification",
+            "module_id": "notifications",
+            "source": "runtime"
+          },
+          {
+            "event": "PostDeletedEvent",
+            "listener": "handle_post_deleted_direct_reply_notification_cleanup",
+            "module_id": "notifications",
+            "source": "runtime"
+          },
+          {
+            "event": "PostHiddenEvent",
+            "listener": "handle_post_hidden_direct_reply_notification_cleanup",
+            "module_id": "notifications",
+            "source": "runtime"
+          },
+          {
+            "event": "UserSuspendedEvent",
+            "listener": "handle_user_suspended_notification",
+            "module_id": "notifications",
+            "source": "runtime"
+          },
+          {
+            "event": "UserUnsuspendedEvent",
+            "listener": "handle_user_unsuspended_notification",
+            "module_id": "notifications",
+            "source": "runtime"
+          }
+        ],
+        "realtime_broadcasts": [],
+        "post_lifecycle": []
+      },
+      "runtime": {
+        "validators": [],
+        "mailers": [],
+        "error_handlers": [],
+        "auth_handlers": [],
+        "csrf_handlers": [],
+        "filesystem_drivers": [],
+        "console_commands": [],
+        "session_handlers": [],
+        "theme_handlers": [],
+        "throttle_api_handlers": [],
+        "user_handlers": [],
+        "signal_handlers": [
+          {
+            "module_id": "notifications",
+            "dispatch_uid": "notifications.invalidate_unread_count_on_save",
+            "description": "通知写入后清除用户未读数缓存。",
+            "order": 100
+          },
+          {
+            "module_id": "notifications",
+            "dispatch_uid": "notifications.invalidate_unread_count_on_delete",
+            "description": "通知删除后清除用户未读数缓存。",
+            "order": 100
+          }
+        ],
+        "websocket_routes": [],
+        "middleware_mounts": [],
+        "policy_mounts": [],
+        "route_mounts": [],
+        "service_providers": [
+          "notifications.service"
+        ]
+      },
+      "lifecycle": {
+        "extenders": [
+          "ApiResourceExtender",
+          "EventListenersExtender",
+          "FrontendExtender",
+          "LifecycleExtender",
+          "ModelExtender",
+          "NotificationsExtender",
+          "ServiceProviderExtender",
+          "SignalExtender"
+        ],
+        "lifecycle_extenders": [
+          "LifecycleExtender"
+        ],
+        "phases": [
+          "boot",
+          "ready",
+          "register"
+        ]
+      },
+      "summary": {
+        "notification_type_count": 3,
+        "user_preference_count": 2,
+        "event_listener_count": 5,
+        "realtime_broadcast_count": 0,
+        "post_lifecycle_count": 0,
+        "post_type_count": 0,
+        "search_filter_count": 0,
+        "discussion_sort_count": 0,
+        "discussion_list_filter_count": 0,
+        "resource_definition_count": 1,
+        "resource_relationship_count": 1,
+        "resource_field_count": 1,
+        "resource_endpoint_count": 9,
+        "resource_sort_count": 0,
+        "resource_filter_count": 0,
+        "owned_model_count": 1,
+        "model_package_migration_required_count": 0,
+        "model_app_label_migration_required_count": 0,
+        "model_relation_count": 0,
+        "language_pack_count": 0,
+        "settings_field_count": 0,
+        "settings_default_count": 0,
+        "settings_reset_rule_count": 0,
+        "settings_frontend_cache_key_count": 0,
+        "settings_theme_variable_count": 0,
+        "settings_forum_serialization_count": 0,
+        "forum_settings_key_count": 0,
+        "frontend_css_count": 0,
+        "frontend_js_directory_count": 0,
+        "frontend_preload_count": 0,
+        "frontend_document_attribute_count": 0,
+        "frontend_head_tag_count": 0,
+        "frontend_theme_variable_count": 0,
+        "frontend_content_callback_count": 0,
+        "frontend_title_driver_count": 0,
+        "locale_path_count": 0,
+        "view_namespace_count": 0,
+        "formatter_callback_count": 0,
+        "formatter_pipeline_count": 0,
+        "validator_count": 0,
+        "mailer_count": 0,
+        "error_handler_count": 0,
+        "auth_handler_count": 0,
+        "csrf_handler_count": 0,
+        "filesystem_driver_count": 0,
+        "console_command_count": 0,
+        "session_handler_count": 0,
+        "theme_handler_count": 0,
+        "throttle_api_handler_count": 0,
+        "user_handler_count": 0,
+        "signal_handler_count": 2,
+        "websocket_route_count": 0,
+        "middleware_mount_count": 0,
+        "policy_mount_count": 0,
+        "route_mount_count": 0,
+        "service_provider_count": 1
+      }
+    },
+    "points": {
+      "schema_version": 1,
+      "extension_id": "points",
+      "source": "filesystem",
+      "module_ids": [
+        "points"
+      ],
+      "dependencies": [
+        "core",
+        "discussions",
+        "likes",
+        "posts"
+      ],
+      "optional_dependencies": [],
+      "conflicts": [],
+      "provides": [],
+      "backend": {
+        "entry": "bias_ext_points.backend.ext:extend",
+        "django_app_config": "bias_ext_points.backend.apps.PointsExtensionConfig",
+        "django_app_label": "points"
+      },
+      "frontend": {
+        "admin_entry": "",
+        "forum_entry": "extensions/points/frontend/forum/index.js",
+        "routes": [],
+        "settings_pages": [
+          "/admin/extensions/points/settings"
+        ],
+        "permissions_pages": [],
+        "operations_pages": []
+      },
+      "settings": {
+        "fields": [
+          {
+            "key": "like_received_reward",
+            "label": "收到点赞奖励",
+            "type": "number",
+            "default": 1,
+            "order": 30
+          },
+          {
+            "key": "discussion_create_reward",
+            "label": "发主题奖励",
+            "type": "number",
+            "default": 10,
+            "order": 10
+          },
+          {
+            "key": "ai_question_coach_cost",
+            "label": "AI 提问教练消耗",
+            "type": "number",
+            "default": 2,
+            "order": 100
+          },
+          {
+            "key": "ai_role_summon_cost",
+            "label": "AI 角色召唤消耗",
+            "type": "number",
+            "default": 3,
+            "order": 110
+          },
+          {
+            "key": "reply_create_reward",
+            "label": "回复奖励",
+            "type": "number",
+            "default": 3,
+            "order": 20
+          },
+          {
+            "key": "ai_bounty_judge_cost",
+            "label": "AI 悬赏裁判消耗",
+            "type": "number",
+            "default": 5,
+            "order": 120
+          },
+          {
+            "key": "ai_discussion_summary_cost",
+            "label": "AI 讨论纪要消耗",
+            "type": "number",
+            "default": 8,
+            "order": 130
+          },
+          {
+            "key": "enabled",
+            "label": "启用积分系统",
+            "type": "boolean",
+            "default": true,
+            "order": 5
+          }
+        ],
+        "defaults": [
+          {
+            "key": "ai_bounty_judge_cost",
+            "value": 5
+          },
+          {
+            "key": "ai_discussion_summary_cost",
+            "value": 8
+          },
+          {
+            "key": "ai_question_coach_cost",
+            "value": 2
+          },
+          {
+            "key": "ai_role_summon_cost",
+            "value": 3
+          },
+          {
+            "key": "discussion_create_reward",
+            "value": 10
+          },
+          {
+            "key": "enabled",
+            "value": true
+          },
+          {
+            "key": "like_received_reward",
+            "value": 1
+          },
+          {
+            "key": "reply_create_reward",
+            "value": 3
+          }
+        ],
+        "reset_rules": [],
+        "frontend_cache_keys": [],
+        "theme_variables": [],
+        "forum_serializations": [],
+        "forum_settings_keys": [
+          "ai_bounty_judge_cost",
+          "ai_discussion_summary_cost",
+          "ai_question_coach_cost",
+          "ai_role_summon_cost",
+          "enabled"
+        ]
+      },
+      "presentation": {
+        "frontend_assets": {
+          "css": [],
+          "js_directories": [],
+          "preloads": [],
+          "document_attributes": [],
+          "head_tags": [],
+          "theme_variables": [],
+          "content_callbacks": [],
+          "title_driver": ""
+        },
+        "locale_paths": [],
+        "view_namespaces": [],
+        "formatter_callbacks": [],
+        "formatter_pipeline": []
+      },
+      "admin": {
+        "pages": [],
+        "permission_modules": []
+      },
+      "forum": {
+        "permissions": [],
+        "notification_types": [],
+        "user_preferences": [],
+        "language_packs": [],
+        "post_types": [],
+        "search_filters": [],
+        "discussion_sorts": [],
+        "discussion_list_filters": []
+      },
+      "resources": {
+        "definitions": [],
+        "fields": [
+          {
+            "resource": "discussion_user",
+            "field": "points_balance",
+            "module_id": "points",
+            "description": "用户当前积分余额。"
+          },
+          {
+            "resource": "post_user",
+            "field": "points_balance",
+            "module_id": "points",
+            "description": "用户当前积分余额。"
+          },
+          {
+            "resource": "search_user",
+            "field": "points_balance",
+            "module_id": "points",
+            "description": "用户当前积分余额。"
+          },
+          {
+            "resource": "user_detail",
+            "field": "points_balance",
+            "module_id": "points",
+            "description": "用户当前积分余额。"
+          },
+          {
+            "resource": "user_summary",
+            "field": "points_balance",
+            "module_id": "points",
+            "description": "用户当前积分余额。"
+          }
+        ],
+        "relationships": [],
+        "endpoints": [],
+        "sorts": [],
+        "filters": []
+      },
+      "models": {
+        "definitions": [
+          {
+            "model": "PointAccount",
+            "kind": "owner",
+            "key": "points.pointaccount"
+          },
+          {
+            "model": "PointLedgerEntry",
+            "kind": "owner",
+            "key": "points.pointledgerentry"
+          }
+        ],
+        "owned": [
+          {
+            "module_id": "points",
+            "model": "PointAccount",
+            "app_label": "points",
+            "target_app_label": "points"
+          },
+          {
+            "module_id": "points",
+            "model": "PointLedgerEntry",
+            "app_label": "points",
+            "target_app_label": "points"
+          }
+        ],
+        "relations": [],
+        "visibility": []
+      },
+      "search": {
+        "drivers": []
+      },
+      "events": {
+        "listeners": [
+          {
+            "event": "DiscussionCreatedEvent",
+            "listener": "handle_discussion_created",
+            "module_id": "points",
+            "source": "runtime"
+          },
+          {
+            "event": "PostCreatedEvent",
+            "listener": "handle_post_created",
+            "module_id": "points",
+            "source": "runtime"
+          },
+          {
+            "event": "PostLikedEvent",
+            "listener": "handle_post_liked",
+            "module_id": "points",
+            "source": "runtime"
+          }
+        ],
+        "realtime_broadcasts": [],
+        "post_lifecycle": []
+      },
+      "runtime": {
+        "validators": [],
+        "mailers": [],
+        "error_handlers": [],
+        "auth_handlers": [],
+        "csrf_handlers": [],
+        "filesystem_drivers": [],
+        "console_commands": [],
+        "session_handlers": [],
+        "theme_handlers": [],
+        "throttle_api_handlers": [],
+        "user_handlers": [],
+        "signal_handlers": [],
+        "websocket_routes": [],
+        "middleware_mounts": [],
+        "policy_mounts": [],
+        "route_mounts": [
+          {
+            "prefix": "",
+            "tags": [
+              "Points"
+            ]
+          }
+        ],
+        "service_providers": [
+          "points.service"
+        ]
+      },
+      "lifecycle": {
+        "extenders": [
+          "ApiResourceExtender",
+          "ApiRoutesExtender",
+          "EventListenersExtender",
+          "FrontendExtender",
+          "LifecycleExtender",
+          "ModelExtender",
+          "ServiceProviderExtender",
+          "SettingsExtender"
+        ],
+        "lifecycle_extenders": [
+          "LifecycleExtender"
+        ],
+        "phases": [
+          "boot",
+          "ready",
+          "register"
+        ]
+      },
+      "summary": {
+        "notification_type_count": 0,
+        "user_preference_count": 0,
+        "event_listener_count": 3,
+        "realtime_broadcast_count": 0,
+        "post_lifecycle_count": 0,
+        "post_type_count": 0,
+        "search_filter_count": 0,
+        "discussion_sort_count": 0,
+        "discussion_list_filter_count": 0,
+        "resource_definition_count": 0,
+        "resource_relationship_count": 0,
+        "resource_field_count": 5,
+        "resource_endpoint_count": 0,
+        "resource_sort_count": 0,
+        "resource_filter_count": 0,
+        "owned_model_count": 2,
+        "model_package_migration_required_count": 0,
+        "model_app_label_migration_required_count": 0,
+        "model_relation_count": 0,
+        "language_pack_count": 0,
+        "settings_field_count": 8,
+        "settings_default_count": 8,
+        "settings_reset_rule_count": 0,
+        "settings_frontend_cache_key_count": 0,
+        "settings_theme_variable_count": 0,
+        "settings_forum_serialization_count": 0,
+        "forum_settings_key_count": 5,
+        "frontend_css_count": 0,
+        "frontend_js_directory_count": 0,
+        "frontend_preload_count": 0,
+        "frontend_document_attribute_count": 0,
+        "frontend_head_tag_count": 0,
+        "frontend_theme_variable_count": 0,
+        "frontend_content_callback_count": 0,
+        "frontend_title_driver_count": 0,
+        "locale_path_count": 0,
+        "view_namespace_count": 0,
+        "formatter_callback_count": 0,
+        "formatter_pipeline_count": 0,
+        "validator_count": 0,
+        "mailer_count": 0,
+        "error_handler_count": 0,
+        "auth_handler_count": 0,
+        "csrf_handler_count": 0,
+        "filesystem_driver_count": 0,
+        "console_command_count": 0,
+        "session_handler_count": 0,
+        "theme_handler_count": 0,
+        "throttle_api_handler_count": 0,
+        "user_handler_count": 0,
+        "signal_handler_count": 0,
+        "websocket_route_count": 0,
+        "middleware_mount_count": 0,
+        "policy_mount_count": 0,
+        "route_mount_count": 1,
+        "service_provider_count": 1
+      }
+    },
+    "posts": {
+      "schema_version": 1,
+      "extension_id": "posts",
+      "source": "filesystem",
+      "module_ids": [
+        "posts"
+      ],
+      "dependencies": [
+        "core",
+        "discussions",
+        "users"
+      ],
+      "optional_dependencies": [],
+      "conflicts": [],
+      "provides": [
+        "post_lifecycle",
+        "posts"
+      ],
+      "backend": {
+        "entry": "bias_ext_posts.backend.ext",
+        "django_app_config": "bias_ext_posts.backend.apps.PostsExtensionConfig",
+        "django_app_label": "posts"
+      },
+      "frontend": {
+        "admin_entry": "extensions/posts/frontend/admin/index.js",
+        "forum_entry": "extensions/posts/frontend/forum/index.js",
+        "routes": [],
+        "settings_pages": [],
+        "permissions_pages": [],
+        "operations_pages": []
+      },
+      "settings": {
+        "fields": [],
+        "defaults": [],
+        "reset_rules": [],
+        "frontend_cache_keys": [],
+        "theme_variables": [],
+        "forum_serializations": [],
+        "forum_settings_keys": []
+      },
+      "presentation": {
+        "frontend_assets": {
+          "css": [],
+          "js_directories": [],
+          "preloads": [],
+          "document_attributes": [],
+          "head_tags": [],
+          "theme_variables": [],
+          "content_callbacks": [],
+          "title_driver": ""
+        },
+        "locale_paths": [],
+        "view_namespaces": [],
+        "formatter_callbacks": [],
+        "formatter_pipeline": []
+      },
+      "admin": {
+        "pages": [],
+        "permission_modules": []
+      },
+      "forum": {
+        "permissions": [],
+        "notification_types": [],
+        "user_preferences": [],
+        "language_packs": [],
+        "post_types": [
+          {
+            "code": "comment",
+            "label": "普通回复",
+            "module_id": "posts"
+          },
+          {
+            "code": "postHidden",
+            "label": "回复隐藏状态变更",
+            "module_id": "posts"
+          }
+        ],
+        "search_filters": [],
+        "discussion_sorts": [],
+        "discussion_list_filters": []
+      },
+      "resources": {
+        "definitions": [
+          {
+            "resource": "search_post",
+            "module_id": "posts",
+            "description": "搜索帖子结果资源。"
+          }
+        ],
+        "fields": [
+          {
+            "resource": "admin_stats",
+            "field": "totalPosts",
+            "module_id": "posts",
+            "description": "后台统计中的帖子总数。"
+          },
+          {
+            "resource": "post",
+            "field": "post_type",
+            "module_id": "posts",
+            "description": "当前帖子的类型定义元数据。"
+          },
+          {
+            "resource": "post",
+            "field": "can_delete",
+            "module_id": "posts",
+            "description": "当前用户是否可以删除该回复。"
+          },
+          {
+            "resource": "post",
+            "field": "can_edit",
+            "module_id": "posts",
+            "description": "当前用户是否可以编辑该回复。"
+          },
+          {
+            "resource": "post",
+            "field": "event_data",
+            "module_id": "posts",
+            "description": "系统事件帖的结构化元数据。"
+          }
+        ],
+        "relationships": [],
+        "endpoints": [
+          {
+            "resource": "post",
+            "endpoint": "create",
+            "path": "discussions/{object_id}/posts",
+            "module_id": "posts",
+            "operation": "mutate",
+            "anchor": "",
+            "description": ""
+          },
+          {
+            "resource": "post",
+            "endpoint": "delete",
+            "path": "posts/{object_id}",
+            "module_id": "posts",
+            "operation": "mutate",
+            "anchor": "",
+            "description": ""
+          },
+          {
+            "resource": "post",
+            "endpoint": "global-index",
+            "path": "posts",
+            "module_id": "posts",
+            "operation": "mutate",
+            "anchor": "",
+            "description": ""
+          },
+          {
+            "resource": "post",
+            "endpoint": "hide",
+            "path": "posts/{object_id}/hide",
+            "module_id": "posts",
+            "operation": "mutate",
+            "anchor": "",
+            "description": ""
+          },
+          {
+            "resource": "post",
+            "endpoint": "index",
+            "path": "discussions/{object_id}/posts",
+            "module_id": "posts",
+            "operation": "mutate",
+            "anchor": "",
+            "description": ""
+          },
+          {
+            "resource": "post",
+            "endpoint": "show",
+            "path": "posts/{object_id}",
+            "module_id": "posts",
+            "operation": "mutate",
+            "anchor": "",
+            "description": ""
+          },
+          {
+            "resource": "post",
+            "endpoint": "update",
+            "path": "posts/{object_id}",
+            "module_id": "posts",
+            "operation": "mutate",
+            "anchor": "",
+            "description": ""
+          }
+        ],
+        "sorts": [],
+        "filters": []
+      },
+      "models": {
+        "definitions": [
+          {
+            "model": "Post",
+            "kind": "owner",
+            "key": "posts.post"
+          }
+        ],
+        "owned": [
+          {
+            "module_id": "posts",
+            "model": "Post",
+            "app_label": "posts",
+            "target_app_label": "posts"
+          }
+        ],
+        "relations": [],
+        "visibility": [
+          {
+            "model": "Post",
+            "ability": "view"
+          }
+        ]
+      },
+      "search": {
+        "drivers": []
+      },
+      "events": {
+        "listeners": [
+          {
+            "event": "PostHiddenEvent",
+            "listener": "handle_post_hidden_timeline",
+            "module_id": "posts",
+            "source": "runtime"
+          }
+        ],
+        "realtime_broadcasts": [
+          {
+            "event_name": "post.created"
+          },
+          {
+            "event_name": "post.hidden"
+          }
+        ],
+        "post_lifecycle": []
+      },
+      "runtime": {
+        "validators": [],
+        "mailers": [],
+        "error_handlers": [],
+        "auth_handlers": [],
+        "csrf_handlers": [],
+        "filesystem_drivers": [],
+        "console_commands": [],
+        "session_handlers": [],
+        "theme_handlers": [],
+        "throttle_api_handlers": [],
+        "user_handlers": [],
+        "signal_handlers": [],
+        "websocket_routes": [],
+        "middleware_mounts": [],
+        "policy_mounts": [],
+        "route_mounts": [],
+        "service_providers": [
+          "posts.service"
+        ]
+      },
+      "lifecycle": {
+        "extenders": [
+          "AdminSurfaceExtender",
+          "ApiResourceExtender",
+          "EventListenersExtender",
+          "ForumCapabilitiesExtender",
+          "FrontendExtender",
+          "LifecycleExtender",
+          "ModelExtender",
+          "ModelVisibilityExtender",
+          "RealtimeExtender",
+          "SearchIndexExtender",
+          "ServiceProviderExtender"
+        ],
+        "lifecycle_extenders": [
+          "LifecycleExtender"
+        ],
+        "phases": [
+          "boot",
+          "ready",
+          "register"
+        ]
+      },
+      "summary": {
+        "notification_type_count": 0,
+        "user_preference_count": 0,
+        "event_listener_count": 1,
+        "realtime_broadcast_count": 2,
+        "post_lifecycle_count": 0,
+        "post_type_count": 2,
+        "search_filter_count": 0,
+        "discussion_sort_count": 0,
+        "discussion_list_filter_count": 0,
+        "resource_definition_count": 1,
+        "resource_relationship_count": 0,
+        "resource_field_count": 5,
+        "resource_endpoint_count": 7,
+        "resource_sort_count": 0,
+        "resource_filter_count": 0,
+        "owned_model_count": 1,
+        "model_package_migration_required_count": 0,
+        "model_app_label_migration_required_count": 0,
+        "model_relation_count": 0,
+        "language_pack_count": 0,
+        "settings_field_count": 0,
+        "settings_default_count": 0,
+        "settings_reset_rule_count": 0,
+        "settings_frontend_cache_key_count": 0,
+        "settings_theme_variable_count": 0,
+        "settings_forum_serialization_count": 0,
+        "forum_settings_key_count": 0,
+        "frontend_css_count": 0,
+        "frontend_js_directory_count": 0,
+        "frontend_preload_count": 0,
+        "frontend_document_attribute_count": 0,
+        "frontend_head_tag_count": 0,
+        "frontend_theme_variable_count": 0,
+        "frontend_content_callback_count": 0,
+        "frontend_title_driver_count": 0,
+        "locale_path_count": 0,
+        "view_namespace_count": 0,
+        "formatter_callback_count": 0,
+        "formatter_pipeline_count": 0,
+        "validator_count": 0,
+        "mailer_count": 0,
+        "error_handler_count": 0,
+        "auth_handler_count": 0,
+        "csrf_handler_count": 0,
+        "filesystem_driver_count": 0,
+        "console_command_count": 0,
+        "session_handler_count": 0,
+        "theme_handler_count": 0,
+        "throttle_api_handler_count": 0,
+        "user_handler_count": 0,
+        "signal_handler_count": 0,
+        "websocket_route_count": 0,
+        "middleware_mount_count": 0,
+        "policy_mount_count": 0,
+        "route_mount_count": 0,
+        "service_provider_count": 1
+      }
+    },
+    "realtime": {
+      "schema_version": 1,
+      "extension_id": "realtime",
+      "source": "filesystem",
+      "module_ids": [
+        "realtime"
+      ],
+      "dependencies": [
+        "core",
+        "discussions",
+        "notifications",
+        "users"
+      ],
+      "optional_dependencies": [],
+      "conflicts": [],
+      "provides": [],
+      "backend": {
+        "entry": "bias_ext_realtime.backend.ext",
+        "django_app_config": "bias_ext_realtime.backend.apps.RealtimeExtensionConfig",
+        "django_app_label": "realtime"
+      },
+      "frontend": {
+        "admin_entry": "extensions/realtime/frontend/admin/index.js",
+        "forum_entry": "extensions/realtime/frontend/forum/index.js",
+        "routes": [],
+        "settings_pages": [
+          "/admin/extensions/realtime/settings"
+        ],
+        "permissions_pages": [],
+        "operations_pages": []
+      },
+      "settings": {
+        "fields": [
+          {
+            "key": "typing_enabled",
+            "label": "回复输入提示",
+            "type": "boolean",
+            "default": true,
+            "order": 10
+          }
+        ],
+        "defaults": [
+          {
+            "key": "typing_enabled",
+            "value": true
+          }
+        ],
+        "reset_rules": [],
+        "frontend_cache_keys": [],
+        "theme_variables": [],
+        "forum_serializations": [
+          {}
+        ],
+        "forum_settings_keys": []
+      },
+      "presentation": {
+        "frontend_assets": {
+          "css": [],
+          "js_directories": [],
+          "preloads": [],
+          "document_attributes": [],
+          "head_tags": [],
+          "theme_variables": [],
+          "content_callbacks": [],
+          "title_driver": ""
+        },
+        "locale_paths": [],
+        "view_namespaces": [],
+        "formatter_callbacks": [],
+        "formatter_pipeline": []
+      },
+      "admin": {
+        "pages": [],
+        "permission_modules": []
+      },
+      "forum": {
+        "permissions": [],
+        "notification_types": [],
+        "user_preferences": [],
+        "language_packs": [],
+        "post_types": [],
+        "search_filters": [],
+        "discussion_sorts": [],
+        "discussion_list_filters": []
+      },
+      "resources": {
+        "definitions": [],
+        "fields": [],
+        "relationships": [],
+        "endpoints": [],
+        "sorts": [],
+        "filters": []
+      },
+      "models": {
+        "definitions": [],
+        "owned": [],
+        "relations": [],
+        "visibility": []
+      },
+      "search": {
+        "drivers": []
+      },
+      "events": {
+        "listeners": [
+          {
+            "event": "NotificationCreatedEvent",
+            "listener": "dispatch_notification_batch",
+            "module_id": "realtime",
+            "source": "runtime"
+          }
+        ],
+        "realtime_broadcasts": [],
+        "post_lifecycle": []
+      },
+      "runtime": {
+        "validators": [],
+        "mailers": [],
+        "error_handlers": [],
+        "auth_handlers": [],
+        "csrf_handlers": [],
+        "filesystem_drivers": [],
+        "console_commands": [],
+        "session_handlers": [],
+        "theme_handlers": [],
+        "throttle_api_handlers": [],
+        "user_handlers": [],
+        "signal_handlers": [],
+        "websocket_routes": [
+          {
+            "path": "ws/discussions/(?P<discussion_id>\\d+)/$",
+            "name": "realtime.discussion",
+            "module_id": "realtime"
+          },
+          {
+            "path": "ws/forum/$",
+            "name": "realtime.forum",
+            "module_id": "realtime"
+          },
+          {
+            "path": "ws/notifications/$",
+            "name": "realtime.notifications",
+            "module_id": "realtime"
+          },
+          {
+            "path": "ws/online/$",
+            "name": "realtime.online",
+            "module_id": "realtime"
+          }
+        ],
+        "middleware_mounts": [],
+        "policy_mounts": [],
+        "route_mounts": [
+          {
+            "prefix": "/admin",
+            "tags": [
+              "Admin"
+            ]
+          }
+        ],
+        "service_providers": []
+      },
+      "lifecycle": {
+        "extenders": [
+          "ApiRoutesExtender",
+          "EventListenersExtender",
+          "FrontendExtender",
+          "LifecycleExtender",
+          "RealtimeExtender",
+          "SettingsExtender",
+          "WebSocketRoutesExtender"
+        ],
+        "lifecycle_extenders": [
+          "LifecycleExtender"
+        ],
+        "phases": [
+          "boot",
+          "ready",
+          "register"
+        ]
+      },
+      "summary": {
+        "notification_type_count": 0,
+        "user_preference_count": 0,
+        "event_listener_count": 1,
+        "realtime_broadcast_count": 0,
+        "post_lifecycle_count": 0,
+        "post_type_count": 0,
+        "search_filter_count": 0,
+        "discussion_sort_count": 0,
+        "discussion_list_filter_count": 0,
+        "resource_definition_count": 0,
+        "resource_relationship_count": 0,
+        "resource_field_count": 0,
+        "resource_endpoint_count": 0,
+        "resource_sort_count": 0,
+        "resource_filter_count": 0,
+        "owned_model_count": 0,
+        "model_package_migration_required_count": 0,
+        "model_app_label_migration_required_count": 0,
+        "model_relation_count": 0,
+        "language_pack_count": 0,
+        "settings_field_count": 1,
+        "settings_default_count": 1,
+        "settings_reset_rule_count": 0,
+        "settings_frontend_cache_key_count": 0,
+        "settings_theme_variable_count": 0,
+        "settings_forum_serialization_count": 1,
+        "forum_settings_key_count": 0,
+        "frontend_css_count": 0,
+        "frontend_js_directory_count": 0,
+        "frontend_preload_count": 0,
+        "frontend_document_attribute_count": 0,
+        "frontend_head_tag_count": 0,
+        "frontend_theme_variable_count": 0,
+        "frontend_content_callback_count": 0,
+        "frontend_title_driver_count": 0,
+        "locale_path_count": 0,
+        "view_namespace_count": 0,
+        "formatter_callback_count": 0,
+        "formatter_pipeline_count": 0,
+        "validator_count": 0,
+        "mailer_count": 0,
+        "error_handler_count": 0,
+        "auth_handler_count": 0,
+        "csrf_handler_count": 0,
+        "filesystem_driver_count": 0,
+        "console_command_count": 0,
+        "session_handler_count": 0,
+        "theme_handler_count": 0,
+        "throttle_api_handler_count": 0,
+        "user_handler_count": 0,
+        "signal_handler_count": 0,
+        "websocket_route_count": 4,
+        "middleware_mount_count": 0,
+        "policy_mount_count": 0,
+        "route_mount_count": 1,
+        "service_provider_count": 0
+      }
+    },
+    "search": {
+      "schema_version": 1,
+      "extension_id": "search",
+      "source": "filesystem",
+      "module_ids": [
+        "search"
+      ],
+      "dependencies": [
+        "core",
+        "discussions",
+        "posts",
+        "tags",
+        "users"
+      ],
+      "optional_dependencies": [],
+      "conflicts": [],
+      "provides": [],
+      "backend": {
+        "entry": "bias_ext_search.backend.ext",
+        "django_app_config": "bias_ext_search.backend.apps.SearchExtensionConfig",
+        "django_app_label": "search"
+      },
+      "frontend": {
+        "admin_entry": "extensions/search/frontend/admin/index.js",
+        "forum_entry": "extensions/search/frontend/forum/index.js",
+        "routes": [
+          {
+            "frontend": "forum",
+            "name": "search",
+            "path": "/search",
+            "component": "./SearchResultsView.vue"
+          }
+        ],
+        "settings_pages": [],
+        "permissions_pages": [],
+        "operations_pages": []
+      },
+      "settings": {
+        "fields": [],
+        "defaults": [],
+        "reset_rules": [],
+        "frontend_cache_keys": [],
+        "theme_variables": [],
+        "forum_serializations": [],
+        "forum_settings_keys": []
+      },
+      "presentation": {
+        "frontend_assets": {
+          "css": [],
+          "js_directories": [],
+          "preloads": [],
+          "document_attributes": [],
+          "head_tags": [],
+          "theme_variables": [],
+          "content_callbacks": [],
+          "title_driver": ""
+        },
+        "locale_paths": [],
+        "view_namespaces": [],
+        "formatter_callbacks": [],
+        "formatter_pipeline": []
+      },
+      "admin": {
+        "pages": [],
+        "permission_modules": []
+      },
+      "forum": {
+        "permissions": [],
+        "notification_types": [],
+        "user_preferences": [],
+        "language_packs": [],
+        "post_types": [],
+        "search_filters": [
+          {
+            "target": "discussion",
+            "code": "author",
+            "module_id": "search",
+            "syntax": "author:<username>"
+          },
+          {
+            "target": "post",
+            "code": "author",
+            "module_id": "search",
+            "syntax": "author:<username>"
+          },
+          {
+            "target": "discussion",
+            "code": "created",
+            "module_id": "search",
+            "syntax": "created:YYYY-MM"
+          },
+          {
+            "target": "post",
+            "code": "created",
+            "module_id": "search",
+            "syntax": "created:YYYY-MM"
+          },
+          {
+            "target": "discussion",
+            "code": "is_locked",
+            "module_id": "search",
+            "syntax": "is:locked"
+          },
+          {
+            "target": "discussion",
+            "code": "is_sticky",
+            "module_id": "search",
+            "syntax": "is:sticky"
+          },
+          {
+            "target": "discussion",
+            "code": "is_unread",
+            "module_id": "search",
+            "syntax": "is:unread"
+          }
+        ],
+        "discussion_sorts": [],
+        "discussion_list_filters": []
+      },
+      "resources": {
+        "definitions": [],
+        "fields": [],
+        "relationships": [],
+        "endpoints": [],
+        "sorts": [],
+        "filters": []
+      },
+      "models": {
+        "definitions": [],
+        "owned": [],
+        "relations": [],
+        "visibility": []
+      },
+      "search": {
+        "drivers": []
+      },
+      "events": {
+        "listeners": [],
+        "realtime_broadcasts": [],
+        "post_lifecycle": []
+      },
+      "runtime": {
+        "validators": [],
+        "mailers": [],
+        "error_handlers": [],
+        "auth_handlers": [],
+        "csrf_handlers": [],
+        "filesystem_drivers": [],
+        "console_commands": [],
+        "session_handlers": [],
+        "theme_handlers": [],
+        "throttle_api_handlers": [],
+        "user_handlers": [],
+        "signal_handlers": [],
+        "websocket_routes": [],
+        "middleware_mounts": [],
+        "policy_mounts": [],
+        "route_mounts": [
+          {
+            "prefix": "",
+            "tags": [
+              "Search"
+            ]
+          },
+          {
+            "prefix": "/admin",
+            "tags": [
+              "Search"
+            ]
+          }
+        ],
+        "service_providers": [
+          "search.service"
+        ]
+      },
+      "lifecycle": {
+        "extenders": [
+          "ApiRoutesExtender",
+          "ForumCapabilitiesExtender",
+          "FrontendExtender",
+          "LifecycleExtender",
+          "ServiceProviderExtender"
+        ],
+        "lifecycle_extenders": [
+          "LifecycleExtender"
+        ],
+        "phases": [
+          "boot",
+          "ready",
+          "register"
+        ]
+      },
+      "summary": {
+        "notification_type_count": 0,
+        "user_preference_count": 0,
+        "event_listener_count": 0,
+        "realtime_broadcast_count": 0,
+        "post_lifecycle_count": 0,
+        "post_type_count": 0,
+        "search_filter_count": 7,
+        "discussion_sort_count": 0,
+        "discussion_list_filter_count": 0,
+        "resource_definition_count": 0,
+        "resource_relationship_count": 0,
+        "resource_field_count": 0,
+        "resource_endpoint_count": 0,
+        "resource_sort_count": 0,
+        "resource_filter_count": 0,
+        "owned_model_count": 0,
+        "model_package_migration_required_count": 0,
+        "model_app_label_migration_required_count": 0,
+        "model_relation_count": 0,
+        "language_pack_count": 0,
+        "settings_field_count": 0,
+        "settings_default_count": 0,
+        "settings_reset_rule_count": 0,
+        "settings_frontend_cache_key_count": 0,
+        "settings_theme_variable_count": 0,
+        "settings_forum_serialization_count": 0,
+        "forum_settings_key_count": 0,
+        "frontend_css_count": 0,
+        "frontend_js_directory_count": 0,
+        "frontend_preload_count": 0,
+        "frontend_document_attribute_count": 0,
+        "frontend_head_tag_count": 0,
+        "frontend_theme_variable_count": 0,
+        "frontend_content_callback_count": 0,
+        "frontend_title_driver_count": 0,
+        "locale_path_count": 0,
+        "view_namespace_count": 0,
+        "formatter_callback_count": 0,
+        "formatter_pipeline_count": 0,
+        "validator_count": 0,
+        "mailer_count": 0,
+        "error_handler_count": 0,
+        "auth_handler_count": 0,
+        "csrf_handler_count": 0,
+        "filesystem_driver_count": 0,
+        "console_command_count": 0,
+        "session_handler_count": 0,
+        "theme_handler_count": 0,
+        "throttle_api_handler_count": 0,
+        "user_handler_count": 0,
+        "signal_handler_count": 0,
+        "websocket_route_count": 0,
+        "middleware_mount_count": 0,
+        "policy_mount_count": 0,
+        "route_mount_count": 2,
+        "service_provider_count": 1
+      }
+    },
+    "security": {
+      "schema_version": 1,
+      "extension_id": "security",
+      "source": "filesystem",
+      "module_ids": [
+        "security"
+      ],
+      "dependencies": [
+        "core"
+      ],
+      "optional_dependencies": [],
+      "conflicts": [],
+      "provides": [],
+      "backend": {
+        "entry": "bias_ext_security.backend.ext:extend",
+        "django_app_config": "bias_ext_security.backend.apps.SecurityExtensionConfig",
+        "django_app_label": "security"
+      },
+      "frontend": {
+        "admin_entry": "extensions/security/frontend/admin/index.js",
+        "forum_entry": "extensions/security/frontend/forum/index.js",
+        "routes": [],
+        "settings_pages": [
+          "/admin/extensions/security/settings"
+        ],
+        "permissions_pages": [],
+        "operations_pages": []
+      },
+      "settings": {
+        "fields": [
+          {
+            "key": "auth_turnstile_secret_key",
+            "label": "Turnstile Secret Key",
+            "type": "text",
+            "default": "",
+            "order": 30
+          },
+          {
+            "key": "auth_turnstile_site_key",
+            "label": "Turnstile Site Key",
+            "type": "text",
+            "default": "",
+            "order": 20
+          },
+          {
+            "key": "auth_human_verification_provider",
+            "label": "真人验证提供方",
+            "type": "select",
+            "default": "off",
+            "order": 10
+          },
+          {
+            "key": "auth_human_verification_login_enabled",
+            "label": "登录时启用真人验证",
+            "type": "boolean",
+            "default": true,
+            "order": 40
+          },
+          {
+            "key": "auth_human_verification_register_enabled",
+            "label": "注册时启用真人验证",
+            "type": "boolean",
+            "default": true,
+            "order": 50
+          }
+        ],
+        "defaults": [],
+        "reset_rules": [],
+        "frontend_cache_keys": [],
+        "theme_variables": [],
+        "forum_serializations": [
+          {},
+          {},
+          {},
+          {}
+        ],
+        "forum_settings_keys": []
+      },
+      "presentation": {
+        "frontend_assets": {
+          "css": [],
+          "js_directories": [],
+          "preloads": [],
+          "document_attributes": [],
+          "head_tags": [],
+          "theme_variables": [],
+          "content_callbacks": [],
+          "title_driver": ""
+        },
+        "locale_paths": [],
+        "view_namespaces": [],
+        "formatter_callbacks": [],
+        "formatter_pipeline": []
+      },
+      "admin": {
+        "pages": [],
+        "permission_modules": []
+      },
+      "forum": {
+        "permissions": [],
+        "notification_types": [],
+        "user_preferences": [],
+        "language_packs": [],
+        "post_types": [],
+        "search_filters": [],
+        "discussion_sorts": [],
+        "discussion_list_filters": []
+      },
+      "resources": {
+        "definitions": [],
+        "fields": [],
+        "relationships": [],
+        "endpoints": [],
+        "sorts": [],
+        "filters": []
+      },
+      "models": {
+        "definitions": [],
+        "owned": [],
+        "relations": [],
+        "visibility": []
+      },
+      "search": {
+        "drivers": []
+      },
+      "events": {
+        "listeners": [],
+        "realtime_broadcasts": [],
+        "post_lifecycle": []
+      },
+      "runtime": {
+        "validators": [],
+        "mailers": [],
+        "error_handlers": [],
+        "auth_handlers": [
+          {
+            "key": "human_verification",
+            "module_id": "security",
+            "description": "",
+            "order": 100
+          }
+        ],
+        "csrf_handlers": [],
+        "filesystem_drivers": [],
+        "console_commands": [],
+        "session_handlers": [],
+        "theme_handlers": [],
+        "throttle_api_handlers": [],
+        "user_handlers": [],
+        "signal_handlers": [],
+        "websocket_routes": [],
+        "middleware_mounts": [],
+        "policy_mounts": [],
+        "route_mounts": [],
+        "service_providers": []
+      },
+      "lifecycle": {
+        "extenders": [
+          "AuthExtender",
+          "FrontendExtender",
+          "LifecycleExtender",
+          "SettingsExtender"
+        ],
+        "lifecycle_extenders": [
+          "LifecycleExtender"
+        ],
+        "phases": [
+          "boot",
+          "ready",
+          "register"
+        ]
+      },
+      "summary": {
+        "notification_type_count": 0,
+        "user_preference_count": 0,
+        "event_listener_count": 0,
+        "realtime_broadcast_count": 0,
+        "post_lifecycle_count": 0,
+        "post_type_count": 0,
+        "search_filter_count": 0,
+        "discussion_sort_count": 0,
+        "discussion_list_filter_count": 0,
+        "resource_definition_count": 0,
+        "resource_relationship_count": 0,
+        "resource_field_count": 0,
+        "resource_endpoint_count": 0,
+        "resource_sort_count": 0,
+        "resource_filter_count": 0,
+        "owned_model_count": 0,
+        "model_package_migration_required_count": 0,
+        "model_app_label_migration_required_count": 0,
+        "model_relation_count": 0,
+        "language_pack_count": 0,
+        "settings_field_count": 5,
+        "settings_default_count": 0,
+        "settings_reset_rule_count": 0,
+        "settings_frontend_cache_key_count": 0,
+        "settings_theme_variable_count": 0,
+        "settings_forum_serialization_count": 4,
+        "forum_settings_key_count": 0,
+        "frontend_css_count": 0,
+        "frontend_js_directory_count": 0,
+        "frontend_preload_count": 0,
+        "frontend_document_attribute_count": 0,
+        "frontend_head_tag_count": 0,
+        "frontend_theme_variable_count": 0,
+        "frontend_content_callback_count": 0,
+        "frontend_title_driver_count": 0,
+        "locale_path_count": 0,
+        "view_namespace_count": 0,
+        "formatter_callback_count": 0,
+        "formatter_pipeline_count": 0,
+        "validator_count": 0,
+        "mailer_count": 0,
+        "error_handler_count": 0,
+        "auth_handler_count": 1,
+        "csrf_handler_count": 0,
+        "filesystem_driver_count": 0,
+        "console_command_count": 0,
+        "session_handler_count": 0,
+        "theme_handler_count": 0,
+        "throttle_api_handler_count": 0,
+        "user_handler_count": 0,
+        "signal_handler_count": 0,
+        "websocket_route_count": 0,
+        "middleware_mount_count": 0,
+        "policy_mount_count": 0,
+        "route_mount_count": 0,
+        "service_provider_count": 0
+      }
+    },
+    "subscriptions": {
+      "schema_version": 1,
+      "extension_id": "subscriptions",
+      "source": "filesystem",
+      "module_ids": [
+        "subscriptions"
+      ],
+      "dependencies": [
+        "core",
+        "discussions",
+        "notifications",
+        "posts",
+        "users"
+      ],
+      "optional_dependencies": [],
+      "conflicts": [],
+      "provides": [],
+      "backend": {
+        "entry": "bias_ext_subscriptions.backend.ext:extend",
+        "django_app_config": "bias_ext_subscriptions.backend.apps.SubscriptionsExtensionConfig",
+        "django_app_label": "subscriptions"
+      },
+      "frontend": {
+        "admin_entry": "",
+        "forum_entry": "extensions/subscriptions/frontend/forum/index.js",
+        "routes": [
+          {
+            "frontend": "forum",
+            "name": "following",
+            "path": "/following",
+            "component": "extensions/discussions/frontend/forum/DiscussionListView.vue"
+          }
+        ],
+        "settings_pages": [],
+        "permissions_pages": [],
+        "operations_pages": []
+      },
+      "settings": {
+        "fields": [],
+        "defaults": [],
+        "reset_rules": [],
+        "frontend_cache_keys": [],
+        "theme_variables": [],
+        "forum_serializations": [],
+        "forum_settings_keys": []
+      },
+      "presentation": {
+        "frontend_assets": {
+          "css": [],
+          "js_directories": [],
+          "preloads": [],
+          "document_attributes": [],
+          "head_tags": [],
+          "theme_variables": [],
+          "content_callbacks": [],
+          "title_driver": ""
+        },
+        "locale_paths": [],
+        "view_namespaces": [],
+        "formatter_callbacks": [],
+        "formatter_pipeline": []
+      },
+      "admin": {
+        "pages": [],
+        "permission_modules": []
+      },
+      "forum": {
+        "permissions": [],
+        "notification_types": [
+          {
+            "code": "discussionReply",
+            "label": "讨论新回复",
+            "module_id": "subscriptions"
+          }
+        ],
+        "user_preferences": [
+          {
+            "key": "follow_after_create",
+            "label": "发起讨论后自动关注",
+            "module_id": "subscriptions"
+          },
+          {
+            "key": "follow_after_reply",
+            "label": "回复后自动关注",
+            "module_id": "subscriptions"
+          },
+          {
+            "key": "notify_new_post",
+            "label": "关注讨论有新回复时通知我",
+            "module_id": "subscriptions"
+          }
+        ],
+        "language_packs": [],
+        "post_types": [],
+        "search_filters": [
+          {
+            "target": "discussion",
+            "code": "is_following",
+            "module_id": "subscriptions",
+            "syntax": "is:following"
+          }
+        ],
+        "discussion_sorts": [],
+        "discussion_list_filters": [
+          {
+            "code": "following",
+            "label": "关注中",
+            "module_id": "subscriptions",
+            "route_path": "/following"
+          }
+        ]
+      },
+      "resources": {
+        "definitions": [],
+        "fields": [
+          {
+            "resource": "discussion",
+            "field": "is_subscribed",
+            "module_id": "subscriptions",
+            "description": "当前用户是否关注该讨论。"
+          }
+        ],
+        "relationships": [],
+        "endpoints": [
+          {
+            "resource": "discussion",
+            "endpoint": "subscribe",
+            "path": "discussions/{object_id}/subscribe",
+            "module_id": "subscriptions",
+            "operation": "mutate",
+            "anchor": "",
+            "description": ""
+          },
+          {
+            "resource": "discussion",
+            "endpoint": "unsubscribe",
+            "path": "discussions/{object_id}/subscribe",
+            "module_id": "subscriptions",
+            "operation": "mutate",
+            "anchor": "",
+            "description": ""
+          }
+        ],
+        "sorts": [],
+        "filters": []
+      },
+      "models": {
+        "definitions": [],
+        "owned": [],
+        "relations": [],
+        "visibility": []
+      },
+      "search": {
+        "drivers": [
+          {
+            "target": "discussion",
+            "driver": "database",
+            "filter_count": 1
+          }
+        ]
+      },
+      "events": {
+        "listeners": [
+          {
+            "event": "DiscussionCreatedEvent",
+            "listener": "handle_discussion_created_follow_after_create",
+            "module_id": "subscriptions",
+            "source": "runtime"
+          },
+          {
+            "event": "PostApprovedEvent",
+            "listener": "handle_post_approved_discussion_reply_notification",
+            "module_id": "subscriptions",
+            "source": "runtime"
+          },
+          {
+            "event": "PostApprovedEvent",
+            "listener": "handle_post_approved_follow_after_reply",
+            "module_id": "subscriptions",
+            "source": "runtime"
+          },
+          {
+            "event": "PostCreatedEvent",
+            "listener": "handle_post_created_discussion_reply_notification",
+            "module_id": "subscriptions",
+            "source": "runtime"
+          },
+          {
+            "event": "PostCreatedEvent",
+            "listener": "handle_post_created_follow_after_reply",
+            "module_id": "subscriptions",
+            "source": "runtime"
+          },
+          {
+            "event": "PostDeletedEvent",
+            "listener": "handle_post_deleted_discussion_reply_notifications",
+            "module_id": "subscriptions",
+            "source": "runtime"
+          },
+          {
+            "event": "PostHiddenEvent",
+            "listener": "handle_post_hidden_discussion_reply_notifications",
+            "module_id": "subscriptions",
+            "source": "runtime"
+          }
+        ],
+        "realtime_broadcasts": [],
+        "post_lifecycle": []
+      },
+      "runtime": {
+        "validators": [],
+        "mailers": [],
+        "error_handlers": [],
+        "auth_handlers": [],
+        "csrf_handlers": [],
+        "filesystem_drivers": [],
+        "console_commands": [],
+        "session_handlers": [],
+        "theme_handlers": [],
+        "throttle_api_handlers": [],
+        "user_handlers": [],
+        "signal_handlers": [],
+        "websocket_routes": [],
+        "middleware_mounts": [],
+        "policy_mounts": [],
+        "route_mounts": [],
+        "service_providers": []
+      },
+      "lifecycle": {
+        "extenders": [
+          "ApiResourceExtender",
+          "EventListenersExtender",
+          "ForumCapabilitiesExtender",
+          "FrontendExtender",
+          "LifecycleExtender",
+          "NotificationsExtender",
+          "SearchDriverExtender"
+        ],
+        "lifecycle_extenders": [
+          "LifecycleExtender"
+        ],
+        "phases": [
+          "boot",
+          "ready",
+          "register"
+        ]
+      },
+      "summary": {
+        "notification_type_count": 1,
+        "user_preference_count": 3,
+        "event_listener_count": 7,
+        "realtime_broadcast_count": 0,
+        "post_lifecycle_count": 0,
+        "post_type_count": 0,
+        "search_filter_count": 1,
+        "discussion_sort_count": 0,
+        "discussion_list_filter_count": 1,
+        "resource_definition_count": 0,
+        "resource_relationship_count": 0,
+        "resource_field_count": 1,
+        "resource_endpoint_count": 2,
+        "resource_sort_count": 0,
+        "resource_filter_count": 0,
+        "owned_model_count": 0,
+        "model_package_migration_required_count": 0,
+        "model_app_label_migration_required_count": 0,
+        "model_relation_count": 0,
+        "language_pack_count": 0,
+        "settings_field_count": 0,
+        "settings_default_count": 0,
+        "settings_reset_rule_count": 0,
+        "settings_frontend_cache_key_count": 0,
+        "settings_theme_variable_count": 0,
+        "settings_forum_serialization_count": 0,
+        "forum_settings_key_count": 0,
+        "frontend_css_count": 0,
+        "frontend_js_directory_count": 0,
+        "frontend_preload_count": 0,
+        "frontend_document_attribute_count": 0,
+        "frontend_head_tag_count": 0,
+        "frontend_theme_variable_count": 0,
+        "frontend_content_callback_count": 0,
+        "frontend_title_driver_count": 0,
+        "locale_path_count": 0,
+        "view_namespace_count": 0,
+        "formatter_callback_count": 0,
+        "formatter_pipeline_count": 0,
+        "validator_count": 0,
+        "mailer_count": 0,
+        "error_handler_count": 0,
+        "auth_handler_count": 0,
+        "csrf_handler_count": 0,
+        "filesystem_driver_count": 0,
+        "console_command_count": 0,
+        "session_handler_count": 0,
+        "theme_handler_count": 0,
+        "throttle_api_handler_count": 0,
+        "user_handler_count": 0,
+        "signal_handler_count": 0,
+        "websocket_route_count": 0,
+        "middleware_mount_count": 0,
+        "policy_mount_count": 0,
+        "route_mount_count": 0,
+        "service_provider_count": 0
+      }
+    },
+    "tags": {
+      "schema_version": 1,
+      "extension_id": "tags",
+      "source": "filesystem",
+      "module_ids": [
+        "tags"
+      ],
+      "dependencies": [
+        "core",
+        "discussions",
+        "posts",
+        "users"
+      ],
+      "optional_dependencies": [
+        "flags"
+      ],
+      "conflicts": [],
+      "provides": [],
+      "backend": {
+        "entry": "bias_ext_tags.backend.ext",
+        "django_app_config": "bias_ext_tags.backend.apps.TagsExtensionConfig",
+        "django_app_label": "tags"
+      },
+      "frontend": {
+        "admin_entry": "extensions/tags/frontend/admin/index.js",
+        "forum_entry": "extensions/tags/frontend/forum/index.js",
+        "routes": [
+          {
+            "frontend": "forum",
+            "name": "tags",
+            "path": "/tags",
+            "component": "./TagsView.vue"
+          },
+          {
+            "frontend": "forum",
+            "name": "tag-detail",
+            "path": "/t/:slug",
+            "component": "extensions/discussions/frontend/forum/DiscussionListView.vue"
+          }
+        ],
+        "settings_pages": [
+          "/admin/extensions/tags/settings"
+        ],
+        "permissions_pages": [],
+        "operations_pages": []
+      },
+      "settings": {
+        "fields": [
+          {
+            "key": "allow_tag_change",
+            "label": "作者可修改标签",
+            "type": "select",
+            "default": "reply",
+            "order": 50
+          },
+          {
+            "key": "min_primary_tags",
+            "label": "最少主标签数",
+            "type": "number",
+            "default": 0,
+            "order": 10
+          },
+          {
+            "key": "min_secondary_tags",
+            "label": "最少次标签数",
+            "type": "number",
+            "default": 0,
+            "order": 30
+          },
+          {
+            "key": "max_primary_tags",
+            "label": "最多主标签数",
+            "type": "number",
+            "default": 1,
+            "order": 20
+          },
+          {
+            "key": "max_secondary_tags",
+            "label": "最多次标签数",
+            "type": "number",
+            "default": 1,
+            "order": 40
+          }
+        ],
+        "defaults": [],
+        "reset_rules": [],
+        "frontend_cache_keys": [],
+        "theme_variables": [],
+        "forum_serializations": [],
+        "forum_settings_keys": [
+          "max_primary_tags",
+          "max_secondary_tags",
+          "min_primary_tags",
+          "min_secondary_tags"
+        ]
+      },
+      "presentation": {
+        "frontend_assets": {
+          "css": [],
+          "js_directories": [],
+          "preloads": [],
+          "document_attributes": [],
+          "head_tags": [],
+          "theme_variables": [],
+          "content_callbacks": [],
+          "title_driver": ""
+        },
+        "locale_paths": [],
+        "view_namespaces": [],
+        "formatter_callbacks": [],
+        "formatter_pipeline": []
+      },
+      "admin": {
+        "pages": [
+          {
+            "path": "/admin/tags",
+            "label": "标签管理",
+            "module_id": "tags"
+          }
+        ],
+        "permission_modules": []
+      },
+      "forum": {
+        "permissions": [],
+        "notification_types": [],
+        "user_preferences": [],
+        "language_packs": [],
+        "post_types": [
+          {
+            "code": "discussionTagged",
+            "label": "讨论标签变更",
+            "module_id": "tags"
+          }
+        ],
+        "search_filters": [
+          {
+            "target": "discussion",
+            "code": "tag",
+            "module_id": "tags",
+            "syntax": "tag:<slug>"
+          }
+        ],
+        "discussion_sorts": [],
+        "discussion_list_filters": []
+      },
+      "resources": {
+        "definitions": [
+          {
+            "resource": "tag",
+            "module_id": "tags",
+            "description": "论坛标签主资源。"
+          }
+        ],
+        "fields": [
+          {
+            "resource": "tag",
+            "field": "state",
+            "module_id": "tags",
+            "description": "当前用户在该标签上的阅读与隐藏状态。"
+          },
+          {
+            "resource": "tag",
+            "field": "can_start_discussion",
+            "module_id": "tags",
+            "description": "当前用户是否可以在该标签下发起讨论。"
+          },
+          {
+            "resource": "tag",
+            "field": "can_reply",
+            "module_id": "tags",
+            "description": "当前用户是否可以在该标签下回复。"
+          },
+          {
+            "resource": "tag",
+            "field": "can_add_to_discussion",
+            "module_id": "tags",
+            "description": "当前用户是否可以把该标签添加到已有讨论。"
+          },
+          {
+            "resource": "forum",
+            "field": "can_bypass_tag_counts",
+            "module_id": "tags",
+            "description": "当前用户是否可绕过发帖标签数量限制。"
+          },
+          {
+            "resource": "tag",
+            "field": "last_posted_discussion",
+            "module_id": "tags",
+            "description": "标签下最后活跃讨论摘要。"
+          },
+          {
+            "resource": "discussion",
+            "field": "tags",
+            "module_id": "tags",
+            "description": "讨论关联的标签列表。"
+          },
+          {
+            "resource": "forum",
+            "field": "tags",
+            "module_id": "tags",
+            "description": "论坛首页可见标签树。"
+          }
+        ],
+        "relationships": [
+          {
+            "resource": "tag",
+            "relationship": "last_posted_discussion",
+            "module_id": "tags",
+            "resource_type": "",
+            "description": "标签下最后活跃讨论摘要。"
+          },
+          {
+            "resource": "post",
+            "relationship": "eventPostMentionsTags",
+            "module_id": "tags",
+            "resource_type": "tag",
+            "description": "标签变更事件帖中涉及的标签关系。"
+          },
+          {
+            "resource": "discussion",
+            "relationship": "tags",
+            "module_id": "tags",
+            "resource_type": "tag",
+            "description": "讨论关联标签关系。"
+          },
+          {
+            "resource": "forum",
+            "relationship": "tags",
+            "module_id": "tags",
+            "resource_type": "tag",
+            "description": "论坛首页可见标签关系。"
+          }
+        ],
+        "endpoints": [
+          {
+            "resource": "discussion",
+            "endpoint": "create",
+            "path": "",
+            "module_id": "tags",
+            "operation": "mutate",
+            "anchor": "",
+            "description": ""
+          },
+          {
+            "resource": "tag",
+            "endpoint": "create",
+            "path": "/tags",
+            "module_id": "tags",
+            "operation": "mutate",
+            "anchor": "",
+            "description": ""
+          },
+          {
+            "resource": "tag",
+            "endpoint": "delete",
+            "path": "/tags/{object_id}",
+            "module_id": "tags",
+            "operation": "mutate",
+            "anchor": "",
+            "description": ""
+          },
+          {
+            "resource": "discussion",
+            "endpoint": "index",
+            "path": "",
+            "module_id": "tags",
+            "operation": "mutate",
+            "anchor": "",
+            "description": ""
+          },
+          {
+            "resource": "flag",
+            "endpoint": "index",
+            "path": "",
+            "module_id": "tags",
+            "operation": "mutate",
+            "anchor": "",
+            "description": ""
+          },
+          {
+            "resource": "post",
+            "endpoint": "index",
+            "path": "",
+            "module_id": "tags",
+            "operation": "mutate",
+            "anchor": "",
+            "description": ""
+          },
+          {
+            "resource": "tag",
+            "endpoint": "index",
+            "path": "/tags",
+            "module_id": "tags",
+            "operation": "mutate",
+            "anchor": "",
+            "description": ""
+          },
+          {
+            "resource": "tag",
+            "endpoint": "popular",
+            "path": "/tags/popular",
+            "module_id": "tags",
+            "operation": "mutate",
+            "anchor": "",
+            "description": ""
+          },
+          {
+            "resource": "discussion",
+            "endpoint": "show",
+            "path": "",
+            "module_id": "tags",
+            "operation": "mutate",
+            "anchor": "",
+            "description": ""
+          },
+          {
+            "resource": "tag",
+            "endpoint": "show",
+            "path": "/tags/{object_id}",
+            "module_id": "tags",
+            "operation": "mutate",
+            "anchor": "",
+            "description": ""
+          },
+          {
+            "resource": "tag",
+            "endpoint": "show-by-slug",
+            "path": "/tags/slug/{object_id}",
+            "module_id": "tags",
+            "operation": "mutate",
+            "anchor": "",
+            "description": ""
+          },
+          {
+            "resource": "tag",
+            "endpoint": "update",
+            "path": "/tags/{object_id}",
+            "module_id": "tags",
+            "operation": "mutate",
+            "anchor": "",
+            "description": ""
+          }
+        ],
+        "sorts": [],
+        "filters": []
+      },
+      "models": {
+        "definitions": [
+          {
+            "model": "Tag",
+            "kind": "relation:hasMany",
+            "key": "children"
+          },
+          {
+            "model": "Tag",
+            "kind": "model-url:slug",
+            "key": "default"
+          },
+          {
+            "model": "Post",
+            "kind": "relation:relationship",
+            "key": "eventPostMentionsTags"
+          },
+          {
+            "model": "Post",
+            "kind": "relationship",
+            "key": "eventPostMentionsTags"
+          },
+          {
+            "model": "Tag",
+            "kind": "model-url:slug",
+            "key": "id_with_slug"
+          },
+          {
+            "model": "Tag",
+            "kind": "relation:belongsTo",
+            "key": "parent"
+          },
+          {
+            "model": "Discussion",
+            "kind": "manyToMany",
+            "key": "tags"
+          },
+          {
+            "model": "Discussion",
+            "kind": "relation:belongsToMany",
+            "key": "tags"
+          },
+          {
+            "model": "DiscussionTag",
+            "kind": "owner",
+            "key": "tags.discussiontag"
+          },
+          {
+            "model": "Tag",
+            "kind": "owner",
+            "key": "tags.tag"
+          },
+          {
+            "model": "TagState",
+            "kind": "owner",
+            "key": "tags.tagstate"
+          }
+        ],
+        "owned": [
+          {
+            "module_id": "tags",
+            "model": "DiscussionTag",
+            "app_label": "tags",
+            "target_app_label": "tags"
+          },
+          {
+            "module_id": "tags",
+            "model": "Tag",
+            "app_label": "tags",
+            "target_app_label": "tags"
+          },
+          {
+            "module_id": "tags",
+            "model": "TagState",
+            "app_label": "tags",
+            "target_app_label": "tags"
+          }
+        ],
+        "relations": [
+          {
+            "model": "Discussion",
+            "name": "tags",
+            "relation_type": "belongsToMany",
+            "related_model": "Tag"
+          },
+          {
+            "model": "Post",
+            "name": "eventPostMentionsTags",
+            "relation_type": "relationship",
+            "related_model": "Tag"
+          },
+          {
+            "model": "Tag",
+            "name": "children",
+            "relation_type": "hasMany",
+            "related_model": "Tag"
+          },
+          {
+            "model": "Tag",
+            "name": "parent",
+            "relation_type": "belongsTo",
+            "related_model": "Tag"
+          }
+        ],
+        "visibility": [
+          {
+            "model": "Discussion",
+            "ability": "view"
+          },
+          {
+            "model": "Post",
+            "ability": "view"
+          },
+          {
+            "model": "Tag",
+            "ability": "view"
+          }
+        ]
+      },
+      "search": {
+        "drivers": [
+          {
+            "target": "tag",
+            "driver": "database",
+            "filter_count": 0
+          },
+          {
+            "target": "discussion",
+            "driver": "database",
+            "filter_count": 1
+          }
+        ]
+      },
+      "events": {
+        "listeners": [
+          {
+            "event": "DiscussionApprovedEvent",
+            "listener": "handle_discussion_approved_tag_stats",
+            "module_id": "tags",
+            "source": "runtime"
+          },
+          {
+            "event": "DiscussionTagStatsRefreshEvent",
+            "listener": "handle_discussion_tag_stats_refresh",
+            "module_id": "tags",
+            "source": "runtime"
+          },
+          {
+            "event": "DiscussionTaggedEvent",
+            "listener": "handle_discussion_tagged",
+            "module_id": "tags",
+            "source": "runtime"
+          },
+          {
+            "event": "PostApprovedEvent",
+            "listener": "handle_post_approved_tag_stats",
+            "module_id": "tags",
+            "source": "runtime"
+          },
+          {
+            "event": "PostCreatedEvent",
+            "listener": "handle_post_created_tag_stats",
+            "module_id": "tags",
+            "source": "runtime"
+          },
+          {
+            "event": "PostDeletedEvent",
+            "listener": "handle_post_deleted_tag_stats",
+            "module_id": "tags",
+            "source": "runtime"
+          },
+          {
+            "event": "PostHiddenEvent",
+            "listener": "handle_post_hidden_tag_stats",
+            "module_id": "tags",
+            "source": "runtime"
+          },
+          {
+            "event": "PostRejectedEvent",
+            "listener": "handle_post_rejected_tag_stats",
+            "module_id": "tags",
+            "source": "runtime"
+          },
+          {
+            "event": "TagStatsRefreshRequestedEvent",
+            "listener": "handle_tag_stats_refresh_requested",
+            "module_id": "tags",
+            "source": "runtime"
+          }
+        ],
+        "realtime_broadcasts": [
+          {
+            "event_name": "discussion.tagged"
+          }
+        ],
+        "post_lifecycle": []
+      },
+      "runtime": {
+        "validators": [],
+        "mailers": [],
+        "error_handlers": [],
+        "auth_handlers": [],
+        "csrf_handlers": [],
+        "filesystem_drivers": [],
+        "console_commands": [
+          {
+            "key": "command",
+            "module_id": "tags",
+            "description": "",
+            "order": 100
+          }
+        ],
+        "session_handlers": [],
+        "theme_handlers": [],
+        "throttle_api_handlers": [],
+        "user_handlers": [],
+        "signal_handlers": [],
+        "websocket_routes": [],
+        "middleware_mounts": [],
+        "policy_mounts": [
+          {
+            "key": "",
+            "model": "bias_core.extensions.types",
+            "global_policy": false,
+            "query_policy": false
+          },
+          {
+            "key": "",
+            "model": "bias_core.extensions.types",
+            "global_policy": false,
+            "query_policy": false
+          },
+          {
+            "key": "",
+            "model": "bias_ext_tags.backend.models.Tag",
+            "global_policy": false,
+            "query_policy": false
+          }
+        ],
+        "route_mounts": [
+          {
+            "prefix": "/admin",
+            "tags": [
+              "Admin"
+            ]
+          }
+        ],
+        "service_providers": [
+          "search.target.tag",
+          "tags.service"
+        ]
+      },
+      "lifecycle": {
+        "extenders": [
+          "AdminSurfaceExtender",
+          "ApiResourceExtender",
+          "ApiRoutesExtender",
+          "ConditionalExtender",
+          "ConsoleExtender",
+          "DiscussionLifecycleExtender",
+          "EventListenersExtender",
+          "ForumCapabilitiesExtender",
+          "FrontendExtender",
+          "LifecycleExtender",
+          "ModelExtender",
+          "ModelUrlExtender",
+          "ModelVisibilityExtender",
+          "PolicyExtender",
+          "PostEventExtender",
+          "RealtimeExtender",
+          "SearchDriverExtender",
+          "ServiceProviderExtender",
+          "SettingsExtender"
+        ],
+        "lifecycle_extenders": [
+          "LifecycleExtender"
+        ],
+        "phases": [
+          "boot",
+          "ready",
+          "register"
+        ]
+      },
+      "summary": {
+        "notification_type_count": 0,
+        "user_preference_count": 0,
+        "event_listener_count": 9,
+        "realtime_broadcast_count": 1,
+        "post_lifecycle_count": 0,
+        "post_type_count": 1,
+        "search_filter_count": 1,
+        "discussion_sort_count": 0,
+        "discussion_list_filter_count": 0,
+        "resource_definition_count": 1,
+        "resource_relationship_count": 4,
+        "resource_field_count": 8,
+        "resource_endpoint_count": 12,
+        "resource_sort_count": 0,
+        "resource_filter_count": 0,
+        "owned_model_count": 3,
+        "model_package_migration_required_count": 0,
+        "model_app_label_migration_required_count": 0,
+        "model_relation_count": 4,
+        "language_pack_count": 0,
+        "settings_field_count": 5,
+        "settings_default_count": 0,
+        "settings_reset_rule_count": 0,
+        "settings_frontend_cache_key_count": 0,
+        "settings_theme_variable_count": 0,
+        "settings_forum_serialization_count": 0,
+        "forum_settings_key_count": 4,
+        "frontend_css_count": 0,
+        "frontend_js_directory_count": 0,
+        "frontend_preload_count": 0,
+        "frontend_document_attribute_count": 0,
+        "frontend_head_tag_count": 0,
+        "frontend_theme_variable_count": 0,
+        "frontend_content_callback_count": 0,
+        "frontend_title_driver_count": 0,
+        "locale_path_count": 0,
+        "view_namespace_count": 0,
+        "formatter_callback_count": 0,
+        "formatter_pipeline_count": 0,
+        "validator_count": 0,
+        "mailer_count": 0,
+        "error_handler_count": 0,
+        "auth_handler_count": 0,
+        "csrf_handler_count": 0,
+        "filesystem_driver_count": 0,
+        "console_command_count": 1,
+        "session_handler_count": 0,
+        "theme_handler_count": 0,
+        "throttle_api_handler_count": 0,
+        "user_handler_count": 0,
+        "signal_handler_count": 0,
+        "websocket_route_count": 0,
+        "middleware_mount_count": 0,
+        "policy_mount_count": 3,
+        "route_mount_count": 1,
+        "service_provider_count": 2
+      }
+    },
+    "uploads": {
+      "schema_version": 1,
+      "extension_id": "uploads",
+      "source": "filesystem",
+      "module_ids": [
+        "uploads"
+      ],
+      "dependencies": [
+        "core",
+        "users"
+      ],
+      "optional_dependencies": [],
+      "conflicts": [],
+      "provides": [],
+      "backend": {
+        "entry": "bias_ext_uploads.backend.ext",
+        "django_app_config": "bias_ext_uploads.backend.apps.UploadsExtensionConfig",
+        "django_app_label": "uploads"
+      },
+      "frontend": {
+        "admin_entry": "extensions/uploads/frontend/admin/index.js",
+        "forum_entry": "extensions/uploads/frontend/forum/index.js",
+        "routes": [],
+        "settings_pages": [
+          "/admin/extensions/uploads/settings"
+        ],
+        "permissions_pages": [],
+        "operations_pages": []
+      },
+      "settings": {
+        "fields": [
+          {
+            "key": "storage_imagebed_endpoint",
+            "label": "图床上传接口地址",
+            "type": "text",
+            "default": "",
+            "order": 250
+          },
+          {
+            "key": "storage_local_path",
+            "label": "本地保存目录",
+            "type": "text",
+            "default": "",
+            "order": 30
+          },
+          {
+            "key": "storage_oss_access_key_id",
+            "label": "OSS Access Key ID",
+            "type": "text",
+            "default": "",
+            "order": 210
+          },
+          {
+            "key": "storage_oss_access_key_secret",
+            "label": "OSS Access Key Secret",
+            "type": "text",
+            "default": "",
+            "order": 220
+          },
+          {
+            "key": "storage_oss_bucket",
+            "label": "OSS Bucket",
+            "type": "text",
+            "default": "",
+            "order": 190
+          },
+          {
+            "key": "storage_oss_endpoint",
+            "label": "OSS Endpoint",
+            "type": "text",
+            "default": "",
+            "order": 200
+          },
+          {
+            "key": "storage_oss_object_prefix",
+            "label": "OSS 对象前缀",
+            "type": "text",
+            "default": "",
+            "order": 240
+          },
+          {
+            "key": "storage_oss_public_url",
+            "label": "OSS 公共访问 URL",
+            "type": "text",
+            "default": "",
+            "order": 230
+          },
+          {
+            "key": "storage_r2_access_key_id",
+            "label": "R2 Access Key ID",
+            "type": "text",
+            "default": "",
+            "order": 150
+          },
+          {
+            "key": "storage_r2_bucket",
+            "label": "R2 Bucket",
+            "type": "text",
+            "default": "",
+            "order": 130
+          },
+          {
+            "key": "storage_r2_endpoint",
+            "label": "R2 Endpoint",
+            "type": "text",
+            "default": "",
+            "order": 140
+          },
+          {
+            "key": "storage_r2_object_prefix",
+            "label": "R2 对象前缀",
+            "type": "text",
+            "default": "",
+            "order": 180
+          },
+          {
+            "key": "storage_r2_public_url",
+            "label": "R2 公共访问 URL / CDN 域名",
+            "type": "text",
+            "default": "",
+            "order": 170
+          },
+          {
+            "key": "storage_r2_secret_access_key",
+            "label": "R2 Secret Access Key",
+            "type": "text",
+            "default": "",
+            "order": 160
+          },
+          {
+            "key": "storage_s3_access_key_id",
+            "label": "S3 Access Key ID",
+            "type": "text",
+            "default": "",
+            "order": 80
+          },
+          {
+            "key": "storage_s3_bucket",
+            "label": "S3 Bucket",
+            "type": "text",
+            "default": "",
+            "order": 50
+          },
+          {
+            "key": "storage_s3_endpoint",
+            "label": "S3 Endpoint",
+            "type": "text",
+            "default": "",
+            "order": 70
+          },
+          {
+            "key": "storage_s3_object_prefix",
+            "label": "S3 对象前缀",
+            "type": "text",
+            "default": "",
+            "order": 110
+          },
+          {
+            "key": "storage_s3_public_url",
+            "label": "S3 公共访问 URL",
+            "type": "text",
+            "default": "",
+            "order": 100
+          },
+          {
+            "key": "storage_s3_region",
+            "label": "S3 Region",
+            "type": "text",
+            "default": "",
+            "order": 60
+          },
+          {
+            "key": "storage_s3_secret_access_key",
+            "label": "S3 Secret Access Key",
+            "type": "text",
+            "default": "",
+            "order": 90
+          },
+          {
+            "key": "storage_local_base_url",
+            "label": "本地访问基地址",
+            "type": "text",
+            "default": "/media/",
+            "order": 40
+          },
+          {
+            "key": "storage_imagebed_method",
+            "label": "图床请求方法",
+            "type": "select",
+            "default": "POST",
+            "order": 260
+          },
+          {
+            "key": "attachments_dir",
+            "label": "附件目录",
+            "type": "text",
+            "default": "attachments",
+            "order": 5
+          },
+          {
+            "key": "avatars_dir",
+            "label": "头像目录",
+            "type": "text",
+            "default": "avatars",
+            "order": 18
+          },
+          {
+            "key": "storage_imagebed_url_path",
+            "label": "图床响应 URL 路径",
+            "type": "text",
+            "default": "data.url",
+            "order": 300
+          },
+          {
+            "key": "storage_imagebed_file_field",
+            "label": "图床文件字段名",
+            "type": "text",
+            "default": "file",
+            "order": 270
+          },
+          {
+            "key": "storage_driver",
+            "label": "存储驱动",
+            "type": "select",
+            "default": "local",
+            "order": 20
+          },
+          {
+            "key": "storage_imagebed_form_data",
+            "label": "图床额外表单参数 JSON",
+            "type": "textarea",
+            "default": "{}",
+            "order": 290
+          },
+          {
+            "key": "storage_imagebed_headers",
+            "label": "图床请求头 JSON",
+            "type": "textarea",
+            "default": "{}",
+            "order": 280
+          },
+          {
+            "key": "attachment_max_size_mb",
+            "label": "附件最大体积（MB）",
+            "type": "number",
+            "default": 10,
+            "order": 10
+          },
+          {
+            "key": "avatar_max_size_mb",
+            "label": "头像最大体积（MB）",
+            "type": "number",
+            "default": 2,
+            "order": 19
+          },
+          {
+            "key": "upload_site_asset_max_size_mb",
+            "label": "站点资源最大体积（MB）",
+            "type": "number",
+            "default": 2,
+            "order": 15
+          },
+          {
+            "key": "storage_s3_path_style",
+            "label": "S3 使用 Path Style",
+            "type": "boolean",
+            "default": false,
+            "order": 120
+          }
+        ],
+        "defaults": [
+          {
+            "key": "attachment_max_size_mb",
+            "value": 10
+          },
+          {
+            "key": "attachments_dir",
+            "value": "attachments"
+          },
+          {
+            "key": "avatar_max_size_mb",
+            "value": 2
+          },
+          {
+            "key": "avatars_dir",
+            "value": "avatars"
+          },
+          {
+            "key": "upload_site_asset_max_size_mb",
+            "value": 2
+          }
+        ],
+        "reset_rules": [],
+        "frontend_cache_keys": [],
+        "theme_variables": [],
+        "forum_serializations": [],
+        "forum_settings_keys": []
+      },
+      "presentation": {
+        "frontend_assets": {
+          "css": [],
+          "js_directories": [],
+          "preloads": [],
+          "document_attributes": [],
+          "head_tags": [],
+          "theme_variables": [],
+          "content_callbacks": [],
+          "title_driver": ""
+        },
+        "locale_paths": [],
+        "view_namespaces": [],
+        "formatter_callbacks": [],
+        "formatter_pipeline": []
+      },
+      "admin": {
+        "pages": [],
+        "permission_modules": []
+      },
+      "forum": {
+        "permissions": [],
+        "notification_types": [],
+        "user_preferences": [],
+        "language_packs": [],
+        "post_types": [],
+        "search_filters": [],
+        "discussion_sorts": [],
+        "discussion_list_filters": []
+      },
+      "resources": {
+        "definitions": [],
+        "fields": [],
+        "relationships": [],
+        "endpoints": [],
+        "sorts": [],
+        "filters": []
+      },
+      "models": {
+        "definitions": [],
+        "owned": [],
+        "relations": [],
+        "visibility": []
+      },
+      "search": {
+        "drivers": []
+      },
+      "events": {
+        "listeners": [],
+        "realtime_broadcasts": [],
+        "post_lifecycle": []
+      },
+      "runtime": {
+        "validators": [],
+        "mailers": [],
+        "error_handlers": [],
+        "auth_handlers": [],
+        "csrf_handlers": [],
+        "filesystem_drivers": [],
+        "console_commands": [],
+        "session_handlers": [],
+        "theme_handlers": [],
+        "throttle_api_handlers": [],
+        "user_handlers": [],
+        "signal_handlers": [],
+        "websocket_routes": [],
+        "middleware_mounts": [],
+        "policy_mounts": [],
+        "route_mounts": [
+          {
+            "prefix": "",
+            "tags": [
+              "Uploads"
+            ]
+          }
+        ],
+        "service_providers": []
+      },
+      "lifecycle": {
+        "extenders": [
+          "ApiRoutesExtender",
+          "FrontendExtender",
+          "LifecycleExtender",
+          "SettingsExtender"
+        ],
+        "lifecycle_extenders": [
+          "LifecycleExtender"
+        ],
+        "phases": [
+          "boot",
+          "ready",
+          "register"
+        ]
+      },
+      "summary": {
+        "notification_type_count": 0,
+        "user_preference_count": 0,
+        "event_listener_count": 0,
+        "realtime_broadcast_count": 0,
+        "post_lifecycle_count": 0,
+        "post_type_count": 0,
+        "search_filter_count": 0,
+        "discussion_sort_count": 0,
+        "discussion_list_filter_count": 0,
+        "resource_definition_count": 0,
+        "resource_relationship_count": 0,
+        "resource_field_count": 0,
+        "resource_endpoint_count": 0,
+        "resource_sort_count": 0,
+        "resource_filter_count": 0,
+        "owned_model_count": 0,
+        "model_package_migration_required_count": 0,
+        "model_app_label_migration_required_count": 0,
+        "model_relation_count": 0,
+        "language_pack_count": 0,
+        "settings_field_count": 34,
+        "settings_default_count": 5,
+        "settings_reset_rule_count": 0,
+        "settings_frontend_cache_key_count": 0,
+        "settings_theme_variable_count": 0,
+        "settings_forum_serialization_count": 0,
+        "forum_settings_key_count": 0,
+        "frontend_css_count": 0,
+        "frontend_js_directory_count": 0,
+        "frontend_preload_count": 0,
+        "frontend_document_attribute_count": 0,
+        "frontend_head_tag_count": 0,
+        "frontend_theme_variable_count": 0,
+        "frontend_content_callback_count": 0,
+        "frontend_title_driver_count": 0,
+        "locale_path_count": 0,
+        "view_namespace_count": 0,
+        "formatter_callback_count": 0,
+        "formatter_pipeline_count": 0,
+        "validator_count": 0,
+        "mailer_count": 0,
+        "error_handler_count": 0,
+        "auth_handler_count": 0,
+        "csrf_handler_count": 0,
+        "filesystem_driver_count": 0,
+        "console_command_count": 0,
+        "session_handler_count": 0,
+        "theme_handler_count": 0,
+        "throttle_api_handler_count": 0,
+        "user_handler_count": 0,
+        "signal_handler_count": 0,
+        "websocket_route_count": 0,
+        "middleware_mount_count": 0,
+        "policy_mount_count": 0,
+        "route_mount_count": 1,
+        "service_provider_count": 0
+      }
+    },
+    "users": {
+      "schema_version": 1,
+      "extension_id": "users",
+      "source": "filesystem",
+      "module_ids": [
+        "users"
+      ],
+      "dependencies": [
+        "core"
+      ],
+      "optional_dependencies": [],
+      "conflicts": [],
+      "provides": [
+        "groups",
+        "profiles",
+        "suspension"
+      ],
+      "backend": {
+        "entry": "bias_ext_users.backend.ext",
+        "django_app_config": "bias_ext_users.backend.apps.UsersExtensionConfig",
+        "django_app_label": "users"
+      },
+      "frontend": {
+        "admin_entry": "extensions/users/frontend/admin/index.js",
+        "forum_entry": "extensions/users/frontend/forum/index.js",
+        "routes": [
+          {
+            "frontend": "forum",
+            "name": "forgot-password",
+            "path": "/forgot-password",
+            "component": "./AuthRouteView.vue"
+          },
+          {
+            "frontend": "forum",
+            "name": "login",
+            "path": "/login",
+            "component": "./AuthRouteView.vue"
+          },
+          {
+            "frontend": "forum",
+            "name": "register",
+            "path": "/register",
+            "component": "./AuthRouteView.vue"
+          },
+          {
+            "frontend": "forum",
+            "name": "profile",
+            "path": "/profile",
+            "component": "./ProfileView.vue"
+          },
+          {
+            "frontend": "forum",
+            "name": "user-profile",
+            "path": "/u/:id",
+            "component": "./ProfileView.vue"
+          },
+          {
+            "frontend": "forum",
+            "name": "reset-password",
+            "path": "/reset-password",
+            "component": "./ResetPasswordView.vue"
+          },
+          {
+            "frontend": "forum",
+            "name": "verify-email",
+            "path": "/verify-email",
+            "component": "./VerifyEmailView.vue"
+          }
+        ],
+        "settings_pages": [],
+        "permissions_pages": [
+          "/admin/extensions/users/permissions"
+        ],
+        "operations_pages": []
+      },
+      "settings": {
+        "fields": [],
+        "defaults": [
+          {
+            "key": "mail.mail_password_reset_html",
+            "value": "<!DOCTYPE html>\n<html>\n<head>\n    <meta charset=\"utf-8\">\n    <style>\n        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }\n        .container { max-width: 600px; margin: 0 auto; padding: 20px; }\n        .header { background: #e74c3c; color: white; padding: 20px; text-align: center; }\n        .content { padding: 20px; background: #f9f9f9; }\n        .button { display: inline-block; padding: 12px 24px; background: #e74c3c; color: white; text-decoration: none; border-radius: 4px; margin: 20px 0; }\n        .footer { padding: 20px; text-align: center; color: #666; font-size: 12px; }\n        .warning { background: #fff3cd; border-left: 4px solid #ffc107; padding: 12px; margin: 20px 0; }\n    </style>\n</head>\n<body>\n    <div class=\"container\">\n        <div class=\"header\">\n            <h1>{{ site_name }}</h1>\n        </div>\n        <div class=\"content\">\n            <h2>您好 {{ username }}，</h2>\n            <p>我们收到了重置您密码的请求。</p>\n            <p>请点击下方按钮重置密码：</p>\n            <a href=\"{{ reset_url }}\" class=\"button\" style=\"display: inline-block; padding: 12px 24px; background: #e74c3c; color: #ffffff; text-decoration: none; border-radius: 4px; margin: 20px 0;\">重置密码</a>\n            <p>或复制以下链接到浏览器：</p>\n            <p style=\"word-break: break-all; color: #666;\">{{ reset_url }}</p>\n            <div class=\"warning\">\n                <strong>注意：</strong>如果您没有请求重置密码，请忽略此邮件，您的密码不会被更改。\n            </div>\n            <p style=\"color: #999; font-size: 14px;\">此链接将在1小时后失效。</p>\n        </div>\n        <div class=\"footer\">\n            <p>{{ site_name }} 团队</p>\n        </div>\n    </div>\n</body>\n</html>"
+          },
+          {
+            "key": "mail.mail_password_reset_subject",
+            "value": "重置您的密码 - {{ site_name }}"
+          },
+          {
+            "key": "mail.mail_password_reset_text",
+            "value": "您好 {{ username }}，\n\n我们收到了重置您密码的请求。\n\n请点击以下链接重置密码：\n{{ reset_url }}\n\n如果您没有请求重置密码，请忽略此邮件，您的密码不会被更改。\n\n此链接将在1小时后失效。\n\n---\n{{ site_name }} 团队"
+          },
+          {
+            "key": "mail.mail_verification_html",
+            "value": "<!DOCTYPE html>\n<html>\n<head>\n    <meta charset=\"utf-8\">\n    <style>\n        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }\n        .container { max-width: 600px; margin: 0 auto; padding: 20px; }\n        .header { background: #3498db; color: white; padding: 20px; text-align: center; }\n        .content { padding: 20px; background: #f9f9f9; }\n        .button { display: inline-block; padding: 12px 24px; background: #3498db; color: white; text-decoration: none; border-radius: 4px; margin: 20px 0; }\n        .footer { padding: 20px; text-align: center; color: #666; font-size: 12px; }\n    </style>\n</head>\n<body>\n    <div class=\"container\">\n        <div class=\"header\">\n            <h1>{{ site_name }}</h1>\n        </div>\n        <div class=\"content\">\n            <h2>您好 {{ username }}，</h2>\n            <p>感谢您注册 {{ site_name }}！</p>\n            <p>请点击下方按钮验证您的邮箱：</p>\n            <a href=\"{{ verification_url }}\" class=\"button\" style=\"display: inline-block; padding: 12px 24px; background: #3498db; color: #ffffff; text-decoration: none; border-radius: 4px; margin: 20px 0;\">验证邮箱</a>\n            <p>或复制以下链接到浏览器：</p>\n            <p style=\"word-break: break-all; color: #666;\">{{ verification_url }}</p>\n            <p>如果您没有注册 {{ site_name }} 账号，请忽略此邮件。</p>\n            <p style=\"color: #999; font-size: 14px;\">此链接将在24小时后失效。</p>\n        </div>\n        <div class=\"footer\">\n            <p>{{ site_name }} 团队</p>\n        </div>\n    </div>\n</body>\n</html>"
+          },
+          {
+            "key": "mail.mail_verification_subject",
+            "value": "验证您的邮箱 - {{ site_name }}"
+          },
+          {
+            "key": "mail.mail_verification_text",
+            "value": "您好 {{ username }}，\n\n感谢您注册 {{ site_name }}！\n\n请点击以下链接验证您的邮箱：\n{{ verification_url }}\n\n如果您没有注册 {{ site_name }} 账号，请忽略此邮件。\n\n此链接将在24小时后失效。\n\n---\n{{ site_name }} 团队"
+          }
+        ],
+        "reset_rules": [],
+        "frontend_cache_keys": [],
+        "theme_variables": [],
+        "forum_serializations": [],
+        "forum_settings_keys": []
+      },
+      "presentation": {
+        "frontend_assets": {
+          "css": [],
+          "js_directories": [],
+          "preloads": [],
+          "document_attributes": [],
+          "head_tags": [],
+          "theme_variables": [],
+          "content_callbacks": [],
+          "title_driver": ""
+        },
+        "locale_paths": [],
+        "view_namespaces": [],
+        "formatter_callbacks": [],
+        "formatter_pipeline": []
+      },
+      "admin": {
+        "pages": [
+          {
+            "path": "/admin/users",
+            "label": "用户管理",
+            "module_id": "users"
+          }
+        ],
+        "permission_modules": []
+      },
+      "forum": {
+        "permissions": [],
+        "notification_types": [],
+        "user_preferences": [],
+        "language_packs": [],
+        "post_types": [],
+        "search_filters": [],
+        "discussion_sorts": [],
+        "discussion_list_filters": []
+      },
+      "resources": {
+        "definitions": [
+          {
+            "resource": "post_user",
+            "module_id": "users",
+            "description": "帖子作者摘要资源。"
+          },
+          {
+            "resource": "search_user",
+            "module_id": "users",
+            "description": "搜索用户结果资源。"
+          },
+          {
+            "resource": "discussion_user",
+            "module_id": "users",
+            "description": "讨论作者摘要资源。"
+          },
+          {
+            "resource": "user_summary",
+            "module_id": "users",
+            "description": "论坛内通用用户摘要资源。"
+          },
+          {
+            "resource": "user_detail",
+            "module_id": "users",
+            "description": "论坛内通用用户详情资源。"
+          }
+        ],
+        "fields": [
+          {
+            "resource": "admin_stats",
+            "field": "totalUsers",
+            "module_id": "users",
+            "description": "后台统计中的用户总数。"
+          },
+          {
+            "resource": "post_user",
+            "field": "primary_group",
+            "module_id": "users",
+            "description": "帖子作者摘要中的主用户组徽章。"
+          },
+          {
+            "resource": "search_user",
+            "field": "primary_group",
+            "module_id": "users",
+            "description": "搜索用户结果中的主用户组徽章。"
+          },
+          {
+            "resource": "search_post",
+            "field": "user",
+            "module_id": "users",
+            "description": "搜索结果中的回复作者摘要。"
+          },
+          {
+            "resource": "search_discussion",
+            "field": "user",
+            "module_id": "users",
+            "description": "搜索结果中的讨论作者摘要。"
+          },
+          {
+            "resource": "user_summary",
+            "field": "primary_group",
+            "module_id": "users",
+            "description": "用户摘要中的主用户组徽章。"
+          },
+          {
+            "resource": "user_detail",
+            "field": "primary_group",
+            "module_id": "users",
+            "description": "用户详情中的主用户组徽章。"
+          },
+          {
+            "resource": "discussion_user",
+            "field": "primary_group",
+            "module_id": "users",
+            "description": "讨论作者摘要中的主用户组徽章。"
+          }
+        ],
+        "relationships": [
+          {
+            "resource": "post",
+            "relationship": "user",
+            "module_id": "users",
+            "resource_type": "",
+            "description": "帖子作者摘要。"
+          },
+          {
+            "resource": "post",
+            "relationship": "edited_user",
+            "module_id": "users",
+            "resource_type": "",
+            "description": "帖子编辑者摘要。"
+          },
+          {
+            "resource": "search_post",
+            "relationship": "user",
+            "module_id": "users",
+            "resource_type": "",
+            "description": "搜索结果中的回复作者摘要。"
+          },
+          {
+            "resource": "search_discussion",
+            "relationship": "user",
+            "module_id": "users",
+            "resource_type": "",
+            "description": "搜索结果中的讨论作者摘要。"
+          },
+          {
+            "resource": "user_detail",
+            "relationship": "groups",
+            "module_id": "users",
+            "resource_type": "",
+            "description": "用户详情中的用户组列表。"
+          },
+          {
+            "resource": "discussion",
+            "relationship": "user",
+            "module_id": "users",
+            "resource_type": "",
+            "description": "讨论作者摘要。"
+          },
+          {
+            "resource": "discussion",
+            "relationship": "last_posted_user",
+            "module_id": "users",
+            "resource_type": "",
+            "description": "讨论最后回复用户摘要。"
+          }
+        ],
+        "endpoints": [
+          {
+            "resource": "user_detail",
+            "endpoint": "avatar.upload",
+            "path": "users/{object_id}/avatar",
+            "module_id": "users",
+            "operation": "mutate",
+            "anchor": "",
+            "description": ""
+          },
+          {
+            "resource": "user_detail",
+            "endpoint": "by-username",
+            "path": "users/by-username/{object_id}",
+            "module_id": "users",
+            "operation": "mutate",
+            "anchor": "",
+            "description": ""
+          },
+          {
+            "resource": "user_detail",
+            "endpoint": "current",
+            "path": "users/me",
+            "module_id": "users",
+            "operation": "mutate",
+            "anchor": "",
+            "description": ""
+          },
+          {
+            "resource": "user_detail",
+            "endpoint": "index",
+            "path": "users",
+            "module_id": "users",
+            "operation": "mutate",
+            "anchor": "",
+            "description": ""
+          },
+          {
+            "resource": "user_detail",
+            "endpoint": "password",
+            "path": "users/{object_id}/password",
+            "module_id": "users",
+            "operation": "mutate",
+            "anchor": "",
+            "description": ""
+          },
+          {
+            "resource": "user_detail",
+            "endpoint": "show",
+            "path": "users/{object_id}",
+            "module_id": "users",
+            "operation": "mutate",
+            "anchor": "",
+            "description": ""
+          },
+          {
+            "resource": "user_detail",
+            "endpoint": "update",
+            "path": "users/{object_id}",
+            "module_id": "users",
+            "operation": "mutate",
+            "anchor": "",
+            "description": ""
+          }
+        ],
+        "sorts": [],
+        "filters": []
+      },
+      "models": {
+        "definitions": [
+          {
+            "model": "AccessToken",
+            "kind": "owner",
+            "key": "users.accesstoken"
+          },
+          {
+            "model": "EmailToken",
+            "kind": "owner",
+            "key": "users.emailtoken"
+          },
+          {
+            "model": "Group",
+            "kind": "owner",
+            "key": "users.group"
+          },
+          {
+            "model": "PasswordToken",
+            "kind": "owner",
+            "key": "users.passwordtoken"
+          },
+          {
+            "model": "Permission",
+            "kind": "owner",
+            "key": "users.permission"
+          },
+          {
+            "model": "User",
+            "kind": "owner",
+            "key": "users.user"
+          }
+        ],
+        "owned": [
+          {
+            "module_id": "users",
+            "model": "AccessToken",
+            "app_label": "users",
+            "target_app_label": "users"
+          },
+          {
+            "module_id": "users",
+            "model": "EmailToken",
+            "app_label": "users",
+            "target_app_label": "users"
+          },
+          {
+            "module_id": "users",
+            "model": "Group",
+            "app_label": "users",
+            "target_app_label": "users"
+          },
+          {
+            "module_id": "users",
+            "model": "PasswordToken",
+            "app_label": "users",
+            "target_app_label": "users"
+          },
+          {
+            "module_id": "users",
+            "model": "Permission",
+            "app_label": "users",
+            "target_app_label": "users"
+          },
+          {
+            "module_id": "users",
+            "model": "User",
+            "app_label": "users",
+            "target_app_label": "users"
+          }
+        ],
+        "relations": [],
+        "visibility": []
+      },
+      "search": {
+        "drivers": []
+      },
+      "events": {
+        "listeners": [],
+        "realtime_broadcasts": [],
+        "post_lifecycle": []
+      },
+      "runtime": {
+        "validators": [],
+        "mailers": [],
+        "error_handlers": [],
+        "auth_handlers": [],
+        "csrf_handlers": [],
+        "filesystem_drivers": [],
+        "console_commands": [],
+        "session_handlers": [],
+        "theme_handlers": [],
+        "throttle_api_handlers": [],
+        "user_handlers": [
+          {
+            "key": "model_provider",
+            "module_id": "users",
+            "description": "",
+            "order": 100
+          }
+        ],
+        "signal_handlers": [],
+        "websocket_routes": [],
+        "middleware_mounts": [],
+        "policy_mounts": [],
+        "route_mounts": [
+          {
+            "prefix": "/admin",
+            "tags": [
+              "Users"
+            ]
+          },
+          {
+            "prefix": "/users",
+            "tags": [
+              "Users"
+            ]
+          }
+        ],
+        "service_providers": [
+          "search.target.user",
+          "users.service"
+        ]
+      },
+      "lifecycle": {
+        "extenders": [
+          "AdminSurfaceExtender",
+          "ApiResourceExtender",
+          "ApiRoutesExtender",
+          "ForumPermissionExtender",
+          "FrontendExtender",
+          "LifecycleExtender",
+          "ModelExtender",
+          "SearchIndexExtender",
+          "ServiceProviderExtender",
+          "SettingsExtender",
+          "UserExtender"
+        ],
+        "lifecycle_extenders": [
+          "LifecycleExtender"
+        ],
+        "phases": [
+          "boot",
+          "ready",
+          "register"
+        ]
+      },
+      "summary": {
+        "notification_type_count": 0,
+        "user_preference_count": 0,
+        "event_listener_count": 0,
+        "realtime_broadcast_count": 0,
+        "post_lifecycle_count": 0,
+        "post_type_count": 0,
+        "search_filter_count": 0,
+        "discussion_sort_count": 0,
+        "discussion_list_filter_count": 0,
+        "resource_definition_count": 5,
+        "resource_relationship_count": 7,
+        "resource_field_count": 8,
+        "resource_endpoint_count": 7,
+        "resource_sort_count": 0,
+        "resource_filter_count": 0,
+        "owned_model_count": 6,
+        "model_package_migration_required_count": 0,
+        "model_app_label_migration_required_count": 0,
+        "model_relation_count": 0,
+        "language_pack_count": 0,
+        "settings_field_count": 0,
+        "settings_default_count": 6,
+        "settings_reset_rule_count": 0,
+        "settings_frontend_cache_key_count": 0,
+        "settings_theme_variable_count": 0,
+        "settings_forum_serialization_count": 0,
+        "forum_settings_key_count": 0,
+        "frontend_css_count": 0,
+        "frontend_js_directory_count": 0,
+        "frontend_preload_count": 0,
+        "frontend_document_attribute_count": 0,
+        "frontend_head_tag_count": 0,
+        "frontend_theme_variable_count": 0,
+        "frontend_content_callback_count": 0,
+        "frontend_title_driver_count": 0,
+        "locale_path_count": 0,
+        "view_namespace_count": 0,
+        "formatter_callback_count": 0,
+        "formatter_pipeline_count": 0,
+        "validator_count": 0,
+        "mailer_count": 0,
+        "error_handler_count": 0,
+        "auth_handler_count": 0,
+        "csrf_handler_count": 0,
+        "filesystem_driver_count": 0,
+        "console_command_count": 0,
+        "session_handler_count": 0,
+        "theme_handler_count": 0,
+        "throttle_api_handler_count": 0,
+        "user_handler_count": 1,
+        "signal_handler_count": 0,
+        "websocket_route_count": 0,
+        "middleware_mount_count": 0,
+        "policy_mount_count": 0,
+        "route_mount_count": 2,
+        "service_provider_count": 2
+      }
+    }
+  },
+  "meta": {
+    "source": "inspect_extensions",
+    "extension_count": 17,
+    "base_dir": "D:\\files\\project\\tmp\\bias_core"
+  }
+}

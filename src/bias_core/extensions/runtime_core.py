@@ -3,6 +3,9 @@ from __future__ import annotations
 from typing import Any
 
 
+_RUNTIME_SERVICE_PROXIES = []
+
+
 class RuntimeServiceProxy:
     """统一运行时服务代理，减少逐方法转发样板。
 
@@ -22,6 +25,7 @@ class RuntimeServiceProxy:
     def __init__(self, service_key: str) -> None:
         self._service_key = service_key
         self._cached_service: Any = _NOT_FOUND
+        _RUNTIME_SERVICE_PROXIES.append(self)
 
     def _get_service(self) -> Any:
         if self._cached_service is _NOT_FOUND:
@@ -47,8 +51,19 @@ class RuntimeServiceProxy:
         """清除缓存，下次访问时重新获取服务。"""
         self._cached_service = _NOT_FOUND
 
+    @property
+    def service_key(self) -> str:
+        return self._service_key
+
 
 _NOT_FOUND = object()
+
+
+def invalidate_runtime_service_proxies(service_key: str = "") -> None:
+    normalized = str(service_key or "").strip()
+    for proxy in tuple(_RUNTIME_SERVICE_PROXIES):
+        if not normalized or proxy.service_key == normalized:
+            proxy.invalidate()
 
 
 def get_extension_host_service(key: str, default: Any = None) -> Any:

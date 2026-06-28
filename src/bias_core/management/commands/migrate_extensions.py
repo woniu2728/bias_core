@@ -71,7 +71,7 @@ class Command(BaseCommand):
         }
         self._write_payload(payload, output_format=output_format)
 
-        if payload["summary"]["error_count"]:
+        if payload["summary"]["error_count"] and not dry_run:
             raise CommandError(f"扩展迁移失败，共 {payload['summary']['error_count']} 个错误")
 
     def _resolve_targets(self, manager, *, extension_id: str, migrate_all: bool):

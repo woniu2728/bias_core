@@ -2,10 +2,40 @@ from __future__ import annotations
 
 from bias_core.forum_registry import get_forum_registry
 
-def _build_extension_permission_sections(extension):
+def _build_extension_permission_sections(extension, runtime_view=None):
     module_ids = set(extension.module_ids or ())
     if not module_ids:
         return []
+
+    runtime_permissions = tuple(getattr(runtime_view, "permissions", ()) or ())
+    if runtime_permissions:
+        sections_by_name = {}
+        for permission in runtime_permissions:
+            section_name = str(getattr(permission, "section", "") or "").strip()
+            section = sections_by_name.setdefault(
+                section_name,
+                {
+                    "name": section_name,
+                    "label": getattr(permission, "section_label", "") or "",
+                    "permissions": [],
+                },
+            )
+            section["permissions"].append({
+                "name": permission.code,
+                "label": permission.label,
+                "icon": permission.icon,
+                "description": permission.description,
+                "module_id": permission.module_id,
+                "required_permissions": list(permission.required_permissions),
+            })
+        return [
+            {
+                **section,
+                "permission_count": len(section["permissions"]),
+                "permissions": sorted(section["permissions"], key=lambda item: (item["module_id"], item["label"])),
+            }
+            for section in sorted(sections_by_name.values(), key=lambda item: item["label"])
+        ]
 
     sections = []
     for section in get_forum_registry().get_permission_sections():

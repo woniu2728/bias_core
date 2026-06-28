@@ -120,6 +120,10 @@ def _build_runtime_surface_view(
     operations_pages: tuple[str, ...],
 ):
     return type("_RuntimeSurfaceView", (), {
+        "id": extension.id,
+        "extension_id": extension.id,
+        "source": extension.source,
+        "path": str(getattr(extension.manifest, "path", "") or ""),
         "frontend_admin_entry": frontend_admin_entry,
         "frontend_forum_entry": frontend_forum_entry,
         "settings_pages": settings_pages,

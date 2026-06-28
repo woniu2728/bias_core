@@ -18,7 +18,7 @@ from bias_core.resource_objects import (
     ResourceSearchCriteria,
     ResourceSearchResults,
 )
-from bias_core.resource_search import ResourceSearchFilter, get_resource_search_manager
+from bias_core.resource_search import ResourceSearchFilter, ResourceSearchManager
 
 
 logger = logging.getLogger(__name__)
@@ -29,6 +29,7 @@ class SearchBridge:
 
     def __init__(self, store: Any):
         self._store = store
+        self._local_search_manager = ResourceSearchManager()
 
     def search_resource_index(
         self,
@@ -104,7 +105,7 @@ class SearchBridge:
             pass
         except Exception:
             logger.warning("Failed to resolve extension runtime search manager.", exc_info=True)
-        manager = get_resource_search_manager()
+        manager = self._local_search_manager
         self._sync_resource_filters_to_search_manager(manager)
         return manager
 

@@ -1,4 +1,6 @@
+import json
 import os
+import shutil
 import tempfile
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -6,6 +8,16 @@ from unittest.mock import Mock, patch
 from django.test import TestCase, override_settings
 
 from bias_core.extensions.registry import ExtensionRegistry
+from tests.common import (
+    build_extension_application,
+    Discussion,
+    ExtensionInstallation,
+    Group,
+    has_forum_permission,
+    Permission,
+    User,
+    evaluate_runtime_extension_policy,
+)
 
 
 def make_workspace_temp_dir():
@@ -45,7 +57,7 @@ class ExtensionPolicyIntegrationTests(TestCase):
                 self.assertFalse(can("actor", "discussion.edit", "discussion"))
         with patch("bias_core.extensions.policy_runtime_service.evaluate_model_policy", return_value=None):
             with patch("bias_core.forum_permissions.has_forum_permission", side_effect=RuntimeError("permission backend down")):
-                with self.assertLogs("bias_core.authorization", level="WARNING") as logs:
+                with self.assertLogs("bias_core.services.authorization", level="WARNING") as logs:
                     self.assertFalse(can("actor", "discussion.edit", "discussion"))
         self.assertTrue(any("Forum permission fallback failed" in message for message in logs.output))
 

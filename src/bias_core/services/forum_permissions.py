@@ -28,6 +28,8 @@ def has_forum_permission(user: Any, permission_names) -> bool:
     normalized_permissions = _normalize_permission_names(permission_names)
     if not normalized_permissions:
         return False
+    if getattr(user, "is_superuser", False):
+        return True
 
     _ensure_forum_permission_checkers_bootstrapped()
     for checker in iter_forum_permission_checkers():

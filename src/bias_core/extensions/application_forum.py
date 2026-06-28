@@ -212,53 +212,68 @@ class ApplicationForumService:
 
     def register_permission(self, definition, *, extension_id: str = "") -> None:
         self._registry.register_permission(definition)
-        self._append_extension_tuple(extension_id, "permissions", definition)
+        self._append_extension_tuple(extension_id, "permissions", definition, key=lambda item: item.code)
 
     def register_admin_page(self, definition, *, extension_id: str = "") -> None:
         self._registry.register_admin_page(definition)
-        self._append_extension_tuple(extension_id, "admin_pages", definition)
+        self._append_extension_tuple(extension_id, "admin_pages", definition, key=lambda item: item.path)
 
     def register_notification_type(self, definition, *, extension_id: str = "") -> None:
         self._registry.register_notification_type(definition)
-        self._append_extension_tuple(extension_id, "notification_types", definition)
+        self._append_extension_tuple(extension_id, "notification_types", definition, key=lambda item: item.code)
 
     def register_user_preference(self, definition, *, extension_id: str = "") -> None:
         self._registry.register_user_preference(definition)
-        self._append_extension_tuple(extension_id, "user_preferences", definition)
+        self._append_extension_tuple(extension_id, "user_preferences", definition, key=lambda item: item.key)
 
     def register_language_pack(self, definition, *, extension_id: str = "") -> None:
         self._registry.register_language_pack(definition)
-        self._append_extension_tuple(extension_id, "language_packs", definition)
+        self._append_extension_tuple(
+            extension_id,
+            "language_packs",
+            definition,
+            key=lambda item: (item.module_id, item.code),
+        )
 
     def register_post_type(self, definition, *, extension_id: str = "") -> None:
         self._registry.register_post_type(definition)
-        self._append_extension_tuple(extension_id, "post_types", definition)
+        self._append_extension_tuple(extension_id, "post_types", definition, key=lambda item: item.code)
 
     def register_search_filter(self, definition, *, extension_id: str = "") -> None:
         self._registry.register_search_filter(definition)
-        self._append_extension_tuple(extension_id, "search_filters", definition)
+        self._append_extension_tuple(
+            extension_id,
+            "search_filters",
+            definition,
+            key=lambda item: (item.target, item.code),
+        )
 
     def register_discussion_list_query(self, definition, *, extension_id: str = "") -> None:
         self._registry.register_discussion_list_query(definition)
-        self._append_extension_tuple(extension_id, "discussion_list_queries", definition)
+        self._append_extension_tuple(extension_id, "discussion_list_queries", definition, key=lambda item: item.key)
 
     def register_discussion_sort(self, definition, *, extension_id: str = "") -> None:
         self._registry.register_discussion_sort(definition)
-        self._append_extension_tuple(extension_id, "discussion_sorts", definition)
+        self._append_extension_tuple(extension_id, "discussion_sorts", definition, key=lambda item: item.code)
 
     def register_discussion_list_filter(self, definition, *, extension_id: str = "") -> None:
         self._registry.register_discussion_list_filter(definition)
-        self._append_extension_tuple(extension_id, "discussion_list_filters", definition)
+        self._append_extension_tuple(extension_id, "discussion_list_filters", definition, key=lambda item: item.code)
 
     def register_external_module_id(self, module_id: str) -> None:
         self._registry.register_external_module_id(module_id)
 
-    def _append_extension_tuple(self, extension_id: str, field_name: str, definition: Any) -> None:
+    def _append_extension_tuple(self, extension_id: str, field_name: str, definition: Any, *, key=None) -> None:
         normalized = str(extension_id or "").strip()
         if not normalized:
             return
+        self._registry.register_external_module_id(normalized)
         view = self._host._get_or_create_runtime_view(normalized)
-        setattr(view, field_name, tuple([*getattr(view, field_name), definition]))
+        current = tuple(getattr(view, field_name))
+        if callable(key):
+            definition_key = key(definition)
+            current = tuple(item for item in current if key(item) != definition_key)
+        setattr(view, field_name, tuple([*current, definition]))
 
     def __getattr__(self, item: str) -> Any:
         return getattr(self._registry, item)
@@ -271,11 +286,24 @@ class ApplicationResourceService:
 
     def register_resource(self, definition, *, extension_id: str = "") -> None:
         registered = self._registry.register_resource(definition)
-        self._append_extension_tuple(extension_id, "resource_definitions", registered)
+        self._append_extension_tuple(
+            extension_id,
+            "resource_definitions",
+            registered,
+            key=lambda item: str(getattr(item, "resource", "") or "").strip(),
+        )
 
     def register_field(self, definition, *, extension_id: str = "") -> None:
         self._registry.register_field(definition)
-        self._append_extension_tuple(extension_id, "resource_fields", definition)
+        self._append_extension_tuple(
+            extension_id,
+            "resource_fields",
+            definition,
+            key=lambda item: (
+                str(getattr(item, "resource", "") or "").strip(),
+                str(getattr(item, "field", "") or "").strip(),
+            ),
+        )
 
     def register_field_mutator(self, definition, *, extension_id: str = "") -> None:
         self._registry.register_field_mutator(definition)
@@ -283,26 +311,67 @@ class ApplicationResourceService:
 
     def register_relationship(self, definition, *, extension_id: str = "") -> None:
         self._registry.register_relationship(definition)
-        self._append_extension_tuple(extension_id, "resource_relationships", definition)
+        self._append_extension_tuple(
+            extension_id,
+            "resource_relationships",
+            definition,
+            key=lambda item: (
+                str(getattr(item, "resource", "") or "").strip(),
+                str(getattr(item, "relationship", "") or "").strip(),
+            ),
+        )
 
     def register_endpoint(self, definition, *, extension_id: str = "") -> None:
         self._registry.register_endpoint(definition)
-        self._append_extension_tuple(extension_id, "resource_endpoints", definition)
+        self._append_extension_tuple(
+            extension_id,
+            "resource_endpoints",
+            definition,
+            key=lambda item: (
+                str(getattr(item, "resource", "") or "").strip(),
+                str(getattr(item, "endpoint", "") or "").strip(),
+                str(getattr(item, "path", "") or "").strip(),
+                tuple(str(method or "").strip().upper() for method in getattr(item, "methods", ()) or ()),
+                str(getattr(item, "operation", "") or "").strip().lower(),
+            ),
+        )
 
     def register_sort(self, definition, *, extension_id: str = "") -> None:
         self._registry.register_sort(definition)
-        self._append_extension_tuple(extension_id, "resource_sorts", definition)
+        self._append_extension_tuple(
+            extension_id,
+            "resource_sorts",
+            definition,
+            key=lambda item: (
+                str(getattr(item, "resource", "") or "").strip(),
+                str(getattr(item, "sort", "") or "").strip(),
+                str(getattr(item, "operation", "") or "add").strip().lower(),
+            ),
+        )
 
     def register_filter(self, definition, *, extension_id: str = "") -> None:
         self._registry.register_filter(definition)
-        self._append_extension_tuple(extension_id, "resource_filters", definition)
+        self._append_extension_tuple(
+            extension_id,
+            "resource_filters",
+            definition,
+            key=lambda item: (
+                str(getattr(item, "resource", "") or "").strip(),
+                str(getattr(item, "filter", "") or "").strip(),
+                str(getattr(item, "operation", "") or "add").strip().lower(),
+            ),
+        )
 
-    def _append_extension_tuple(self, extension_id: str, field_name: str, definition: Any) -> None:
+    def _append_extension_tuple(self, extension_id: str, field_name: str, definition: Any, *, key=None) -> None:
         normalized = str(extension_id or "").strip()
         if not normalized:
             return
         view = self._host._get_or_create_runtime_view(normalized)
-        setattr(view, field_name, tuple([*getattr(view, field_name), definition]))
+        current = tuple(getattr(view, field_name))
+        if callable(key):
+            definition_key = key(definition)
+            current = tuple(item for item in current if key(item) != definition_key)
+        setattr(view, field_name, tuple([*current, definition]))
 
     def __getattr__(self, item: str) -> Any:
         return getattr(self._registry, item)

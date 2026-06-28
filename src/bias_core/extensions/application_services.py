@@ -22,7 +22,14 @@ class ApplicationValidatorService:
         normalized = str(extension_id or "").strip()
         if not normalized:
             return
-        definitions = tuple([*self._definitions_by_extension.get(normalized, ()), definition])
+        definitions = _replace_by_key(
+            self._definitions_by_extension.get(normalized, ()),
+            definition,
+            lambda item: (
+                str(getattr(item, "target", "") or "").strip(),
+                str(getattr(item, "key", "") or "").strip(),
+            ),
+        )
         self._definitions_by_extension[normalized] = definitions
         self._host._get_or_create_runtime_view(normalized).validators = definitions
 
@@ -69,7 +76,11 @@ class ApplicationMailService:
         normalized = str(extension_id or "").strip()
         if not normalized:
             return
-        definitions = tuple([*self._definitions_by_extension.get(normalized, ()), definition])
+        definitions = _replace_by_key(
+            self._definitions_by_extension.get(normalized, ()),
+            definition,
+            lambda item: str(getattr(item, "key", "") or "").strip().lower(),
+        )
         self._definitions_by_extension[normalized] = definitions
         self._host._get_or_create_runtime_view(normalized).mailers = definitions
 
@@ -214,7 +225,14 @@ class ApplicationSystemHookService:
         normalized = str(extension_id or "").strip()
         if not normalized:
             return
-        definitions = tuple([*self._definitions_by_extension.get(normalized, ()), definition])
+        definitions = _replace_by_key(
+            self._definitions_by_extension.get(normalized, ()),
+            definition,
+            lambda item: (
+                str(getattr(item, "key", "") or "").strip(),
+                _callback_identity(getattr(item, "callback", None)),
+            ),
+        )
         self._definitions_by_extension[normalized] = definitions
         setattr(self._host._get_or_create_runtime_view(normalized), self._view_field, definitions)
 
@@ -284,7 +302,14 @@ class ApplicationPostEventDataService:
         post_type = str(definition.key or "").strip()
         if not normalized or not post_type or not callable(definition.callback):
             return
-        definitions = tuple([*self._definitions_by_extension.get(normalized, ()), definition])
+        definitions = _replace_by_key(
+            self._definitions_by_extension.get(normalized, ()),
+            definition,
+            lambda item: (
+                str(getattr(item, "key", "") or "").strip(),
+                _callback_identity(getattr(item, "callback", None)),
+            ),
+        )
         self._definitions_by_extension[normalized] = definitions
 
     def get_definitions(self, *, extension_id: str | None = None, post_type: str = "") -> list[ExtensionSystemHookDefinition]:
@@ -309,5 +334,34 @@ class ApplicationPostEventDataService:
             if result is not None:
                 return result
         return None
+
+
+def _replace_by_key(items, item, key):
+    item_key = key(item)
+    return tuple([
+        *(current for current in items or () if key(current) != item_key),
+        item,
+    ])
+
+
+def _callback_identity(callback) -> str:
+    label = str(getattr(callback, "__bias_callback_label__", "") or "").strip()
+    if label:
+        return label
+    module = str(getattr(callback, "__module__", "") or "").strip()
+    qualname = str(getattr(callback, "__qualname__", "") or getattr(callback, "__name__", "") or "").strip()
+    if module or qualname:
+        name = ".".join(item for item in (module, qualname) if item)
+        if "<lambda>" not in qualname:
+            return name
+    code = getattr(callback, "__code__", None)
+    if code is not None:
+        location = ":".join((
+            str(getattr(code, "co_filename", "") or "").strip(),
+            str(getattr(code, "co_firstlineno", "") or "").strip(),
+        )).strip(":")
+        if location:
+            return f"{name or '<callable>'}@{location}"
+    return f"{type(callback).__module__}.{type(callback).__qualname__}:{id(callback)}"
 
 

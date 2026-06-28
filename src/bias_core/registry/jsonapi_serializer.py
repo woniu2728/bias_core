@@ -44,6 +44,9 @@ class JsonApiSerializer:
         return payload
 
     def _serialize_plain_relationship(self, definition, value, context):
+        plain_output = str(getattr(definition, "plain_output", "") or "").strip().lower()
+        if plain_output == "linkage":
+            return self._relationship_linkage(definition, value, context)
         if definition.many:
             return [self._serialize_plain_related_item(definition, item, context)
                     for item in ResourceSerializer.relationship_values(value, many=True) if item is not None]

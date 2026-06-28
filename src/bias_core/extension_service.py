@@ -77,6 +77,10 @@ class ExtensionService:
         return result
 
     @staticmethod
+    def build_extension_lifecycle_plan(extension_id: str):
+        return get_extension_manager().build_extension_lifecycle_plan(extension_id)
+
+    @staticmethod
     def rebuild_extension_frontend_assets(
         *,
         run_build: bool = True,
@@ -155,8 +159,11 @@ class ExtensionService:
         return updated
 
     @staticmethod
-    def uninstall_extension(extension_id: str, *, actor=None, request=None):
-        updated = get_extension_manager().uninstall_extension(extension_id)
+    def uninstall_extension(extension_id: str, *, include_dependents: bool = False, actor=None, request=None):
+        if include_dependents:
+            updated = get_extension_manager().uninstall_extension_with_dependents(extension_id)
+        else:
+            updated = get_extension_manager().uninstall_extension(extension_id)
         updated = ExtensionService._refresh_runtime(updated)
 
         if request is not None:
@@ -169,6 +176,7 @@ class ExtensionService:
                     "extension_id": updated.id,
                     "enabled": updated.runtime.enabled,
                     "installed": updated.runtime.installed,
+                    "include_dependents": bool(include_dependents),
                     "source": updated.source,
                 },
             )
@@ -176,7 +184,15 @@ class ExtensionService:
         return updated
 
     @staticmethod
-    def set_extension_enabled(extension_id: str, enabled: bool, *, actor=None, request=None):
+    def set_extension_enabled(
+        extension_id: str,
+        enabled: bool,
+        *,
+        include_dependencies: bool = False,
+        include_dependents: bool = False,
+        actor=None,
+        request=None,
+    ):
         normalized_extension_id = str(extension_id or "").strip()
         if not enabled and normalized_extension_id == "core":
             raise ExtensionStateError(
@@ -187,7 +203,12 @@ class ExtensionService:
         if enabled:
             extension = get_extension_manager().get_extension(extension_id)
             validate_bias_compatibility(extension, action="enable")
-        updated = get_extension_manager().set_extension_enabled(extension_id, enabled)
+        if enabled and include_dependencies:
+            updated = get_extension_manager().enable_extension_with_dependencies(extension_id)
+        elif not enabled and include_dependents:
+            updated = get_extension_manager().disable_extension_with_dependents(extension_id)
+        else:
+            updated = get_extension_manager().set_extension_enabled(extension_id, enabled)
         updated = ExtensionService._refresh_runtime(updated)
 
         if request is not None:
@@ -199,6 +220,8 @@ class ExtensionService:
                 data={
                     "extension_id": updated.id,
                     "enabled": updated.runtime.enabled,
+                    "include_dependencies": bool(include_dependencies),
+                    "include_dependents": bool(include_dependents),
                     "source": updated.source,
                     "module_ids": list(updated.module_ids),
                 },

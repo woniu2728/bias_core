@@ -2,6 +2,127 @@ from tests.common import *
 
 @override_settings(BIAS_EXTENSION_PACKAGE_DISCOVERY=False)
 class ExtensionRegistryTests(TestCase):
+    def test_enable_blocks_when_active_extension_declares_reverse_conflict(self):
+        temp_dir = make_workspace_temp_dir()
+        try:
+            extensions_dir = Path(temp_dir) / "extensions"
+            alpha_dir = extensions_dir / "alpha-tools"
+            beta_dir = extensions_dir / "beta-tools"
+            alpha_dir.mkdir(parents=True, exist_ok=True)
+            beta_dir.mkdir(parents=True, exist_ok=True)
+            (alpha_dir / "extension.json").write_text(json.dumps({
+                "id": "alpha-tools",
+                "name": "Alpha Tools",
+                "version": "1.0.0",
+            }, ensure_ascii=False), encoding="utf-8")
+            (beta_dir / "extension.json").write_text(json.dumps({
+                "id": "beta-tools",
+                "name": "Beta Tools",
+                "version": "1.0.0",
+                "conflicts": ["alpha-tools"],
+            }, ensure_ascii=False), encoding="utf-8")
+            ExtensionInstallation.objects.create(
+                extension_id="alpha-tools",
+                version="1.0.0",
+                source="filesystem",
+                installed=True,
+                enabled=False,
+                booted=False,
+            )
+            ExtensionInstallation.objects.create(
+                extension_id="beta-tools",
+                version="1.0.0",
+                source="filesystem",
+                installed=True,
+                enabled=True,
+                booted=True,
+            )
+
+            registry = ExtensionRegistry(extensions_path=extensions_dir)
+            alpha = registry.get_extension("alpha-tools")
+            plan = registry.build_extension_lifecycle_plan("alpha-tools")
+
+            self.assertFalse(plan["enable"]["can_execute"])
+            self.assertEqual(plan["enable"]["active_conflicts"], ["beta-tools"])
+            self.assertIn("active_conflicts", plan["enable"]["blockers"])
+
+            with self.assertRaises(ExtensionStateError) as context:
+                registry.set_extension_enabled(alpha.id, True)
+
+            self.assertEqual(context.exception.code, "extension_enable_blocked")
+            self.assertEqual(context.exception.details["active_conflicts"], ["beta-tools"])
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_enable_with_dependencies_blocks_dependency_reverse_conflict(self):
+        temp_dir = make_workspace_temp_dir()
+        try:
+            extensions_dir = Path(temp_dir) / "extensions"
+            for extension_id, payload in {
+                "alpha-base": {
+                    "id": "alpha-base",
+                    "name": "Alpha Base",
+                    "version": "1.0.0",
+                },
+                "beta-conflict": {
+                    "id": "beta-conflict",
+                    "name": "Beta Conflict",
+                    "version": "1.0.0",
+                    "conflicts": ["alpha-base"],
+                },
+                "gamma-addon": {
+                    "id": "gamma-addon",
+                    "name": "Gamma Addon",
+                    "version": "1.0.0",
+                    "dependencies": ["alpha-base"],
+                },
+            }.items():
+                manifest_dir = extensions_dir / extension_id
+                manifest_dir.mkdir(parents=True, exist_ok=True)
+                (manifest_dir / "extension.json").write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+
+            ExtensionInstallation.objects.create(
+                extension_id="alpha-base",
+                version="1.0.0",
+                source="filesystem",
+                installed=True,
+                enabled=False,
+                booted=False,
+            )
+            ExtensionInstallation.objects.create(
+                extension_id="beta-conflict",
+                version="1.0.0",
+                source="filesystem",
+                installed=True,
+                enabled=True,
+                booted=True,
+            )
+            ExtensionInstallation.objects.create(
+                extension_id="gamma-addon",
+                version="1.0.0",
+                source="filesystem",
+                installed=True,
+                enabled=False,
+                booted=False,
+            )
+
+            registry = ExtensionRegistry(extensions_path=extensions_dir)
+            plan = registry.build_extension_lifecycle_plan("gamma-addon")
+
+            self.assertFalse(plan["enable"]["dependency_transaction"]["can_execute"])
+            self.assertEqual(
+                plan["enable"]["dependency_transaction"]["field_errors"]["active_conflicts"],
+                {"alpha-base": ["beta-conflict"]},
+            )
+
+            with self.assertRaises(ExtensionStateError) as context:
+                registry.enable_extension_with_dependencies("gamma-addon")
+
+            self.assertEqual(context.exception.code, "extension_enable_dependencies_blocked")
+            self.assertEqual(context.exception.details["active_conflicts"], {"alpha-base": ["beta-conflict"]})
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
     def test_safe_mode_filters_enabled_filesystem_extensions(self):
         temp_dir = make_workspace_temp_dir()
         try:
@@ -288,6 +409,30 @@ class ExtensionRegistryTests(TestCase):
                 self.assertIn("generatedForumExtensionModules", import_map.read_text(encoding="utf-8"))
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_runtime_event_listener_bootstrap_is_idempotent_after_marker_reset(self):
+        from bias_core.domain_events import DomainEventBus
+        from bias_core.extensions import event_bus as extension_event_bus_module
+        from bias_core.extensions.events import RuntimeCacheClearedEvent
+        from bias_core.extensions.runtime_event_listeners import (
+            bootstrap_extension_runtime_event_listeners,
+            handle_extension_runtime_invalidation,
+            reset_extension_runtime_event_listener_bootstrap,
+        )
+
+        previous_bus = extension_event_bus_module._extension_event_bus
+        bus = DomainEventBus()
+        extension_event_bus_module._extension_event_bus = bus
+        try:
+            bootstrap_extension_runtime_event_listeners()
+            reset_extension_runtime_event_listener_bootstrap()
+            bootstrap_extension_runtime_event_listeners()
+
+            listeners = bus._listeners.get(RuntimeCacheClearedEvent, [])
+            self.assertEqual(listeners.count(handle_extension_runtime_invalidation), 1)
+        finally:
+            extension_event_bus_module._extension_event_bus = previous_bus
+            reset_extension_runtime_event_listener_bootstrap()
 
     def test_clear_runtime_cache_command_refreshes_extension_frontend_assets(self):
         temp_dir = make_workspace_temp_dir()

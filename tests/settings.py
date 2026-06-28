@@ -7,6 +7,7 @@ from bias_core.conf.defaults import CORE_REQUIRED_MIDDLEWARE
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 BIAS_EXTENSION_WORKSPACE_ROOT = BASE_DIR.parent
+BIAS_FRONTEND_DIR = BASE_DIR.parent / "bias" / "frontend"
 
 SECRET_KEY = "test-secret-key-for-bias-core"
 DEBUG = True
@@ -22,11 +23,15 @@ INSTALLED_APPS = [
 ]
 
 try:
-    from bias_core.conf import discover_installed_extension_django_apps
+    from bias_core.conf import (
+        discover_extension_migration_modules,
+        discover_installed_extension_django_apps,
+    )
 
     INSTALLED_APPS.extend(discover_installed_extension_django_apps())
+    MIGRATION_MODULES = discover_extension_migration_modules(BASE_DIR)
 except Exception:
-    pass
+    MIGRATION_MODULES = {}
 
 MIDDLEWARE = CORE_REQUIRED_MIDDLEWARE
 
@@ -62,7 +67,10 @@ TIME_ZONE = "Asia/Shanghai"
 USE_I18N = True
 USE_TZ = True
 
-AUTH_USER_MODEL = "auth.User"
+AUTH_USER_MODEL = "users.User" if any(
+    app == "bias_ext_users.backend.apps.UsersExtensionConfig"
+    for app in INSTALLED_APPS
+) else "auth.User"
 
 from types import SimpleNamespace
 ALLOWED_HOSTS = ["*"]

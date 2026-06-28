@@ -21,6 +21,21 @@ def require_runtime_post_service():
     return require_extension_host_service("posts.service")
 
 
+def get_runtime_discussion_posts_service():
+    service = require_runtime_post_service()
+    discussion_posts = runtime_service_value(
+        service,
+        "discussion_posts",
+        None,
+        required_message="posts.service 未提供讨论帖子协作服务",
+    )
+    return discussion_posts
+
+
+def _discussion_posts_method(name: str):
+    return runtime_service_method(get_runtime_discussion_posts_service(), name)
+
+
 def get_runtime_post_model():
     return _post_service.value("model", required_message="posts.service 未提供帖子模型")
 
@@ -102,19 +117,23 @@ def set_runtime_post_hidden_state(post: Any, user: Any, hidden: bool):
 
 
 def create_runtime_first_post(**kwargs):
-    return _post_service.create_first_post(**kwargs)
+    return _discussion_posts_method("create_first_post")(**kwargs)
 
 
 def get_runtime_first_post(discussion: Any):
-    return _post_service.get_first_post(discussion)
+    return _discussion_posts_method("get_first_post")(discussion)
 
 
 def resolve_runtime_post_content_html(post: Any) -> str:
     return str(_post_service.resolve_content_html(post) or "")
 
 
+def resolve_runtime_discussion_post_content_html(post: Any) -> str:
+    return str(_discussion_posts_method("resolve_content_html")(post) or "")
+
+
 def update_runtime_first_post_content(discussion: Any, *, content: str, content_html: str, editor: Any):
-    return _post_service.update_first_post_content(
+    return _discussion_posts_method("update_first_post_content")(
         discussion,
         content=content,
         content_html=content_html,
@@ -123,11 +142,11 @@ def update_runtime_first_post_content(discussion: Any, *, content: str, content_
 
 
 def resubmit_runtime_first_post(discussion: Any):
-    return _post_service.resubmit_first_post(discussion)
+    return _discussion_posts_method("resubmit_first_post")(discussion)
 
 
 def approve_runtime_first_post(discussion: Any, *, approved_at: Any, approved_by: Any, note: str = ""):
-    return _post_service.approve_first_post(
+    return _discussion_posts_method("approve_first_post")(
         discussion,
         approved_at=approved_at,
         approved_by=approved_by,
@@ -136,7 +155,7 @@ def approve_runtime_first_post(discussion: Any, *, approved_at: Any, approved_by
 
 
 def reject_runtime_first_post(discussion: Any, *, rejected_at: Any, rejected_by: Any, note: str = ""):
-    return _post_service.reject_first_post(
+    return _discussion_posts_method("reject_first_post")(
         discussion,
         rejected_at=rejected_at,
         rejected_by=rejected_by,
@@ -149,7 +168,7 @@ def get_runtime_approved_reply_counts_by_author(
     *,
     user_counted_post_types,
 ) -> dict:
-    return dict(_post_service.approved_reply_counts_by_author(
+    return dict(_discussion_posts_method("approved_reply_counts_by_author")(
         discussion,
         user_counted_post_types=user_counted_post_types,
     ) or {})
@@ -160,14 +179,14 @@ def get_runtime_approved_discussion_post_stats(
     *,
     discussion_counted_post_types,
 ) -> dict:
-    return dict(_post_service.approved_discussion_stats(
+    return dict(_discussion_posts_method("approved_discussion_stats")(
         discussion,
         discussion_counted_post_types=discussion_counted_post_types,
     ) or {})
 
 
 def delete_runtime_discussion_posts(discussion: Any) -> tuple[dict, ...]:
-    return tuple(_post_service.delete_discussion_posts(discussion) or ())
+    return tuple(_discussion_posts_method("delete_discussion_posts")(discussion) or ())
 
 
 def is_runtime_post_not_found(exc: Exception) -> bool:
@@ -199,4 +218,8 @@ def get_runtime_post_notification_context(post_id: int):
 
 def get_runtime_post_number(post_id: int):
     return _post_service.get_number(post_id)
+
+
+def get_runtime_discussion_post_number(post_id: int):
+    return _discussion_posts_method("get_post_number")(post_id)
 

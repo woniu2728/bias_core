@@ -179,6 +179,7 @@ def rebuild_runtime_urlconf() -> None:
 
 def reset_extension_runtime_state() -> None:
     from bias_core.domain_events import get_forum_event_bus
+    from bias_core.extensions.application_event_helpers import clear_event_type_aliases
     from bias_core.extensions.bootstrap import clear_bootstrapped_extension_application
     from bias_core.extensions.bootstrap_state import reset_extension_application_bootstrap_state
     from bias_core.extensions.formatter_service import clear_extension_formatter_cache
@@ -190,6 +191,7 @@ def reset_extension_runtime_state() -> None:
         bootstrap_extension_runtime_event_listeners,
         reset_extension_runtime_event_listener_bootstrap,
     )
+    from bias_core.extensions.runtime_core import invalidate_runtime_service_proxies
     from bias_core.extensions.signal_bootstrap import (
         bootstrap_extension_signal_proxies,
         reset_extension_signal_proxy_bootstrap,
@@ -206,10 +208,12 @@ def reset_extension_runtime_state() -> None:
 
     frontend_runtime_service._frontend_runtime_catalog = {}
     frontend_runtime_service._frontend_runtime_bootstrapped = False
+    clear_event_type_aliases()
     clear_extension_formatter_cache()
     clear_extension_locale_cache()
     clear_extension_template_caches()
     disconnect_runtime_signal_receivers()
+    invalidate_runtime_service_proxies()
     reset_extension_signal_proxy_bootstrap()
     bootstrap_extension_signal_proxies()
 

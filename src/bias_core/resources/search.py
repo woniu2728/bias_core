@@ -293,7 +293,21 @@ class ResourceSearchManager:
     def register_indexer(self, model: Any, indexer: Any) -> None:
         if model is None:
             return
-        self._indexers.setdefault(model, []).append(self._resolve_component(indexer))
+        resolved = self._resolve_component(indexer)
+        indexers = self._indexers.setdefault(model, [])
+        indexer_key = self._component_key(resolved)
+        existing_index = next(
+            (
+                index
+                for index, current in enumerate(indexers)
+                if self._component_key(current) == indexer_key
+            ),
+            None,
+        )
+        if existing_index is not None:
+            indexers[existing_index] = resolved
+        else:
+            indexers.append(resolved)
 
     def register_driver_filter(
         self,
@@ -431,8 +445,6 @@ class ResourceSearchManager:
         get_searcher = getattr(driver, "searcher", None)
         if callable(get_searcher):
             searcher = get_searcher(model)
-        if searcher is None:
-            return ResourceSearchResults(results=queryset)
         state = ResourceSearchState(queryset=queryset, criteria=criteria, context=context)
         driver_filter_manager = getattr(driver, "filter_manager_for", None)
         if callable(driver_filter_manager):
@@ -450,6 +462,11 @@ class ResourceSearchManager:
                 state = maybe_state
             elif maybe_state is not None:
                 state.queryset = maybe_state
+        if searcher is None:
+            return ResourceSearchResults(
+                results=state.queryset,
+                active_filters=tuple(state.active_filters),
+            )
         result = self._invoke_searcher(searcher, state.queryset, criteria, {**context, "search_state": state})
         return self.normalize_results(result)
 
@@ -602,6 +619,24 @@ class ResourceSearchManager:
         if isinstance(driver, str):
             return driver.rsplit(".", 1)[-1]
         return getattr(driver, "__name__", "") or resolved.__class__.__name__
+
+    @staticmethod
+    def _component_key(value: Any) -> str:
+        label = str(getattr(value, "__bias_callback_label__", "") or "").strip()
+        if label:
+            return label
+        module = str(getattr(value, "__module__", "") or "").strip()
+        qualname = str(getattr(value, "__qualname__", "") or getattr(value, "__name__", "") or "").strip()
+        if module or qualname:
+            return ".".join(item for item in (module, qualname) if item)
+        cls = type(value)
+        return ".".join(
+            item for item in (
+                str(getattr(cls, "__module__", "") or "").strip(),
+                str(getattr(cls, "__qualname__", "") or getattr(cls, "__name__", "") or "").strip(),
+            )
+            if item
+        ) or str(id(value))
 
 
 _default_search_manager = ResourceSearchManager()

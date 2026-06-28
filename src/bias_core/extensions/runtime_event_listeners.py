@@ -13,6 +13,7 @@ from bias_core.extensions.lifecycle import invalidate_extension_frontend_assets
 
 
 _bootstrapped_bus_ids: set[int] = set()
+_RUNTIME_INVALIDATION_LISTENER_KEY = "bias_core.extensions.runtime_event_listeners.invalidate"
 
 
 def reset_extension_runtime_event_listener_bootstrap() -> None:
@@ -33,7 +34,11 @@ def bootstrap_extension_runtime_event_listeners() -> None:
         ExtensionPackagesSyncedEvent,
         RuntimeCacheClearedEvent,
     ):
-        bus.register(event_type, handle_extension_runtime_invalidation)
+        bus.register(
+            event_type,
+            handle_extension_runtime_invalidation,
+            listener_key=f"{_RUNTIME_INVALIDATION_LISTENER_KEY}:{event_type.__module__}.{event_type.__name__}",
+        )
     _bootstrapped_bus_ids.add(bus_id)
 
 

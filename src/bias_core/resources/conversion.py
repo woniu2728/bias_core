@@ -68,6 +68,7 @@ def relationship_to_definition(resource: str, relationship: ResourceRelationship
         setter=relationship.relationship_setter or relationship.setter,
         writable=relationship.writable,
         linkage=relationship.linkage,
+        plain_output=getattr(relationship, "plain_output", ""),
         required_on_create=relationship.required_on_create,
         required_on_update=relationship.required_on_update,
         nullable=relationship.nullable,

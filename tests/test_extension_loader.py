@@ -238,6 +238,32 @@ class ExtensionManifestLoaderTests(TestCase):
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
+    def test_loader_discovers_workspace_from_base_path_when_base_dir_points_elsewhere(self):
+        temp_dir = make_workspace_temp_dir()
+        try:
+            workspace_root = Path(temp_dir) / "workspace"
+            unrelated_site = Path(temp_dir) / "unrelated-site"
+            extensions_dir = workspace_root / "extensions"
+            manifest_dir = workspace_root / "bias-ext-alpha"
+            extensions_dir.mkdir(parents=True, exist_ok=False)
+            unrelated_site.mkdir(parents=True, exist_ok=False)
+            manifest_dir.mkdir(parents=True, exist_ok=False)
+            (manifest_dir / "extension.json").write_text(json.dumps({
+                "id": "alpha",
+                "name": "Alpha",
+                "version": "1.0.0",
+                "backend": {"entry": "bias_ext_alpha.backend.ext:extend"},
+            }, ensure_ascii=False), encoding="utf-8")
+
+            with override_settings(BASE_DIR=unrelated_site, BIAS_EXTENSION_WORKSPACE_ROOT=""):
+                loader = ExtensionManifestLoader(extensions_dir, include_workspace=True)
+                manifests = loader.discover_manifests()
+
+            self.assertEqual([manifest.id for manifest in manifests], ["alpha"])
+            self.assertEqual(manifests[0].path, str(manifest_dir))
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
 
     def test_loader_merges_forum_setting_exposure_from_extenders(self):
         temp_dir = make_workspace_temp_dir()
@@ -289,7 +315,7 @@ class ExtensionManifestLoaderTests(TestCase):
             }, ensure_ascii=False), encoding="utf-8")
             (backend_dir / "ext.py").write_text(
                 "from bias_core.extensions import ForumCapabilitiesExtender, NotificationsExtender\n"
-                "from bias_core.extensions import NotificationTypeDefinition, UserPreferenceDefinition, SearchFilterDefinition\n"
+                "from bias_core.extensions import SearchFilterDefinition\n"
                 "\n"
                 "def _parse_author(token):\n"
                 "    if token.startswith('author:'):\n"
@@ -301,13 +327,13 @@ class ExtensionManifestLoaderTests(TestCase):
                 "\n"
                 "def extend():\n"
                 "    return [\n"
-                "        NotificationsExtender(\n"
-                "            notification_types=(\n"
-                "                NotificationTypeDefinition(code='alphaPing', label='Alpha Ping', module_id='alpha-tools'),\n"
-                "            ),\n"
-                "            user_preferences=(\n"
-                "                UserPreferenceDefinition(key='notify_alpha_ping', label='Alpha Ping', module_id='alpha-tools', default_value=True),\n"
-                "            ),\n"
+                "        NotificationsExtender().type(\n"
+                "            'alphaPing',\n"
+                "            label='Alpha Ping',\n"
+                "            description='Notify alpha pings.',\n"
+                "            preference_key='notify_alpha_ping',\n"
+                "            preference_label='Alpha Ping',\n"
+                "            preference_description='Notify alpha pings.',\n"
                 "        ),\n"
                 "        ForumCapabilitiesExtender(\n"
                 "            search_filters=(\n"
@@ -322,7 +348,11 @@ class ExtensionManifestLoaderTests(TestCase):
             result = loader.discover()[0]
 
             self.assertEqual(result.notification_types[0].code, "alphaPing")
+            self.assertEqual(result.notification_types[0].module_id, "alpha-tools")
+            self.assertEqual(result.notification_types[0].preference_key, "notify_alpha_ping")
             self.assertEqual(result.user_preferences[0].key, "notify_alpha_ping")
+            self.assertEqual(result.user_preferences[0].module_id, "alpha-tools")
+            self.assertTrue(result.user_preferences[0].default_value)
             self.assertEqual(result.search_filters[0].syntax, "author:<username>")
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
@@ -529,6 +559,23 @@ class ExtensionManifestLoaderTests(TestCase):
             self.assertEqual(runtime_view.extender_keys, ("ApiRoutesExtender",))
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_route_mount_service_replaces_same_runtime_mount_key(self):
+        from ninja import Router
+
+        app = ExtensionApplication()
+        router = Router()
+
+        app.routes.mount("alpha-tools", "/ext/alpha", router, tags=("Old",))
+        app.routes.mount("alpha-tools", "/ext/alpha", router, tags=("New",))
+
+        runtime_view = app.get_runtime_view("alpha-tools")
+        mounts = app.get_route_mounts()
+
+        self.assertEqual(len(runtime_view.route_mounts), 1)
+        self.assertEqual(len(mounts), 1)
+        self.assertEqual(mounts[0].prefix, "/ext/alpha")
+        self.assertEqual(mounts[0].tags, ("New",))
 
     def test_application_bootstrap_collects_extension_websocket_routes(self):
         temp_dir = make_workspace_temp_dir()
@@ -737,6 +784,64 @@ class ExtensionManifestLoaderTests(TestCase):
             self.assertEqual(runtime_view.frontend_forum_entry, "extensions/alpha/forum.js")
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_frontend_service_replaces_same_runtime_document_keys(self):
+        app = ExtensionApplication()
+        extension_id = "alpha-tools"
+
+        def content_callback(payload):
+            return payload
+
+        def replacement_content_callback(payload):
+            return payload
+
+        replacement_content_callback.__module__ = content_callback.__module__
+        replacement_content_callback.__qualname__ = content_callback.__qualname__
+        replacement_content_callback.__name__ = content_callback.__name__
+
+        app.frontend.register_entries(
+            extension_id,
+            preloads=({"href": "/alpha.css", "as": "style", "media": "screen"},),
+            content_callbacks=({"callback": content_callback, "priority": 10},),
+            document_attributes=({"data-alpha": "old", "data-beta": "keep"},),
+            head_tags=({"tag": "meta", "attributes": {"name": "alpha"}, "text": "old"},),
+            theme_variables=({"--alpha-color": "red", "--alpha-gap": "4px"},),
+        )
+        app.frontend.register_entries(
+            extension_id,
+            preloads=({"href": "/alpha.css", "as": "style", "media": "print"},),
+            content_callbacks=({"callback": replacement_content_callback, "priority": 90},),
+            document_attributes=({"data-alpha": "new", "data-beta": "keep"},),
+            head_tags=({"tag": "meta", "attributes": {"name": "alpha"}, "text": "new"},),
+            theme_variables=({"--alpha-color": "blue", "--alpha-gap": "8px"},),
+        )
+        app.frontend.register_entries(
+            extension_id,
+            preloads=({"href": "/beta.js", "as": "script"},),
+            content_callbacks=("beta.content",),
+            document_attributes=({"data-gamma": "1"},),
+            head_tags=({"tag": "link", "attributes": {"rel": "preload", "href": "/beta.js"}},),
+            theme_variables=({"--beta-color": "green"},),
+        )
+
+        runtime_view = app.get_runtime_view(extension_id)
+
+        self.assertEqual(len(runtime_view.frontend_preloads), 2)
+        self.assertEqual(runtime_view.frontend_preloads[0]["media"], "print")
+        self.assertEqual(runtime_view.frontend_preloads[1]["href"], "/beta.js")
+        self.assertEqual(len(runtime_view.frontend_content_callbacks), 2)
+        self.assertEqual(runtime_view.frontend_content_callbacks[0]["priority"], 90)
+        self.assertIs(runtime_view.frontend_content_callbacks[0]["callback"], replacement_content_callback)
+        self.assertEqual(runtime_view.frontend_content_callbacks[1], "beta.content")
+        self.assertEqual(len(runtime_view.frontend_document_attributes), 2)
+        self.assertEqual(runtime_view.frontend_document_attributes[0]["data-alpha"], "new")
+        self.assertEqual(runtime_view.frontend_document_attributes[1]["data-gamma"], "1")
+        self.assertEqual(len(runtime_view.frontend_head_tags), 2)
+        self.assertEqual(runtime_view.frontend_head_tags[0]["text"], "new")
+        self.assertEqual(runtime_view.frontend_head_tags[1]["attributes"]["href"], "/beta.js")
+        self.assertEqual(len(runtime_view.frontend_theme_variables), 2)
+        self.assertEqual(runtime_view.frontend_theme_variables[0]["--alpha-color"], "blue")
+        self.assertEqual(runtime_view.frontend_theme_variables[1]["--beta-color"], "green")
 
     def test_application_bootstrap_collects_named_api_routes(self):
         temp_dir = make_workspace_temp_dir()
@@ -1046,6 +1151,36 @@ class ExtensionManifestLoaderTests(TestCase):
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
+    def test_service_provider_registry_replaces_same_runtime_provider_key(self):
+        app = ExtensionApplication()
+        booted = []
+
+        class OldProvider:
+            def register(self, host):
+                host.instance("alpha.provider", {"version": "old"})
+
+            def boot(self, host):
+                booted.append("old")
+
+        class NewProvider:
+            def register(self, host):
+                host.instance("alpha.provider", {"version": "new"})
+
+            def boot(self, host):
+                booted.append("new")
+
+        app.providers.register_provider("alpha-tools", "alpha.provider", OldProvider)
+        app.providers.boot()
+        app.providers.register_provider("alpha-tools", "alpha.provider", NewProvider)
+        app.providers.boot()
+
+        runtime_view = app.get_runtime_view("alpha-tools")
+
+        self.assertEqual(app.get_service("alpha.provider"), {"version": "new"})
+        self.assertEqual(runtime_view.service_providers, ("alpha.provider",))
+        self.assertEqual(app.get_service_provider_keys(extension_id="alpha-tools"), ["alpha.provider"])
+        self.assertEqual(booted, ["old", "new"])
+
     def test_extension_application_supports_aliases_tags_and_bias_resource_contract(self):
         app = ExtensionApplication()
         app.instance("alpha.service", {"ready": True})
@@ -1055,6 +1190,331 @@ class ExtensionManifestLoaderTests(TestCase):
         self.assertEqual(app.make("alpha.alias"), {"ready": True})
         self.assertEqual(app.tagged("alpha.services"), [{"ready": True}])
         self.assertEqual(app.make("bias.api.resources"), [])
+
+    def test_forum_service_replaces_same_runtime_definition_keys(self):
+        from bias_core.extensions.forum_registry_types import (
+            AdminPageDefinition,
+            DiscussionListFilterDefinition,
+            DiscussionListQueryDefinition,
+            DiscussionSortDefinition,
+            LanguagePackDefinition,
+            NotificationTypeDefinition,
+            PermissionDefinition,
+            PostTypeDefinition,
+            SearchFilterDefinition,
+            UserPreferenceDefinition,
+        )
+
+        app = ExtensionApplication()
+        extension_id = "alpha-tools"
+
+        app.forum.register_permission(
+            PermissionDefinition(
+                code="alpha.use",
+                label="Old",
+                section="alpha",
+                section_label="Alpha",
+                module_id=extension_id,
+            ),
+            extension_id=extension_id,
+        )
+        app.forum.register_permission(
+            PermissionDefinition(
+                code="alpha.use",
+                label="New",
+                section="alpha",
+                section_label="Alpha",
+                module_id=extension_id,
+            ),
+            extension_id=extension_id,
+        )
+        app.forum.register_admin_page(
+            AdminPageDefinition(
+                path="/admin/alpha",
+                label="Old",
+                icon="fas fa-cog",
+                module_id=extension_id,
+            ),
+            extension_id=extension_id,
+        )
+        app.forum.register_admin_page(
+            AdminPageDefinition(
+                path="/admin/alpha",
+                label="New",
+                icon="fas fa-cog",
+                module_id=extension_id,
+            ),
+            extension_id=extension_id,
+        )
+        app.forum.register_notification_type(
+            NotificationTypeDefinition(code="alphaPing", label="Old", module_id=extension_id),
+            extension_id=extension_id,
+        )
+        app.forum.register_notification_type(
+            NotificationTypeDefinition(code="alphaPing", label="New", module_id=extension_id),
+            extension_id=extension_id,
+        )
+        app.forum.register_user_preference(
+            UserPreferenceDefinition(key="notify_alpha", label="Old", module_id=extension_id),
+            extension_id=extension_id,
+        )
+        app.forum.register_user_preference(
+            UserPreferenceDefinition(key="notify_alpha", label="New", module_id=extension_id, default_value=True),
+            extension_id=extension_id,
+        )
+        app.forum.register_language_pack(
+            LanguagePackDefinition(code="en", label="Old", module_id=extension_id),
+            extension_id=extension_id,
+        )
+        app.forum.register_language_pack(
+            LanguagePackDefinition(code="en", label="New", module_id=extension_id),
+            extension_id=extension_id,
+        )
+        app.forum.register_post_type(
+            PostTypeDefinition(code="alphaPost", label="Old", module_id=extension_id),
+            extension_id=extension_id,
+        )
+        app.forum.register_post_type(
+            PostTypeDefinition(code="alphaPost", label="New", module_id=extension_id),
+            extension_id=extension_id,
+        )
+        app.forum.register_search_filter(
+            SearchFilterDefinition(
+                code="alpha",
+                label="Old",
+                module_id=extension_id,
+                target="discussion",
+                parser=lambda token: None,
+                applier=lambda queryset, value, context: queryset,
+            ),
+            extension_id=extension_id,
+        )
+        app.forum.register_search_filter(
+            SearchFilterDefinition(
+                code="alpha",
+                label="New",
+                module_id=extension_id,
+                target="discussion",
+                parser=lambda token: None,
+                applier=lambda queryset, value, context: queryset,
+            ),
+            extension_id=extension_id,
+        )
+        app.forum.register_discussion_list_query(
+            DiscussionListQueryDefinition(
+                key="alpha",
+                module_id=extension_id,
+                applier=lambda queryset, context: queryset,
+                description="Old",
+            ),
+            extension_id=extension_id,
+        )
+        app.forum.register_discussion_list_query(
+            DiscussionListQueryDefinition(
+                key="alpha",
+                module_id=extension_id,
+                applier=lambda queryset, context: queryset,
+                description="New",
+            ),
+            extension_id=extension_id,
+        )
+        app.forum.register_discussion_sort(
+            DiscussionSortDefinition(
+                code="alpha",
+                label="Old",
+                module_id=extension_id,
+                applier=lambda queryset, context: queryset,
+            ),
+            extension_id=extension_id,
+        )
+        app.forum.register_discussion_sort(
+            DiscussionSortDefinition(
+                code="alpha",
+                label="New",
+                module_id=extension_id,
+                applier=lambda queryset, context: queryset,
+            ),
+            extension_id=extension_id,
+        )
+        app.forum.register_discussion_list_filter(
+            DiscussionListFilterDefinition(
+                code="alpha",
+                label="Old",
+                module_id=extension_id,
+                applier=lambda queryset, context: queryset,
+            ),
+            extension_id=extension_id,
+        )
+        app.forum.register_discussion_list_filter(
+            DiscussionListFilterDefinition(
+                code="alpha",
+                label="New",
+                module_id=extension_id,
+                applier=lambda queryset, context: queryset,
+            ),
+            extension_id=extension_id,
+        )
+
+        runtime_view = app.get_runtime_view(extension_id)
+
+        self.assertEqual(len(runtime_view.permissions), 1)
+        self.assertEqual(runtime_view.permissions[0].label, "New")
+        self.assertEqual(app.forum.get_permission("alpha.use").label, "New")
+        self.assertEqual(len(runtime_view.admin_pages), 1)
+        self.assertEqual(runtime_view.admin_pages[0].label, "New")
+        self.assertEqual(app.forum.get_admin_pages()[0].label, "New")
+        self.assertEqual(len(runtime_view.notification_types), 1)
+        self.assertEqual(runtime_view.notification_types[0].label, "New")
+        self.assertEqual(app.forum.get_notification_type("alphaPing").label, "New")
+        self.assertEqual(len(runtime_view.user_preferences), 1)
+        self.assertTrue(runtime_view.user_preferences[0].default_value)
+        self.assertTrue(app.forum.get_user_preferences()[0].default_value)
+        self.assertEqual(len(runtime_view.language_packs), 1)
+        self.assertEqual(runtime_view.language_packs[0].label, "New")
+        self.assertEqual(app.forum.get_language_packs()[0].label, "New")
+        self.assertEqual(len(runtime_view.post_types), 1)
+        self.assertEqual(runtime_view.post_types[0].label, "New")
+        self.assertEqual(app.forum.get_post_type("alphaPost").label, "New")
+        self.assertEqual(len(runtime_view.search_filters), 1)
+        self.assertEqual(runtime_view.search_filters[0].label, "New")
+        self.assertEqual(app.forum.get_search_filters("discussion")[0].label, "New")
+        self.assertEqual(len(runtime_view.discussion_list_queries), 1)
+        self.assertEqual(runtime_view.discussion_list_queries[0].description, "New")
+        self.assertEqual(app.forum.get_discussion_list_queries()[0].description, "New")
+        self.assertEqual(len(runtime_view.discussion_sorts), 1)
+        self.assertEqual(runtime_view.discussion_sorts[0].label, "New")
+        self.assertEqual(app.forum.get_discussion_sort("alpha").label, "New")
+        self.assertEqual(len(runtime_view.discussion_list_filters), 1)
+        self.assertEqual(runtime_view.discussion_list_filters[0].label, "New")
+        self.assertEqual(app.forum.get_discussion_list_filter("alpha").label, "New")
+
+    def test_extension_application_forum_compat_registration_reuses_service_replacement(self):
+        from bias_core.extensions.forum_registry_types import PermissionDefinition
+
+        app = ExtensionApplication()
+        extension = app.get_or_create_runtime_view("alpha-tools")
+        app.register_permission(
+            extension,
+            PermissionDefinition(
+                code="alpha.use",
+                label="Old",
+                section="alpha",
+                section_label="Alpha",
+                module_id="alpha-tools",
+            ),
+        )
+        app.register_permission(
+            extension,
+            PermissionDefinition(
+                code="alpha.use",
+                label="New",
+                section="alpha",
+                section_label="Alpha",
+                module_id="alpha-tools",
+            ),
+        )
+
+        runtime_view = app.get_runtime_view("alpha-tools")
+
+        self.assertEqual(len(runtime_view.permissions), 1)
+        self.assertEqual(runtime_view.permissions[0].label, "New")
+        self.assertEqual(app.forum.get_permission("alpha.use").label, "New")
+
+    def test_policy_and_middleware_services_replace_same_runtime_mount_keys(self):
+        from bias_core.extensions.policy_runtime_service import evaluate_extension_policy
+
+        app = ExtensionApplication()
+        extension_id = "alpha-tools"
+        calls = []
+
+        def middleware(request):
+            return request
+
+        def first_policy(**context):
+            calls.append("first")
+            return False
+
+        def replacement_policy(**context):
+            calls.append("replacement")
+            return True
+
+        replacement_policy.__module__ = first_policy.__module__
+        replacement_policy.__qualname__ = first_policy.__qualname__
+        replacement_policy.__name__ = first_policy.__name__
+
+        app.middleware.mount(extension_id, "api", middleware, order=50)
+        app.middleware.mount(extension_id, "api", middleware, order=20)
+        app.policies.mount_key(extension_id, "alpha.use", first_policy)
+        app.policies.mount_key(extension_id, "alpha.use", replacement_policy)
+
+        runtime_view = app.get_runtime_view(extension_id)
+
+        self.assertEqual(len(runtime_view.middleware_mounts), 1)
+        self.assertEqual(runtime_view.middleware_mounts[0].order, 20)
+        self.assertEqual(app.get_middleware_mounts(target="api")[0].order, 20)
+        self.assertEqual(len(runtime_view.policy_mounts), 1)
+        self.assertIs(runtime_view.policy_mounts[0].handler, replacement_policy)
+        with patch("bias_core.extensions.policy_runtime_service.get_extension_application", return_value=app):
+            self.assertTrue(evaluate_extension_policy("alpha.use", default=False))
+        self.assertEqual(calls, ["replacement"])
+
+    def test_extension_application_policy_and_middleware_compat_reuses_service_replacement(self):
+        app = ExtensionApplication()
+        extension = app.get_or_create_runtime_view("alpha-tools")
+
+        def middleware(request):
+            return request
+
+        def policy(**context):
+            return True
+
+        app.register_middleware_mount(extension, "api", middleware, order=50)
+        app.register_middleware_mount(extension, "api", middleware, order=20)
+        app.register_policy_mount(extension, "alpha.use", policy)
+        app.register_policy_mount(extension, "alpha.use", policy)
+
+        runtime_view = app.get_runtime_view("alpha-tools")
+
+        self.assertEqual(len(runtime_view.middleware_mounts), 1)
+        self.assertEqual(runtime_view.middleware_mounts[0].order, 20)
+        self.assertEqual(len(runtime_view.policy_mounts), 1)
+        self.assertTrue(runtime_view.policy_mounts[0].handler())
+
+    def test_runtime_service_proxy_refreshes_when_container_service_changes(self):
+        from bias_core.extensions.runtime_core import RuntimeServiceProxy
+
+        app = ExtensionApplication()
+        app.instance("alpha.runtime", {"version": "old"})
+        proxy = RuntimeServiceProxy("alpha.runtime")
+
+        with patch("bias_core.extensions.bootstrap.get_extension_host", return_value=app):
+            self.assertEqual(proxy.value("version"), "old")
+            app.instance("alpha.runtime", {"version": "new"})
+            self.assertEqual(proxy.value("version"), "new")
+
+    def test_runtime_service_proxy_refreshes_when_bootstrapped_host_changes(self):
+        from bias_core.extensions.bootstrap import (
+            clear_bootstrapped_extension_host,
+            set_bootstrapped_extension_host,
+        )
+        from bias_core.extensions.bootstrap_state import is_extension_host_bootstrapped
+        from bias_core.extensions.runtime_core import RuntimeServiceProxy
+
+        first = ExtensionApplication()
+        second = ExtensionApplication()
+        first.instance("alpha.runtime", {"version": "first"})
+        second.instance("alpha.runtime", {"version": "second"})
+        proxy = RuntimeServiceProxy("alpha.runtime")
+
+        try:
+            set_bootstrapped_extension_host(first)
+            self.assertEqual(proxy.value("version"), "first")
+            set_bootstrapped_extension_host(second)
+            self.assertEqual(proxy.value("version"), "second")
+        finally:
+            clear_bootstrapped_extension_host()
+
+        self.assertFalse(is_extension_host_bootstrapped())
 
     def test_view_extender_registers_template_namespaces(self):
         from django.template.loader import render_to_string
@@ -1142,6 +1602,116 @@ class ExtensionManifestLoaderTests(TestCase):
         self.assertEqual(mailers[0].module_id, "alpha-tools")
         self.assertEqual(runtime_view.validators, tuple(validators))
         self.assertEqual(runtime_view.mailers, tuple(mailers))
+
+    def test_runtime_services_replace_same_runtime_definition_keys(self):
+        from bias_core.extensions import ErrorHandlingExtender
+
+        app = ExtensionApplication()
+        extension = SimpleNamespace(extension_id="alpha-tools")
+        calls = []
+
+        def validate_title(value, context):
+            calls.append("validate-old")
+            return "old"
+
+        def replacement_validate_title(value, context):
+            calls.append("validate-new")
+            return "new"
+
+        def build_mail(message, context):
+            calls.append("mail-old")
+            return "old"
+
+        def replacement_build_mail(message, context):
+            calls.append("mail-new")
+            return "new"
+
+        def report_error(payload, context):
+            calls.append("hook-old")
+            return "old"
+
+        def replacement_report_error(payload, context):
+            calls.append("hook-new")
+            return "new"
+
+        def post_event(post, context):
+            calls.append("post-old")
+            return {"version": "old"}
+
+        def replacement_post_event(post, context):
+            calls.append("post-new")
+            return {"version": "new"}
+
+        replacement_validate_title.__module__ = validate_title.__module__
+        replacement_validate_title.__qualname__ = validate_title.__qualname__
+        replacement_validate_title.__name__ = validate_title.__name__
+        replacement_build_mail.__module__ = build_mail.__module__
+        replacement_build_mail.__qualname__ = build_mail.__qualname__
+        replacement_build_mail.__name__ = build_mail.__name__
+        replacement_report_error.__module__ = report_error.__module__
+        replacement_report_error.__qualname__ = report_error.__qualname__
+        replacement_report_error.__name__ = report_error.__name__
+        replacement_post_event.__module__ = post_event.__module__
+        replacement_post_event.__qualname__ = post_event.__qualname__
+        replacement_post_event.__name__ = post_event.__name__
+
+        ValidatorExtender().validator("title", "discussion", validate_title).extend(app, extension)
+        ValidatorExtender().validator("title", "discussion", replacement_validate_title).extend(app, extension)
+        MailExtender().driver("digest", build_mail).extend(app, extension)
+        MailExtender().driver("digest", replacement_build_mail).extend(app, extension)
+        ErrorHandlingExtender().hook("report", report_error).extend(app, extension)
+        ErrorHandlingExtender().hook("report", replacement_report_error).extend(app, extension)
+        PostEventExtender().type("alphaEvent", post_event).extend(app, extension)
+        PostEventExtender().type("alphaEvent", replacement_post_event).extend(app, extension)
+
+        validators = app.make("validators")
+        mail = app.make("mail")
+        error_handling = app.make("error.handling")
+        post_events = app.make("post.events")
+        runtime_view = app.get_runtime_view("alpha-tools")
+
+        self.assertEqual(len(runtime_view.validators), 1)
+        self.assertEqual(len(runtime_view.mailers), 1)
+        self.assertEqual(len(runtime_view.error_handlers), 1)
+        self.assertEqual(len(post_events.get_definitions(extension_id="alpha-tools", post_type="alphaEvent")), 1)
+        self.assertEqual(validators.run("discussion", {"title": "x"}), ["new"])
+        self.assertEqual(mail.send("digest", {"subject": "Digest"}), "new")
+        self.assertEqual(error_handling.run("report"), ["new"])
+        self.assertEqual(post_events.resolve(SimpleNamespace(type="alphaEvent"), {}), {"version": "new"})
+        self.assertEqual(calls, ["validate-new", "mail-new", "hook-new", "post-new"])
+
+    def test_post_event_data_service_returns_none_without_matching_resolver(self):
+        app = ExtensionApplication()
+        post_events = app.make("post.events")
+
+        self.assertIsNone(post_events.resolve(SimpleNamespace(type="missingEvent"), {}))
+
+    def test_post_event_data_service_returns_first_non_empty_resolver_result(self):
+        from bias_core.extensions import PostEventExtender
+
+        app = ExtensionApplication()
+        extension = SimpleNamespace(extension_id="alpha-tools")
+        calls = []
+
+        def empty(post, context):
+            calls.append("empty")
+            return None
+
+        def matched(post, context):
+            calls.append("matched")
+            return {"kind": "alphaEvent"}
+
+        def later(post, context):
+            calls.append("later")
+            return {"kind": "laterEvent"}
+
+        PostEventExtender().type("alphaEvent", empty, order=10).extend(app, extension)
+        PostEventExtender().type("alphaEvent", matched, order=20).extend(app, extension)
+        PostEventExtender().type("alphaEvent", later, order=30).extend(app, extension)
+        post_events = app.make("post.events")
+
+        self.assertEqual(post_events.resolve(SimpleNamespace(type="alphaEvent"), {}), {"kind": "alphaEvent"})
+        self.assertEqual(calls, ["empty", "matched"])
 
     def test_mail_extender_contributes_runtime_driver_definitions(self):
         from bias_core.mail_drivers import get_driver_definitions, normalize_mail_driver
@@ -1254,6 +1824,119 @@ class ExtensionManifestLoaderTests(TestCase):
         finally:
             disconnect_runtime_signal_receivers()
 
+    def test_signal_extender_auto_dispatch_uid_keeps_distinct_lazy_receiver_targets(self):
+        from django.dispatch import Signal
+        from bias_core.extensions import SignalExtender
+        from bias_core.extensions.signal_runtime import (
+            disconnect_runtime_signal_receivers,
+            get_runtime_signal_connections,
+        )
+
+        signal = Signal()
+        received = []
+
+        class FirstReceiver:
+            def __call__(self, sender=None, **kwargs):
+                received.append(("first", kwargs["value"]))
+
+        class SecondReceiver:
+            def __call__(self, sender=None, **kwargs):
+                received.append(("second", kwargs["value"]))
+
+        app = ExtensionApplication()
+        extension = SimpleNamespace(extension_id="alpha-tools")
+
+        try:
+            SignalExtender().connect(
+                signal,
+                FirstReceiver,
+                sender=ExtensionApplication,
+            ).connect(
+                signal,
+                SecondReceiver,
+                sender=ExtensionApplication,
+            ).extend(app, extension)
+            app.make("signals")
+
+            signal.send(sender=ExtensionApplication, value=3)
+
+            self.assertEqual(received, [("first", 3), ("second", 3)])
+            dispatch_uids = [
+                item.dispatch_uid
+                for item in get_runtime_signal_connections(extension_id="alpha-tools")
+            ]
+            self.assertEqual(len(dispatch_uids), 2)
+            self.assertEqual(len(set(dispatch_uids)), 2)
+            self.assertTrue(any("FirstReceiver" in item for item in dispatch_uids))
+            self.assertTrue(any("SecondReceiver" in item for item in dispatch_uids))
+        finally:
+            disconnect_runtime_signal_receivers()
+
+    def test_signal_proxy_and_host_boot_share_auto_dispatch_uid_for_class_receiver(self):
+        from django.dispatch import Signal
+        from bias_core.extensions import SignalExtender
+        from bias_core.extensions.signal_bootstrap import (
+            bootstrap_extension_signal_proxies,
+            reset_extension_signal_proxy_bootstrap,
+        )
+        from bias_core.extensions.signal_runtime import (
+            disconnect_runtime_signal_receivers,
+            get_runtime_signal_connections,
+        )
+
+        signal = Signal()
+        received = []
+
+        class ClassReceiver:
+            def __call__(self, sender=None, **kwargs):
+                received.append(kwargs["value"])
+
+        class DemoModule:
+            @staticmethod
+            def extend():
+                return [
+                    SignalExtender().connect(
+                        signal,
+                        ClassReceiver,
+                        sender=ExtensionApplication,
+                    )
+                ]
+
+        extension = Extension(
+            manifest=ExtensionManifest(id="alpha-tools", name="Alpha Tools", version="1.0.0"),
+            module=DemoModule,
+            module_ids=("alpha-tools",),
+        )
+        app = ExtensionApplication(extensions_to_boot=(extension,), extensions_to_catalog=(extension,))
+
+        try:
+            ExtensionInstallation.objects.create(
+                extension_id="alpha-tools",
+                version="1.0.0",
+                source="filesystem",
+                enabled=True,
+                installed=True,
+                booted=True,
+            )
+            bootstrap_extension_signal_proxies(force=True, host=app)
+
+            proxy_connections = get_runtime_signal_connections(extension_id="alpha-tools")
+            self.assertEqual(len(proxy_connections), 1)
+            proxy_uid = proxy_connections[0].dispatch_uid
+            self.assertTrue(proxy_connections[0].lazy_proxy)
+
+            app.boot()
+            signal.send(sender=ExtensionApplication, value=5)
+
+            self.assertEqual(received, [5])
+            connections = get_runtime_signal_connections(extension_id="alpha-tools")
+            self.assertEqual(len(connections), 1)
+            self.assertEqual(connections[0].dispatch_uid, proxy_uid)
+            self.assertFalse(connections[0].lazy_proxy)
+        finally:
+            reset_extension_signal_proxy_bootstrap()
+            disconnect_runtime_signal_receivers()
+
     def test_signal_proxy_reset_disconnects_only_lazy_proxy_receivers(self):
         from django.dispatch import Signal
         from bias_core.extensions.signal_bootstrap import reset_extension_signal_proxy_bootstrap
@@ -1306,6 +1989,218 @@ class ExtensionManifestLoaderTests(TestCase):
         finally:
             disconnect_runtime_signal_receivers()
 
+    def test_signal_proxy_bootstrap_uses_current_extension_host_catalog(self):
+        from django.dispatch import Signal
+        from bias_core.extensions import SignalExtender
+        from bias_core.extensions.signal_bootstrap import (
+            bootstrap_extension_signal_proxies,
+            reset_extension_signal_proxy_bootstrap,
+        )
+        from bias_core.extensions.signal_runtime import (
+            disconnect_runtime_signal_receivers,
+            get_runtime_signal_connections,
+        )
+
+        signal = Signal()
+        received = []
+
+        def receiver(sender=None, **kwargs):
+            received.append(kwargs["value"])
+
+        class DemoModule:
+            @staticmethod
+            def extend():
+                return [
+                    SignalExtender().connect(
+                        signal,
+                        receiver,
+                        sender=ExtensionApplication,
+                        dispatch_uid="alpha.host.proxy.receiver",
+                    )
+                ]
+
+        extension = Extension(
+            manifest=ExtensionManifest(id="alpha-tools", name="Alpha Tools", version="1.0.0"),
+            module=DemoModule,
+            module_ids=("alpha-tools",),
+        )
+        app = ExtensionApplication(extensions_to_catalog=(extension,))
+
+        try:
+            ExtensionInstallation.objects.create(
+                extension_id="alpha-tools",
+                version="1.0.0",
+                source="filesystem",
+                enabled=True,
+                installed=True,
+                booted=True,
+            )
+            bootstrap_extension_signal_proxies(force=True, host=app)
+
+            signal.send(sender=ExtensionApplication, value=7)
+
+            self.assertEqual(received, [7])
+            connections = get_runtime_signal_connections(extension_id="alpha-tools")
+            self.assertEqual([item.dispatch_uid for item in connections], ["alpha.host.proxy.receiver"])
+            self.assertTrue(connections[0].lazy_proxy)
+        finally:
+            reset_extension_signal_proxy_bootstrap()
+            disconnect_runtime_signal_receivers()
+
+    def test_signal_proxy_force_bootstrap_clears_stale_host_catalog_proxies(self):
+        from django.dispatch import Signal
+        from bias_core.extensions import SignalExtender
+        from bias_core.extensions.signal_bootstrap import (
+            bootstrap_extension_signal_proxies,
+            reset_extension_signal_proxy_bootstrap,
+        )
+        from bias_core.extensions.signal_runtime import (
+            disconnect_runtime_signal_receivers,
+            get_runtime_signal_connections,
+        )
+
+        signal = Signal()
+        received = []
+
+        def alpha_receiver(sender=None, **kwargs):
+            received.append(("alpha", kwargs["value"]))
+
+        def beta_receiver(sender=None, **kwargs):
+            received.append(("beta", kwargs["value"]))
+
+        class AlphaModule:
+            @staticmethod
+            def extend():
+                return [
+                    SignalExtender().connect(
+                        signal,
+                        alpha_receiver,
+                        sender=ExtensionApplication,
+                        dispatch_uid="alpha.host.proxy.receiver",
+                    )
+                ]
+
+        class BetaModule:
+            @staticmethod
+            def extend():
+                return [
+                    SignalExtender().connect(
+                        signal,
+                        beta_receiver,
+                        sender=ExtensionApplication,
+                        dispatch_uid="beta.host.proxy.receiver",
+                    )
+                ]
+
+        alpha_extension = Extension(
+            manifest=ExtensionManifest(id="alpha-tools", name="Alpha Tools", version="1.0.0"),
+            module=AlphaModule,
+            module_ids=("alpha-tools",),
+        )
+        beta_extension = Extension(
+            manifest=ExtensionManifest(id="beta-tools", name="Beta Tools", version="1.0.0"),
+            module=BetaModule,
+            module_ids=("beta-tools",),
+        )
+        alpha_host = ExtensionApplication(extensions_to_catalog=(alpha_extension,))
+        beta_host = ExtensionApplication(extensions_to_catalog=(beta_extension,))
+
+        try:
+            ExtensionInstallation.objects.create(
+                extension_id="alpha-tools",
+                version="1.0.0",
+                source="filesystem",
+                enabled=True,
+                installed=True,
+                booted=True,
+            )
+            ExtensionInstallation.objects.create(
+                extension_id="beta-tools",
+                version="1.0.0",
+                source="filesystem",
+                enabled=True,
+                installed=True,
+                booted=True,
+            )
+
+            bootstrap_extension_signal_proxies(force=True, host=alpha_host)
+            bootstrap_extension_signal_proxies(force=True, host=beta_host)
+
+            signal.send(sender=ExtensionApplication, value=11)
+
+            self.assertEqual(received, [("beta", 11)])
+            self.assertEqual(
+                [item.dispatch_uid for item in get_runtime_signal_connections(include_proxies=True)],
+                ["beta.host.proxy.receiver"],
+            )
+        finally:
+            reset_extension_signal_proxy_bootstrap()
+            disconnect_runtime_signal_receivers()
+
+    def test_signal_proxy_bootstrap_keeps_filesystem_fallback_without_host(self):
+        from django.dispatch import Signal
+        from bias_core.extensions import SignalExtender
+        from bias_core.extensions.signal_bootstrap import (
+            bootstrap_extension_signal_proxies,
+            reset_extension_signal_proxy_bootstrap,
+        )
+        from bias_core.extensions.signal_runtime import (
+            disconnect_runtime_signal_receivers,
+            get_runtime_signal_connections,
+        )
+
+        signal = Signal()
+        received = []
+
+        def receiver(sender=None, **kwargs):
+            received.append(kwargs["value"])
+
+        class DemoModule:
+            @staticmethod
+            def extend():
+                return [
+                    SignalExtender().connect(
+                        signal,
+                        receiver,
+                        sender=ExtensionApplication,
+                        dispatch_uid="alpha.fallback.proxy.receiver",
+                    )
+                ]
+
+        temp_dir = make_workspace_temp_dir()
+        try:
+            extensions_dir = Path(temp_dir) / "extensions"
+            manifest_dir = extensions_dir / "alpha-tools"
+            manifest_dir.mkdir(parents=True, exist_ok=False)
+            (manifest_dir / "extension.json").write_text(json.dumps({
+                "id": "alpha-tools",
+                "name": "Alpha Tools",
+                "version": "1.0.0",
+                "backend_entry": "tests.test_extension_loader.DemoModule",
+            }), encoding="utf-8")
+            ExtensionInstallation.objects.create(
+                extension_id="alpha-tools",
+                version="1.0.0",
+                source="filesystem",
+                enabled=True,
+                installed=True,
+                booted=True,
+            )
+
+            with override_settings(BASE_DIR=Path(temp_dir)):
+                with patch("bias_core.extensions.extension_runtime.load_extension_backend_module", return_value=DemoModule):
+                    bootstrap_extension_signal_proxies(force=True)
+
+            signal.send(sender=ExtensionApplication, value=9)
+
+            self.assertEqual(received, [9])
+            connections = get_runtime_signal_connections(extension_id="alpha-tools")
+            self.assertEqual([item.dispatch_uid for item in connections], ["alpha.fallback.proxy.receiver"])
+        finally:
+            reset_extension_signal_proxy_bootstrap()
+            disconnect_runtime_signal_receivers()
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
     def test_model_extender_declares_owned_models(self):
         from bias_core.extensions import ModelExtender
 
@@ -1328,6 +2223,202 @@ class ExtensionManifestLoaderTests(TestCase):
         self.assertEqual(runtime_view.model_definitions[0].model, DemoOwnedModel)
         self.assertEqual(owned[0].description, "Alpha owns this model.")
         self.assertEqual(app.models.get_model_owner(DemoOwnedModel), "alpha-tools")
+
+    def test_model_service_replaces_same_runtime_definition_keys(self):
+        from bias_core.extensions.types import (
+            ExtensionModelCastDefinition,
+            ExtensionModelDefaultDefinition,
+            ExtensionModelDefinition,
+            ExtensionModelRelationDefinition,
+        )
+
+        class DemoModel:
+            pass
+
+        app = ExtensionApplication()
+        extension_id = "alpha-tools"
+
+        app.models.register(
+            extension_id,
+            ExtensionModelDefinition(DemoModel, "meta", "old", kind="metadata"),
+        )
+        app.models.register(
+            extension_id,
+            ExtensionModelDefinition(DemoModel, "meta", "new", kind="metadata"),
+        )
+        app.models.register_relation(
+            extension_id,
+            ExtensionModelRelationDefinition(DemoModel, "owner", lambda instance: ("old", instance)),
+        )
+        app.models.register_relation(
+            extension_id,
+            ExtensionModelRelationDefinition(DemoModel, "owner", lambda instance: ("new", instance)),
+        )
+        app.models.register_cast(
+            extension_id,
+            ExtensionModelCastDefinition(DemoModel, "payload", "json"),
+        )
+        app.models.register_cast(
+            extension_id,
+            ExtensionModelCastDefinition(DemoModel, "payload", "dict"),
+        )
+        app.models.register_default(
+            extension_id,
+            ExtensionModelDefaultDefinition(DemoModel, "enabled", False),
+        )
+        app.models.register_default(
+            extension_id,
+            ExtensionModelDefaultDefinition(DemoModel, "enabled", True),
+        )
+
+        runtime_view = app.get_runtime_view(extension_id)
+        instance = DemoModel()
+
+        self.assertEqual(len(runtime_view.model_definitions), 1)
+        self.assertEqual(runtime_view.model_definitions[0].handler, "new")
+        self.assertEqual(app.models.get_definitions_for_model(DemoModel)[0].handler, "new")
+        self.assertEqual(len(runtime_view.model_relations), 1)
+        self.assertEqual(app.models.resolve_relation(DemoModel, "owner", "demo"), ("new", "demo"))
+        self.assertEqual(instance.owner, ("new", instance))
+        self.assertEqual(len(runtime_view.model_casts), 1)
+        self.assertEqual(app.models.get_casts_for_model(DemoModel), {"payload": "dict"})
+        self.assertEqual(len(runtime_view.model_defaults), 1)
+        self.assertEqual(app.models.get_defaults_for_model(DemoModel), {"enabled": True})
+
+    def test_settings_and_action_services_replace_same_runtime_keys(self):
+        from bias_core.extensions import admin_action, runtime_action, setting_field
+        from bias_core.extensions.types import (
+            ExtensionSettingDefaultDefinition,
+            ExtensionSettingForumSerializationDefinition,
+            ExtensionSettingResetDefinition,
+            ExtensionSettingThemeVariableDefinition,
+        )
+
+        app = ExtensionApplication()
+        extension_id = "alpha-tools"
+
+        app.settings.register_fields(
+            extension_id,
+            (setting_field(key="alpha.mode", label="Old", type="text"),),
+            generated_page=False,
+            defaults=(ExtensionSettingDefaultDefinition("alpha.mode", "old"),),
+            reset_when=(ExtensionSettingResetDefinition("alpha.mode", lambda value: value == "old"),),
+            theme_variables=(ExtensionSettingThemeVariableDefinition("alphaColor", "alpha.color"),),
+            forum_serializations=(ExtensionSettingForumSerializationDefinition("alphaMode", "alpha.mode"),),
+        )
+        app.settings.register_fields(
+            extension_id,
+            (setting_field(key="alpha.mode", label="New", type="select"),),
+            generated_page=False,
+            defaults=(ExtensionSettingDefaultDefinition("alpha.mode", "new"),),
+            reset_when=(ExtensionSettingResetDefinition("alpha.mode", lambda value: value == "new"),),
+            theme_variables=(ExtensionSettingThemeVariableDefinition("alphaColor", "alpha.color.new"),),
+            forum_serializations=(ExtensionSettingForumSerializationDefinition("alphaMode", "alpha.mode.new"),),
+        )
+        app.actions.register_runtime_actions(
+            extension_id,
+            (runtime_action(key="rebuild", label="Old", hook="old_hook"),),
+        )
+        app.actions.register_runtime_actions(
+            extension_id,
+            (runtime_action(key="rebuild", label="New", hook="new_hook"),),
+        )
+        app.actions.register_admin_actions(
+            extension_id,
+            (admin_action(key="details", label="Old", kind="route", target="/old"),),
+        )
+        app.actions.register_admin_actions(
+            extension_id,
+            (admin_action(key="details", label="New", kind="route", target="/new"),),
+        )
+
+        runtime_view = app.get_runtime_view(extension_id)
+
+        self.assertEqual(len(runtime_view.settings_schema), 1)
+        self.assertEqual(runtime_view.settings_schema[0].label, "New")
+        self.assertEqual(runtime_view.settings_schema[0].type, "select")
+        self.assertEqual(len(runtime_view.settings_defaults), 1)
+        self.assertEqual(runtime_view.settings_defaults[0].value, "new")
+        self.assertEqual(len(runtime_view.settings_reset_rules), 1)
+        self.assertTrue(runtime_view.settings_reset_rules[0].callback("new"))
+        self.assertEqual(len(runtime_view.settings_theme_variables), 1)
+        self.assertEqual(runtime_view.settings_theme_variables[0].key, "alpha.color.new")
+        self.assertEqual(len(runtime_view.settings_forum_serializations), 1)
+        self.assertEqual(runtime_view.settings_forum_serializations[0].key, "alpha.mode.new")
+        self.assertEqual(len(runtime_view.runtime_actions), 1)
+        self.assertEqual(runtime_view.runtime_actions[0].hook, "new_hook")
+        self.assertEqual(len(runtime_view.admin_actions), 1)
+        self.assertEqual(runtime_view.admin_actions[0].target, "/new")
+
+    def test_extension_application_settings_actions_and_locale_compat_reuses_service_replacement(self):
+        from bias_core.extensions import admin_action, runtime_action, setting_field
+        from bias_core.extensions.types import ExtensionSettingDefaultDefinition
+
+        app = ExtensionApplication()
+        extension = app.get_or_create_runtime_view("alpha-tools")
+
+        app.register_locale_path(extension, " /tmp/alpha-locales ")
+        app.register_locale_path(extension, "/tmp/alpha-locales")
+        app.register_settings_fields(
+            extension,
+            (setting_field(key="alpha.mode", label="Old", type="text"),),
+            generated_page=True,
+            defaults=(ExtensionSettingDefaultDefinition("alpha.mode", "old"),),
+            expose_to_forum=("alpha.mode",),
+            reset_frontend_cache_for=("forum",),
+        )
+        app.register_settings_fields(
+            extension,
+            (setting_field(key="alpha.mode", label="New", type="select"),),
+            generated_page=True,
+            defaults=(ExtensionSettingDefaultDefinition("alpha.mode", "new"),),
+            expose_to_forum=("alpha.mode",),
+            reset_frontend_cache_for=("forum",),
+        )
+        app.register_runtime_actions(
+            extension,
+            (runtime_action(key="rebuild", label="Old", hook="old_hook"),),
+            generated_page=True,
+        )
+        app.register_runtime_actions(
+            extension,
+            (runtime_action(key="rebuild", label="New", hook="new_hook"),),
+            generated_page=True,
+        )
+        app.register_admin_actions(
+            extension,
+            (admin_action(key="details", label="Old", kind="route", target="/old"),),
+            generated_permissions_page=True,
+            generated_operations_page=True,
+        )
+        app.register_admin_actions(
+            extension,
+            (admin_action(key="details", label="New", kind="route", target="/new"),),
+            generated_permissions_page=True,
+            generated_operations_page=True,
+        )
+        app.mark_generated_permissions_page(extension)
+
+        runtime_view = app.get_runtime_view("alpha-tools")
+
+        self.assertEqual(runtime_view.locale_paths, ("/tmp/alpha-locales",))
+        self.assertEqual(app.locales.get_paths(extension_id="alpha-tools"), ["/tmp/alpha-locales"])
+        self.assertEqual(len(runtime_view.settings_schema), 1)
+        self.assertEqual(runtime_view.settings_schema[0].label, "New")
+        self.assertEqual(len(runtime_view.settings_defaults), 1)
+        self.assertEqual(runtime_view.settings_defaults[0].value, "new")
+        self.assertEqual(runtime_view.forum_settings_keys, ("alpha.mode",))
+        self.assertEqual(runtime_view.settings_frontend_cache_keys, ("forum",))
+        self.assertEqual(len(runtime_view.runtime_actions), 1)
+        self.assertEqual(runtime_view.runtime_actions[0].hook, "new_hook")
+        self.assertEqual(len(runtime_view.admin_actions), 1)
+        self.assertEqual(runtime_view.admin_actions[0].target, "/new")
+        self.assertEqual(runtime_view.settings_pages, ("/admin/extensions/alpha-tools/settings",))
+        self.assertEqual(runtime_view.permissions_pages, ("/admin/extensions/alpha-tools/permissions",))
+        self.assertEqual(runtime_view.operations_pages, ("/admin/extensions/alpha-tools/operations",))
+        self.assertTrue(runtime_view.use_generated_settings_page)
+        self.assertTrue(runtime_view.use_generated_permissions_page)
+        self.assertTrue(runtime_view.use_generated_operations_page)
 
     def test_runtime_model_reference_resolves_model_relations_and_policies(self):
         from bias_core.extensions import ModelExtender, PolicyExtender, RuntimeModel, ServiceProviderExtender
@@ -1655,6 +2746,37 @@ class ExtensionManifestLoaderTests(TestCase):
         self.assertEqual(rendered, "hello <strong>alpha</strong>")
         self.assertEqual(unparsed, "hello :alpha:")
 
+    def test_formatter_service_replaces_same_runtime_callback_keys(self):
+        from bias_core.extensions import FormatterExtender
+
+        app = ExtensionApplication()
+        extension = SimpleNamespace(extension_id="alpha-tools")
+        calls = []
+
+        def render(html, context):
+            calls.append("old")
+            return html.replace("alpha", "old")
+
+        def replacement_render(html, context):
+            calls.append("new")
+            return html.replace("alpha", "new")
+
+        replacement_render.__module__ = render.__module__
+        replacement_render.__qualname__ = render.__qualname__
+        replacement_render.__name__ = render.__name__
+
+        FormatterExtender().render(render).extend(app, extension)
+        FormatterExtender().render(replacement_render).extend(app, extension)
+        formatters = app.make("formatters")
+        runtime_view = app.get_runtime_view("alpha-tools")
+
+        self.assertEqual(len(runtime_view.formatter_callbacks), 1)
+        self.assertEqual(len(runtime_view.formatter_pipeline), 1)
+        self.assertIs(runtime_view.formatter_callbacks[0].callback, replacement_render)
+        self.assertEqual(formatters.get_pipeline(extension_id="alpha-tools"), [replacement_render])
+        self.assertEqual(formatters.get_pipeline()[0]("alpha", {}), "new")
+        self.assertEqual(calls, ["new"])
+
     def test_language_pack_extender_registers_runtime_locale_metadata(self):
         from bias_core.extensions import LanguagePackExtender
 
@@ -1708,7 +2830,10 @@ class ExtensionManifestLoaderTests(TestCase):
             .permission_groups(group_processor) \
             .register_preference("alpha_pref", preference_transformer, False, label="Alpha Pref") \
             .extend(app, extension)
-        ModelPrivateExtender(DemoModel).checker(lambda instance: instance.is_private).extend(app, extension)
+        private_extender = ModelPrivateExtender(DemoModel).checker(lambda instance: instance.is_private)
+        private_extender.extend(app, extension)
+        private_extender.extend(app, extension)
+        ModelPrivateExtender(DemoModel).checker(lambda instance: instance.force_private).extend(app, extension)
 
         app.make("forum")
         app.make("user")
@@ -1728,7 +2853,14 @@ class ExtensionManifestLoaderTests(TestCase):
         self.assertEqual(runtime_view.user_preferences[0].key, "alpha_pref")
         self.assertEqual(runtime_view.user_handlers[0].key, "display_name_driver")
         self.assertEqual(runtime_view.model_definitions[-1].kind, "private_checker")
-        self.assertTrue(app.models.is_private(DemoModel, SimpleNamespace(is_private=True)))
+        self.assertEqual(len(app.models.get_private_checkers(DemoModel, extension_id="alpha-tools")), 2)
+        self.assertEqual(len([
+            definition
+            for definition in runtime_view.model_definitions
+            if definition.kind == "private_checker"
+        ]), 2)
+        self.assertTrue(app.models.is_private(DemoModel, SimpleNamespace(is_private=True, force_private=False)))
+        self.assertTrue(app.models.is_private(DemoModel, SimpleNamespace(is_private=False, force_private=True)))
 
     def test_model_visibility_scoper_matches_subclasses(self):
         from bias_core.extensions import ExtensionModelVisibilityDefinition
@@ -2055,6 +3187,51 @@ class ExtensionManifestLoaderTests(TestCase):
             registry.set_extension_enabled("alpha-tools", False)
             uninstalled = registry.uninstall_extension("alpha-tools")
             self.assertEqual(uninstalled.runtime.backend_hooks["run_uninstall"]["status_label"], "uninstalled-target")
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_application_runtime_view_records_lifecycle_hook_contracts(self):
+        temp_dir = make_workspace_temp_dir()
+        try:
+            extensions_dir = Path(temp_dir) / "extensions"
+            manifest_dir = extensions_dir / "alpha-tools"
+            backend_dir = manifest_dir / "backend"
+            manifest_dir.mkdir(parents=True, exist_ok=False)
+            backend_dir.mkdir(parents=True, exist_ok=False)
+            (manifest_dir / "extension.json").write_text(json.dumps({
+                "id": "alpha-tools",
+                "name": "Alpha Tools",
+                "version": "1.0.0",
+                "backend_entry": "extensions.alpha_tools.backend.ext",
+            }, ensure_ascii=False), encoding="utf-8")
+            (backend_dir / "ext.py").write_text(
+                "from bias_core.extensions import LifecycleExtender\n"
+                "\n"
+                "def enable(context):\n"
+                "    return {'status': 'ok'}\n"
+                "\n"
+                "def disable(context):\n"
+                "    return {'status': 'ok'}\n"
+                "\n"
+                "def extend():\n"
+                "    return [LifecycleExtender(enable=enable, disable=disable)]\n",
+                encoding="utf-8",
+            )
+            ExtensionInstallation.objects.create(
+                extension_id="alpha-tools",
+                version="1.0.0",
+                source="filesystem",
+                enabled=True,
+                installed=True,
+                booted=True,
+            )
+
+            registry = ExtensionRegistry(extensions_path=extensions_dir)
+            application = build_extension_application(manager=registry, force=True)
+            runtime_view = application.get_runtime_view("alpha-tools")
+
+            self.assertEqual(runtime_view.lifecycle_extender_keys, ("LifecycleExtender",))
+            self.assertEqual(runtime_view.lifecycle_hook_keys, ("enable", "disable"))
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
@@ -3134,6 +4311,140 @@ class ExtensionManifestLoaderTests(TestCase):
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
+    def test_event_listener_registration_replaces_same_runtime_key(self):
+        from bias_core.domain_events import DomainEvent
+        from bias_core.extensions import EventListenersExtender, ExtensionEventListenerDefinition
+
+        class AlphaRuntimeEvent(DomainEvent):
+            pass
+
+        received = []
+
+        def first_handler(event):
+            received.append("first")
+
+        def replacement_handler(event):
+            received.append("replacement")
+
+        replacement_handler.__module__ = first_handler.__module__
+        replacement_handler.__qualname__ = first_handler.__qualname__
+        replacement_handler.__name__ = first_handler.__name__
+
+        app = ExtensionApplication()
+        extension = SimpleNamespace(extension_id="alpha-tools")
+        first_definition = ExtensionEventListenerDefinition(
+            event_type=AlphaRuntimeEvent,
+            handler=first_handler,
+        )
+        replacement_definition = ExtensionEventListenerDefinition(
+            event_type=AlphaRuntimeEvent,
+            handler=replacement_handler,
+        )
+
+        EventListenersExtender(listeners=(first_definition,)).extend(app, extension)
+        app.make("events")
+        EventListenersExtender(listeners=(replacement_definition,)).extend(app, extension)
+        app.make("events")
+
+        app.event_bus.dispatch(AlphaRuntimeEvent())
+
+        self.assertEqual(received, ["replacement"])
+        listeners = app.events.get_listeners(extension_id="alpha-tools")
+        self.assertEqual(len(listeners), 1)
+        self.assertIs(listeners[0].handler, replacement_handler)
+
+    def test_extension_application_resource_and_event_compat_reuses_service_replacement(self):
+        from bias_core.domain_events import DomainEvent
+        from bias_core.extensions import (
+            ExtensionEventListenerDefinition,
+            ExtensionResourceDefinition,
+            ExtensionResourceFieldDefinition,
+            ExtensionResourceRelationshipDefinition,
+        )
+
+        class AlphaRuntimeEvent(DomainEvent):
+            pass
+
+        calls = []
+
+        def first_handler(event):
+            calls.append("first")
+
+        def replacement_handler(event):
+            calls.append("replacement")
+
+        replacement_handler.__module__ = first_handler.__module__
+        replacement_handler.__qualname__ = first_handler.__qualname__
+        replacement_handler.__name__ = first_handler.__name__
+
+        app = ExtensionApplication()
+        extension = app.get_or_create_runtime_view("alpha-tools")
+        first_resource = ExtensionResourceDefinition(
+            resource="alpha",
+            module_id="alpha-tools",
+            resolver=lambda instance, context: {"name": "old"},
+        )
+        replacement_resource = ExtensionResourceDefinition(
+            resource="alpha",
+            module_id="alpha-tools",
+            resolver=lambda instance, context: {"name": "new"},
+        )
+        first_field = ExtensionResourceFieldDefinition(
+            resource="alpha",
+            field="label",
+            module_id="alpha-tools",
+            resolver=lambda instance, context: "old",
+        )
+        replacement_field = ExtensionResourceFieldDefinition(
+            resource="alpha",
+            field="label",
+            module_id="alpha-tools",
+            resolver=lambda instance, context: "new",
+        )
+        first_relationship = ExtensionResourceRelationshipDefinition(
+            resource="alpha",
+            relationship="owner",
+            module_id="alpha-tools",
+            resolver=lambda instance, context: {"id": "old"},
+        )
+        replacement_relationship = ExtensionResourceRelationshipDefinition(
+            resource="alpha",
+            relationship="owner",
+            module_id="alpha-tools",
+            resolver=lambda instance, context: {"id": "new"},
+        )
+
+        app.register_resource(extension, first_resource)
+        app.register_resource(extension, replacement_resource)
+        app.register_resource_field(extension, first_field)
+        app.register_resource_field(extension, replacement_field)
+        app.register_resource_relationship(extension, first_relationship)
+        app.register_resource_relationship(extension, replacement_relationship)
+        app.register_event_listener(
+            extension,
+            ExtensionEventListenerDefinition(AlphaRuntimeEvent, first_handler),
+        )
+        app.register_event_listener(
+            extension,
+            ExtensionEventListenerDefinition(AlphaRuntimeEvent, replacement_handler),
+        )
+
+        runtime_view = app.get_runtime_view("alpha-tools")
+        app.event_bus.dispatch(AlphaRuntimeEvent())
+
+        self.assertEqual(len(runtime_view.resource_definitions), 1)
+        self.assertEqual(runtime_view.resource_definitions[0].resolver(None, {}), {"name": "new"})
+        self.assertEqual(app.resources.get_resource("alpha").resolver(None, {}), {"name": "new"})
+        self.assertEqual(len(runtime_view.resource_fields), 1)
+        self.assertEqual(runtime_view.resource_fields[0].resolver(None, {}), "new")
+        self.assertEqual(app.resources.get_fields("alpha")[0].resolver(None, {}), "new")
+        self.assertEqual(len(runtime_view.resource_relationships), 1)
+        self.assertEqual(runtime_view.resource_relationships[0].resolver(None, {}), {"id": "new"})
+        self.assertEqual(app.resources.get_relationships("alpha")[0].resolver(None, {}), {"id": "new"})
+        self.assertEqual(len(runtime_view.event_listeners), 1)
+        self.assertIs(runtime_view.event_listeners[0].handler, replacement_handler)
+        self.assertEqual(calls, ["replacement"])
+
     def test_application_bootstrap_registers_extension_realtime_discussion_broadcasts(self):
         temp_dir = make_workspace_temp_dir()
         try:
@@ -3255,6 +4566,47 @@ class ExtensionManifestLoaderTests(TestCase):
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
+    def test_realtime_discussion_broadcast_registration_replaces_same_runtime_key(self):
+        from bias_core.domain_events import DomainEvent
+        from bias_core.extensions import RealtimeExtender
+
+        class AlphaDiscussionEvent(DomainEvent):
+            def __init__(self, discussion_id: int):
+                self.discussion_id = discussion_id
+
+        app = ExtensionApplication()
+        extension = SimpleNamespace(extension_id="alpha-tools")
+        broadcast = Mock()
+
+        app.instance("realtime.discussion_broadcaster", broadcast)
+        RealtimeExtender().broadcast_discussion_event(
+            AlphaDiscussionEvent,
+            "discussion.updated",
+            include_discussion=False,
+        ).extend(app, extension)
+        app.make("realtime")
+        RealtimeExtender().broadcast_discussion_event(
+            AlphaDiscussionEvent,
+            "discussion.updated",
+            include_discussion=True,
+        ).extend(app, extension)
+        app.make("realtime")
+
+        app.event_bus.dispatch(AlphaDiscussionEvent(discussion_id=12))
+
+        broadcast.assert_called_once_with(
+            12,
+            "discussion.updated",
+            include_discussion=True,
+            include_post=False,
+            post_id=None,
+            post_id_getter=None,
+            extension_context=None,
+        )
+        broadcasts = app.realtime.get_discussion_broadcasts(extension_id="alpha-tools")
+        self.assertEqual(len(broadcasts), 1)
+        self.assertTrue(broadcasts[0].include_discussion)
+
     def test_application_bootstrap_collects_extension_forum_permission_checkers(self):
         from bias_core.forum_permissions import clear_forum_permission_checkers, has_forum_permission
 
@@ -3297,7 +4649,7 @@ class ExtensionManifestLoaderTests(TestCase):
             registry = ExtensionRegistry(extensions_path=extensions_dir)
             application = build_extension_application(manager=registry, force=True)
             runtime_view = application.get_runtime_view("alpha-tools")
-            user = Mock(is_authenticated=True)
+            user = Mock(is_authenticated=True, is_superuser=False)
 
             self.assertIsNotNone(runtime_view)
             self.assertEqual(len(runtime_view.forum_permission_checkers), 1)
@@ -3742,6 +5094,108 @@ class ExtensionManifestLoaderTests(TestCase):
         ordered = manager.sort_extensions_for_boot([likes, tags, notifications, core])
         self.assertEqual([item.id for item in ordered], ["core", "notifications", "tags", "likes"])
 
+    def test_extension_dependency_sort_orders_enabled_optional_dependencies(self):
+        realtime = Extension.from_manifest(ExtensionManifest(
+            id="realtime",
+            name="Realtime",
+            version="1.0.0",
+            source="filesystem",
+        ))
+        tags = Extension.from_manifest(ExtensionManifest(
+            id="tags",
+            name="Tags",
+            version="1.0.0",
+            optional_dependencies=("realtime",),
+            source="filesystem",
+        ))
+        manager = ExtensionRegistry()
+
+        ordered = manager.sort_extensions_for_boot([tags, realtime])
+
+        self.assertEqual([item.id for item in ordered], ["realtime", "tags"])
+
+    def test_extension_dependency_sort_ignores_missing_optional_dependencies(self):
+        tags = Extension.from_manifest(ExtensionManifest(
+            id="tags",
+            name="Tags",
+            version="1.0.0",
+            optional_dependencies=("realtime",),
+            source="filesystem",
+        ))
+        manager = ExtensionRegistry()
+
+        ordered = manager.sort_extensions_for_boot([tags])
+
+        self.assertEqual([item.id for item in ordered], ["tags"])
+
+    def test_extension_dependency_sort_detects_optional_dependency_cycles(self):
+        discussions = Extension.from_manifest(ExtensionManifest(
+            id="discussions",
+            name="Discussions",
+            version="1.0.0",
+            optional_dependencies=("posts",),
+            source="filesystem",
+        ))
+        posts = Extension.from_manifest(ExtensionManifest(
+            id="posts",
+            name="Posts",
+            version="1.0.0",
+            dependencies=("discussions",),
+            source="filesystem",
+        ))
+        manager = ExtensionRegistry()
+
+        with self.assertRaises(ExtensionStateError) as raised:
+            manager.sort_extensions_for_boot([posts, discussions])
+
+        self.assertEqual(raised.exception.code, "extension_dependency_cycle")
+
+    def test_optional_dependency_status_payload_reports_missing_disabled_and_enabled_states(self):
+        from bias_core.extensions.manager_dependencies import build_optional_dependency_status_payload
+
+        realtime = Extension.from_manifest(ExtensionManifest(
+            id="realtime",
+            name="Realtime",
+            version="1.0.0",
+            source="filesystem",
+        ))
+        realtime = Extension(
+            **{
+                **realtime.__dict__,
+                "runtime": type(realtime.runtime)(
+                    **{
+                        **realtime.runtime.__dict__,
+                        "installed": True,
+                        "enabled": False,
+                    }
+                ),
+            }
+        )
+        audit = Extension.from_manifest(ExtensionManifest(
+            id="audit",
+            name="Audit",
+            version="1.0.0",
+            source="filesystem",
+        ))
+        tags = Extension.from_manifest(ExtensionManifest(
+            id="tags",
+            name="Tags",
+            version="1.0.0",
+            optional_dependencies=("realtime", "audit", "missing-tools"),
+            source="filesystem",
+        ))
+
+        payload = build_optional_dependency_status_payload(tags, [tags, realtime, audit])
+
+        self.assertEqual(
+            [(item["id"], item["state"], item["contributes_to_boot_order"]) for item in payload],
+            [
+                ("realtime", "disabled", False),
+                ("audit", "enabled", True),
+                ("missing-tools", "missing", False),
+            ],
+        )
+
     def test_extension_enabled_order_sync_reports_and_repairs_drift(self):
         temp_dir = make_workspace_temp_dir()
         try:
@@ -3998,13 +5452,75 @@ class ExtensionManifestLoaderTests(TestCase):
                     "backend_entry": f"extensions.{extension_id.replace('-', '_')}.backend.ext",
                 }, ensure_ascii=False), encoding="utf-8")
                 (backend_dir / "ext.py").write_text(
-                    "from bias_core.extensions import AdminSurfaceExtender\n"
+                    "from ninja import Router\n"
+                    "from bias_core.extensions import (\n"
+                    "    AdminSurfaceExtender,\n"
+                    "    ApiResourceExtender,\n"
+                    "    ApiRoutesExtender,\n"
+                    "    EventListenersExtender,\n"
+                    "    ExtensionEventListenerDefinition,\n"
+                    "    FrontendExtender,\n"
+                    "    ForumCapabilitiesExtender,\n"
+                    "    RealtimeExtender,\n"
+                    "    ResourceFieldDefinition,\n"
+                    "    SearchFilterDefinition,\n"
+                    "    WebSocketRoutesExtender,\n"
+                    ")\n"
                     "from bias_core.extensions import PermissionDefinition\n"
+                    "from channels.generic.websocket import AsyncWebsocketConsumer\n"
+                    "\n"
+                    "router = Router()\n"
+                    "\n"
+                    "@router.get('/ping')\n"
+                    "def ping(request):\n"
+                    "    return {'ok': True}\n"
+                    "\n"
+                    "class AlphaConsumer(AsyncWebsocketConsumer):\n"
+                    "    pass\n"
+                    "\n"
+                    "class AlphaEvent:\n"
+                    "    pass\n"
+                    "\n"
+                    "def parse_filter(token):\n"
+                    "    return True if token == 'alpha:yes' else None\n"
+                    "\n"
+                    "def apply_filter(queryset, value, context):\n"
+                    "    return queryset\n"
+                    "\n"
+                    "def resolve_field(resource, context):\n"
+                    "    return True\n"
+                    "\n"
+                    "def handle_event(event):\n"
+                    "    return None\n"
+                    "\n"
+                    "def transport(event):\n"
+                    "    return None\n"
                     "\n"
                     "def extend():\n"
-                    "    return [AdminSurfaceExtender(permissions=(\n"
+                    "    return [\n"
+                    "        AdminSurfaceExtender(permissions=(\n"
                     f"        PermissionDefinition(code='{permission}', label='{permission}', section='admin', section_label='后台', module_id='{extension_id}'),\n"
-                    "    ))]\n",
+                    "        )),\n"
+                    f"        FrontendExtender(forum_entry='extensions/{extension_id}/frontend/forum/index.js'),\n"
+                    f"        ApiRoutesExtender(mounts=(('/{extension_id}', router),), tags=('{extension_id}',)),\n"
+                    f"        WebSocketRoutesExtender().route(r'ws/{extension_id}/$', '{extension_id}.socket', AlphaConsumer),\n"
+                    "        ApiResourceExtender('forum').fields(lambda: (\n"
+                    f"            ResourceFieldDefinition(resource='forum', field='{extension_id.replace('-', '_')}_field', module_id='{extension_id}', resolver=resolve_field),\n"
+                    "        )),\n"
+                    "        ForumCapabilitiesExtender(search_filters=(\n"
+                    f"            SearchFilterDefinition(code='{extension_id}', label='{extension_id}', module_id='{extension_id}', target='discussion', parser=parse_filter, applier=apply_filter, syntax='{extension_id}:yes'),\n"
+                    "        )),\n"
+                    "        EventListenersExtender(listeners=(\n"
+                    "            ExtensionEventListenerDefinition(event_type=AlphaEvent, handler=handle_event),\n"
+                    "        )),\n"
+                    "        RealtimeExtender().discussion_transport(\n"
+                    f"            '{extension_id}.transport', transport, description='{extension_id} transport'\n"
+                    "        ).included_payload(\n"
+                    f"            '{extension_id}.included', lambda payload, context: payload, description='{extension_id} included'\n"
+                    "        ).discussion_visibility(\n"
+                    f"            lambda user=None, discussion_ids=(), **kwargs: discussion_ids, key='{extension_id}.visibility'\n"
+                    "        ),\n"
+                    "    ]\n",
                     encoding="utf-8",
                 )
 
@@ -4040,6 +5556,49 @@ class ExtensionManifestLoaderTests(TestCase):
             self.assertFalse(any(item.code == "beta.manage" for item in application.forum.get_all_permissions()))
             self.assertIsNotNone(application.get_runtime_view("alpha-tools"))
             self.assertIsNone(application.get_runtime_view("beta-tools"))
+            self.assertEqual(len(application.get_route_mounts()), 1)
+            self.assertEqual(application.get_route_mounts()[0].prefix, "/alpha-tools")
+            self.assertEqual(len(application.get_websocket_routes()), 1)
+            self.assertEqual(application.get_websocket_routes()[0].name, "alpha-tools.socket")
+            self.assertTrue(any(
+                item.field == "alpha_tools_field"
+                for item in application.resource_registry.get_all_fields()
+            ))
+            self.assertFalse(any(
+                item.field == "beta_tools_field"
+                for item in application.resource_registry.get_all_fields()
+            ))
+            self.assertTrue(any(
+                item.code == "alpha-tools"
+                for item in application.search.get_available_filters(targets=("discussion",))
+            ))
+            self.assertFalse(any(
+                item.code == "beta-tools"
+                for item in application.search.get_available_filters(targets=("discussion",))
+            ))
+            self.assertEqual(len(application.events.get_listeners(extension_id="alpha-tools")), 1)
+            self.assertEqual(application.events.get_listeners(extension_id="beta-tools"), [])
+            self.assertEqual(len(application.realtime.get_discussion_transports(extension_id="alpha-tools")), 1)
+            self.assertEqual(application.realtime.get_discussion_transports(extension_id="beta-tools"), [])
+            self.assertTrue(application.get_frontend_extension("alpha-tools"))
+            self.assertIsNone(application.get_frontend_extension("beta-tools"))
+
+            from bias_core.extensions.frontend_runtime_service import (
+                build_enabled_frontend_document_payload,
+                get_enabled_extension_runtime_entries,
+            )
+
+            with patch("bias_core.extensions.frontend_runtime_service.get_extension_host", return_value=application):
+                frontend_entries = get_enabled_extension_runtime_entries(product_visible_only=False)
+                frontend_document = build_enabled_frontend_document_payload()
+
+            frontend_ids = {item["id"] for item in frontend_entries}
+            self.assertIn("alpha-tools", frontend_ids)
+            self.assertNotIn("beta-tools", frontend_ids)
+            self.assertFalse(any(
+                item.get("extension_id") == "beta-tools"
+                for item in frontend_document["title_drivers"]
+            ))
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 

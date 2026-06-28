@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -22,11 +23,26 @@ def get_version_file_path(base_dir: Path) -> Path:
 
 
 def get_frontend_package_json_path(base_dir: Path) -> Path:
-    return base_dir / "frontend" / "package.json"
+    return get_frontend_dir(base_dir) / "package.json"
 
 
 def get_frontend_package_lock_path(base_dir: Path) -> Path:
-    return base_dir / "frontend" / "package-lock.json"
+    return get_frontend_dir(base_dir) / "package-lock.json"
+
+
+def get_frontend_dir(base_dir: Path) -> Path:
+    try:
+        from django.conf import settings
+
+        settings_value = str(getattr(settings, "BIAS_FRONTEND_DIR", "") or "").strip()
+        if settings_value:
+            return Path(settings_value)
+    except Exception:
+        pass
+    configured = str(os.environ.get("BIAS_FRONTEND_DIR") or "").strip()
+    if configured:
+        return Path(configured)
+    return base_dir / "frontend"
 
 
 def build_git_command(base_dir: Path, *args: str) -> list[str]:
@@ -51,8 +67,15 @@ def run_git_command(
 
 
 def load_release_version_state(base_dir: Path) -> ReleaseVersionState:
-    version = get_version_file_path(base_dir).read_text(encoding="utf-8").strip()
-    package = json.loads(get_frontend_package_json_path(base_dir).read_text(encoding="utf-8"))
+    version_file_path = get_version_file_path(base_dir)
+    package_json_path = get_frontend_package_json_path(base_dir)
+    if not version_file_path.exists():
+        raise ValueError(f"版本文件不存在: {version_file_path}")
+    if not package_json_path.exists():
+        raise ValueError(f"前端版本文件不存在: {package_json_path}")
+
+    version = version_file_path.read_text(encoding="utf-8").strip()
+    package = json.loads(package_json_path.read_text(encoding="utf-8"))
     frontend_version = str(package.get("version", "")).strip()
     return ReleaseVersionState(version=version, frontend_version=frontend_version)
 
@@ -90,6 +113,10 @@ def update_frontend_versions(base_dir: Path, version: str) -> None:
 
     package_json_path = get_frontend_package_json_path(base_dir)
     package_lock_path = get_frontend_package_lock_path(base_dir)
+    if not package_json_path.exists():
+        raise ValueError(f"前端版本文件不存在: {package_json_path}")
+    if not package_lock_path.exists():
+        raise ValueError(f"前端锁文件不存在: {package_lock_path}")
 
     package = json.loads(package_json_path.read_text(encoding="utf-8"))
     package["version"] = version

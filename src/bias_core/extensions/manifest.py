@@ -36,11 +36,13 @@ class ExtensionManifestLoader:
         include_workspace: bool = False,
         include_distributions: bool | None = None,
         workspace_root: Path | None = None,
+        distribution_path: Path | None = None,
     ):
         self.base_path = Path(base_path)
         self.include_workspace = include_workspace
         self.include_distributions = include_distributions
         self.workspace_root = Path(workspace_root) if workspace_root is not None else None
+        self.distribution_path = Path(distribution_path) if distribution_path is not None else None
 
     def discover(self) -> list[ExtensionDiscoveryResult]:
         return [
@@ -81,11 +83,17 @@ class ExtensionManifestLoader:
             include_distributions = bool(self.include_distributions)
         if not include_distributions:
             return []
-        if _distribution_manifest_cache is not None:
+        use_cache = self.distribution_path is None
+        if use_cache and _distribution_manifest_cache is not None:
             return list(_distribution_manifest_cache)
 
         manifests: list[ExtensionManifest] = []
-        for distribution in sorted(metadata.distributions(), key=lambda item: (item.metadata.get("Name") or "").lower()):
+        distributions = (
+            metadata.distributions(path=[str(self.distribution_path)])
+            if self.distribution_path is not None
+            else metadata.distributions()
+        )
+        for distribution in sorted(distributions, key=lambda item: (item.metadata.get("Name") or "").lower()):
             extension_files = [
                 file
                 for file in (distribution.files or ())
@@ -106,7 +114,10 @@ class ExtensionManifestLoader:
                     package_version=str(distribution.version or "").strip(),
                 )
                 manifests.append(manifest)
-        _distribution_manifest_cache = list(manifests)
+        if self.distribution_path is not None:
+            manifests.extend(self._discover_distribution_path_manifests(self.distribution_path))
+        if use_cache:
+            _distribution_manifest_cache = list(manifests)
         return manifests
 
     def load_manifest(self, manifest_path: Path) -> tuple[ExtensionManifest, ExtensionDiscoveryResult]:
@@ -219,6 +230,40 @@ class ExtensionManifestLoader:
             }
         )
 
+    def _discover_distribution_path_manifests(self, distribution_path: Path) -> list[ExtensionManifest]:
+        data_root = Path(distribution_path) / "bias_extensions"
+        if not data_root.exists():
+            return []
+
+        package_metadata = self._distribution_metadata_by_extension_id(distribution_path)
+        manifests: list[ExtensionManifest] = []
+        for manifest_path in sorted(data_root.glob("*/extension.json")):
+            try:
+                manifest = self.load_manifest_only(manifest_path)
+            except ExtensionManifestError:
+                continue
+            package_name, package_version = package_metadata.get(
+                manifest.id,
+                (f"bias-ext-{manifest.id}", ""),
+            )
+            manifests.append(self._with_distribution_source(
+                manifest,
+                package_name=package_name,
+                package_version=package_version,
+            ))
+        return manifests
+
+    def _distribution_metadata_by_extension_id(self, distribution_path: Path) -> dict[str, tuple[str, str]]:
+        output: dict[str, tuple[str, str]] = {}
+        for distribution in metadata.distributions(path=[str(distribution_path)]):
+            package_name = str(distribution.metadata.get("Name") or "").strip()
+            if not package_name.startswith("bias-ext-"):
+                continue
+            extension_id = package_name.removeprefix("bias-ext-")
+            if extension_id:
+                output[extension_id] = (package_name, str(distribution.version or "").strip())
+        return output
+
     def _deduplicate_manifests(self, manifests: list[ExtensionManifest]) -> list[ExtensionManifest]:
         by_id: dict[str, ExtensionManifest] = {}
         for manifest in manifests:
@@ -247,6 +292,9 @@ class ExtensionManifestLoader:
 
         if self.base_path.exists() and any(self.base_path.glob("bias-ext-*/extension.json")):
             return self.base_path
+        if self.base_path.parent.exists() and any(self.base_path.parent.glob("bias-ext-*/extension.json")):
+            return self.base_path.parent
+
         if (
             is_default_path
             and Path(settings.BASE_DIR).name in SITE_HOST_DIRECTORY_NAMES
@@ -257,10 +305,6 @@ class ExtensionManifestLoader:
 
         if not is_default_path:
             return None
-
-        for candidate in (self.base_path.parent, *self.base_path.parents):
-            if candidate.exists() and any(candidate.glob("bias-ext-*/extension.json")):
-                return candidate
 
         cwd = Path.cwd()
         if cwd.exists() and any(cwd.glob("bias-ext-*/extension.json")):

@@ -6,8 +6,30 @@ from bias_core.extensions.container import import_string
 from bias_core.extensions.forum_registry_types import EventListenerDefinition
 
 
+_EVENT_TYPE_ALIASES: dict[str, type] = {}
+
+
+def register_event_type_alias(alias: str, event_type: Any) -> None:
+    normalized = str(alias or "").strip()
+    if not normalized or not isinstance(event_type, type):
+        return
+    _EVENT_TYPE_ALIASES[normalized] = event_type
+
+
+def register_event_type_aliases(aliases: dict[str, Any] | None) -> None:
+    for alias, event_type in dict(aliases or {}).items():
+        register_event_type_alias(alias, event_type)
+
+
+def clear_event_type_aliases() -> None:
+    _EVENT_TYPE_ALIASES.clear()
+
+
 def resolve_event_type(event_type: Any):
     if isinstance(event_type, str):
+        alias = _EVENT_TYPE_ALIASES.get(str(event_type or "").strip())
+        if alias is not None:
+            return alias
         try:
             resolved = import_string(event_type)
         except Exception:

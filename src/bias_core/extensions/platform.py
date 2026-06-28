@@ -22,6 +22,7 @@ from bias_core.domain_events import (
     get_forum_event_bus,
 )
 from bias_core.api_errors import api_error
+from bias_core.db import sqlite_write_retry
 from bias_core.extension_settings_service import (
     build_extension_settings_defaults,
     get_extension_settings,
@@ -32,6 +33,16 @@ from bias_core.extensions.policy_runtime_service import evaluate_extension_polic
 from bias_core.email_service import EmailService
 from bias_core.file_service import FileUploadService
 from bias_core.forum_permissions import has_forum_permission
+from bias_core.forum_registry import (
+    get_forum_registry,
+    get_registry_staff_managed_admin_permission_codes,
+)
+from bias_core.forum_runtime import (
+    broadcast_realtime_discussion_event,
+    can_view_realtime_discussion,
+    iter_realtime_included_enrichers,
+    resolve_realtime_visible_discussion_ids,
+)
 from bias_core.jwt_auth import (
     ACCESS_TOKEN_COOKIE_NAME,
     ACCESS_TOKEN_COOKIE_PATH,
@@ -45,9 +56,11 @@ from bias_core.jwt_auth import (
     clear_refresh_token_cookie,
     is_jwt_blacklisted,
     refresh_token_max_age,
+    resolve_authenticated_user,
     set_access_token_cookie,
     set_refresh_token_cookie,
 )
+from bias_core.websocket_auth import resolve_user_from_refresh_token
 from bias_core.resource_api import (
     ResourceQueryOptions,
     apply_resource_preloads,
@@ -66,7 +79,12 @@ from bias_core.resource_errors import (
 )
 from bias_core.mail_drivers import can_mail_driver_send, send_with_extension_mail_driver
 from bias_core.markdown_service import MarkdownService
+from bias_core.models import AuditLog
+from bias_core.online_service import OnlineUserService
 from bias_core.queue_service import QueueService
+from bias_core.runtime_diagnostics import detect_database_label
+from bias_core.schemas import UploadFileOutSchema
+from bias_core.search_index_service import SearchIndexService
 from bias_core.services.pagination import PaginationService
 from bias_core.settings_service import (
     get_advanced_settings,
@@ -87,7 +105,7 @@ def is_debug_mode() -> bool:
 
 
 def get_frontend_url() -> str:
-    return str(getattr(settings, "FRONTEND_URL", "") or "")
+    return str(getattr(settings, "FRONTEND_URL", "") or "http://localhost:5173").rstrip("/")
 
 
 def get_enabled_theme() -> dict:
@@ -132,6 +150,7 @@ __all__ = [
     "AccessTokenAuth",
     "ACCESS_TOKEN_COOKIE_NAME",
     "ACCESS_TOKEN_COOKIE_PATH",
+    "AuditLog",
     "AuthBearer",
     "AuthorizationDecision",
     "AuthorizationPolicy",
@@ -146,11 +165,14 @@ __all__ = [
     "JsonApiForbidden",
     "JsonApiValidationError",
     "MarkdownService",
+    "OnlineUserService",
     "PaginationService",
     "QueueService",
     "REFRESH_TOKEN_COOKIE_NAME",
     "REFRESH_TOKEN_COOKIE_PATH",
     "ResourceQueryOptions",
+    "SearchIndexService",
+    "UploadFileOutSchema",
     "access_token_max_age",
     "allow",
     "api_error",
@@ -160,14 +182,17 @@ __all__ = [
     "assert_can",
     "build_extension_settings_defaults",
     "can",
+    "can_view_realtime_discussion",
     "can_view_model_instance",
     "can_mail_driver_send",
     "auth_cookie_secure",
     "blacklist_jwt_token",
+    "broadcast_realtime_discussion_event",
     "clear_access_token_cookie",
     "is_jwt_blacklisted",
     "clear_refresh_token_cookie",
     "deny",
+    "detect_database_label",
     "dispatch_forum_event_after_commit",
     "evaluate_extension_policy",
     "force_allow",
@@ -178,12 +203,15 @@ __all__ = [
     "get_enabled_theme",
     "get_frontend_url",
     "get_forum_event_bus",
+    "get_forum_registry",
     "get_mail_settings_defaults",
     "get_optional_user",
+    "get_registry_staff_managed_admin_permission_codes",
     "get_setting_group",
     "get_storage_backend",
     "get_theme_settings",
     "has_forum_permission",
+    "iter_realtime_included_enrichers",
     "is_debug_mode",
     "jsonapi_error_response",
     "log_admin_action",
@@ -193,11 +221,15 @@ __all__ = [
     "refresh_token_max_age",
     "require_forum_permission",
     "require_staff",
+    "resolve_authenticated_user",
+    "resolve_realtime_visible_discussion_ids",
+    "resolve_user_from_refresh_token",
     "save_extension_settings",
     "send_with_extension_mail_driver",
     "serialize_extension_settings_schema",
     "set_access_token_cookie",
     "set_refresh_token_cookie",
+    "sqlite_write_retry",
 ]
 
 

@@ -159,7 +159,7 @@ class ResourceRegistry:
         if resource_class is None or not callable(modifier):
             return
         normalized_kind = str(kind or "").strip()
-        if normalized_kind not in {"endpoints", "fields", "sorts", "filters"}:
+        if normalized_kind not in {"endpoints", "fields", "relationships", "sorts", "filters"}:
             return
         modifiers = self._resource_modifiers.setdefault(resource_class, {}).setdefault(normalized_kind, [])
         if modifier not in modifiers:
@@ -1318,7 +1318,7 @@ class ResourceRegistry:
             return []
         return [
             definition
-            for definition in self._resolve_resource_items(resource_object, "fields", list(resource_object.resolve_fields()))
+            for definition in self._resolve_resource_items(resource_object, "relationships", list(resource_object.resolve_relationships()))
             if isinstance(definition, ResourceRelationship)
         ]
 
@@ -1355,6 +1355,7 @@ class ResourceRegistry:
                 class_modifiers = {
                     "endpoints": getattr(resource_object, "_endpoint_modifiers", {}),
                     "fields": getattr(resource_object, "_field_modifiers", {}),
+                    "relationships": getattr(resource_object, "_relationship_modifiers", {}),
                     "sorts": getattr(resource_object, "_sort_modifiers", {}),
                     "filters": getattr(resource_object, "_filter_modifiers", {}),
                 }.get(kind, {})

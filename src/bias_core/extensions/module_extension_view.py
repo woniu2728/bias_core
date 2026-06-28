@@ -30,6 +30,71 @@ def resolve_module_documentation_url(module) -> str:
     return f"/admin.html#/admin/docs?guide=module-development&module={module.module_id}"
 
 
+def build_core_module_lifecycle_plan(module_id: str) -> dict:
+    blocked_action = {
+        "can_execute": False,
+        "blockers": ["core_module"],
+    }
+    blocked_dependency_transaction = {
+        "can_execute": False,
+        "available": False,
+        "order": [],
+        "blockers": ["core_module"],
+    }
+    blocked_dependent_transaction = {
+        "can_execute": False,
+        "available": False,
+        "order": [],
+        "blockers": ["core_module"],
+    }
+    return {
+        "schema": 1,
+        "extension_id": module_id,
+        "install": {
+            "action": "install",
+            "already_active": True,
+            "not_installed": False,
+            "required_dependencies": [],
+            "enabled_dependencies": [],
+            "disabled_dependencies": [],
+            "missing_dependencies": [],
+            "active_conflicts": [],
+            "dependency_transaction": dict(blocked_dependency_transaction),
+            **blocked_action,
+        },
+        "enable": {
+            "action": "enable",
+            "already_active": True,
+            "not_installed": False,
+            "required_dependencies": [],
+            "enabled_dependencies": [],
+            "disabled_dependencies": [],
+            "missing_dependencies": [],
+            "active_conflicts": [],
+            "dependency_transaction": dict(blocked_dependency_transaction),
+            **blocked_action,
+        },
+        "disable": {
+            "action": "disable",
+            "protected": True,
+            "protected_reason": "核心模块随平台启动，不能作为扩展停用。",
+            "core_extension": True,
+            "blocking_dependents": [],
+            "dependent_transaction": dict(blocked_dependent_transaction),
+            **blocked_action,
+        },
+        "uninstall": {
+            "action": "uninstall",
+            "protected": True,
+            "protected_reason": "核心模块随平台发布，不能作为扩展卸载。",
+            "core_extension": True,
+            "blocking_dependents": [],
+            "dependent_transaction": dict(blocked_dependent_transaction),
+            **blocked_action,
+        },
+    }
+
+
 def _build_core_module_view(module):
     settings_pages = tuple(
         item

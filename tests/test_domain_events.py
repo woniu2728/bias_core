@@ -49,6 +49,34 @@ class DomainEventBusTests(TestCase):
 
         self.assertEqual(received, ["first"])
 
+    def test_register_can_replace_explicit_listener_key(self):
+        bus = DomainEventBus()
+        received = []
+
+        def handle_created(event):
+            received.append("first")
+
+        def reloaded_handle_created(event):
+            received.append("reloaded")
+
+        listener_key = ("alpha-tools", "DiscussionCreatedEvent", "handle_created")
+        bus.register(TestDiscussionCreatedEvent, handle_created, listener_key=listener_key)
+        bus.register(
+            TestDiscussionCreatedEvent,
+            reloaded_handle_created,
+            listener_key=listener_key,
+            replace=True,
+        )
+        bus.dispatch(
+            TestDiscussionCreatedEvent(
+                discussion_id=7,
+                actor_user_id=3,
+                is_approved=True,
+            )
+        )
+
+        self.assertEqual(received, ["reloaded"])
+
     def test_dispatches_handlers_for_additional_domain_events(self):
         bus = DomainEventBus()
         received = []

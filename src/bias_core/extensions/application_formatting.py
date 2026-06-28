@@ -74,9 +74,17 @@ class ApplicationFormatterService:
             module_id=normalized_extension_id,
             description=str(description or "").strip(),
         )
-        view.formatter_callbacks = tuple([*view.formatter_callbacks, definition])
+        view.formatter_callbacks = _replace_by_key(
+            view.formatter_callbacks,
+            definition,
+            lambda item: (str(getattr(item, "phase", "") or "").strip(), _callback_identity(getattr(item, "callback", None))),
+        )
         if normalized_phase == "render":
-            view.formatter_pipeline = tuple([*view.formatter_pipeline, callback])
+            callback_key = _callback_identity(callback)
+            view.formatter_pipeline = tuple([
+                *(item for item in view.formatter_pipeline if _callback_identity(item) != callback_key),
+                callback,
+            ])
 
     def get_pipeline(self, *, extension_id: str | None = None, phase: str = "render") -> list[ExtensionFormatterCallback]:
         normalized_phase = str(phase or "render").strip().lower() or "render"
@@ -105,4 +113,33 @@ class ApplicationFormatterService:
                 if definition.phase == normalized_phase
             )
         return pipeline
+
+
+def _replace_by_key(items, item, key):
+    item_key = key(item)
+    return tuple([
+        *(current for current in items or () if key(current) != item_key),
+        item,
+    ])
+
+
+def _callback_identity(callback) -> str:
+    label = str(getattr(callback, "__bias_callback_label__", "") or "").strip()
+    if label:
+        return label
+    module = str(getattr(callback, "__module__", "") or "").strip()
+    qualname = str(getattr(callback, "__qualname__", "") or getattr(callback, "__name__", "") or "").strip()
+    if module or qualname:
+        name = ".".join(item for item in (module, qualname) if item)
+        if "<lambda>" not in qualname:
+            return name
+    code = getattr(callback, "__code__", None)
+    if code is not None:
+        location = ":".join((
+            str(getattr(code, "co_filename", "") or "").strip(),
+            str(getattr(code, "co_firstlineno", "") or "").strip(),
+        )).strip(":")
+        if location:
+            return f"{name or '<callable>'}@{location}"
+    return f"{type(callback).__module__}.{type(callback).__qualname__}:{id(callback)}"
 

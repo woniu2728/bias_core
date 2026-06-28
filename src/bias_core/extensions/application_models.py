@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from urllib.parse import unquote
 from typing import TYPE_CHECKING, Any
 
 from bias_core.extensions.container import resolve_container_value
@@ -9,6 +10,7 @@ from bias_core.extensions.types import (
     ExtensionModelCastDefinition,
     ExtensionModelDefaultDefinition,
     ExtensionModelDefinition,
+    ExtensionModelReference,
     ExtensionModelRelationDefinition,
     ExtensionModelSlugDriverDefinition,
     ExtensionModelVisibilityDefinition,
@@ -48,7 +50,11 @@ class ApplicationModelService:
         normalized = str(extension_id or "").strip()
         if not normalized:
             return
-        definitions = tuple([*self._definitions_by_extension.get(normalized, ()), definition])
+        definitions = self._replace_definition(
+            self._definitions_by_extension.get(normalized, ()),
+            definition,
+            self._model_definition_key,
+        )
         self._definitions_by_extension[normalized] = definitions
         view = self._host._get_or_create_runtime_view(normalized)
         view.model_definitions = definitions
@@ -163,7 +169,11 @@ class ApplicationModelService:
         normalized = str(extension_id or "").strip()
         if not normalized:
             return
-        definitions = tuple([*self._relations_by_extension.get(normalized, ()), definition])
+        definitions = self._replace_definition(
+            self._relations_by_extension.get(normalized, ()),
+            definition,
+            self._relation_definition_key,
+        )
         self._relations_by_extension[normalized] = definitions
         self._host._get_or_create_runtime_view(normalized).model_relations = definitions
         self._install_relation_descriptor(definition)
@@ -214,7 +224,11 @@ class ApplicationModelService:
         normalized = str(extension_id or "").strip()
         if not normalized:
             return
-        definitions = tuple([*self._casts_by_extension.get(normalized, ()), definition])
+        definitions = self._replace_definition(
+            self._casts_by_extension.get(normalized, ()),
+            definition,
+            self._cast_definition_key,
+        )
         self._casts_by_extension[normalized] = definitions
         self._host._get_or_create_runtime_view(normalized).model_casts = definitions
 
@@ -237,7 +251,11 @@ class ApplicationModelService:
         normalized = str(extension_id or "").strip()
         if not normalized:
             return
-        definitions = tuple([*self._defaults_by_extension.get(normalized, ()), definition])
+        definitions = self._replace_definition(
+            self._defaults_by_extension.get(normalized, ()),
+            definition,
+            self._default_definition_key,
+        )
         self._defaults_by_extension[normalized] = definitions
         self._host._get_or_create_runtime_view(normalized).model_defaults = definitions
 
@@ -262,10 +280,18 @@ class ApplicationModelService:
         normalized = str(extension_id or "").strip()
         if not normalized:
             return
-        definitions = tuple([*self._private_checkers_by_extension.get(normalized, ()), definition])
+        definitions = self._replace_definition(
+            self._private_checkers_by_extension.get(normalized, ()),
+            definition,
+            self._model_definition_key,
+        )
         self._private_checkers_by_extension[normalized] = definitions
         view = self._host._get_or_create_runtime_view(normalized)
-        view.model_definitions = tuple([*view.model_definitions, definition])
+        view.model_definitions = self._replace_definition(
+            view.model_definitions,
+            definition,
+            self._model_definition_key,
+        )
         self._ensure_private_save_hook(definition.model)
 
     def get_private_checkers(self, model: Any | None = None, *, extension_id: str | None = None) -> list[ExtensionModelDefinition]:
@@ -313,6 +339,49 @@ class ApplicationModelService:
             weak=False,
             dispatch_uid=f"bias.model_private.pre_save.{model_label}",
         )
+
+    def _model_definition_key(self, definition: ExtensionModelDefinition) -> tuple[Any, str, str]:
+        return (
+            self._model_identity_key(definition.model),
+            str(definition.kind or "").strip(),
+            str(definition.key or "").strip(),
+        )
+
+    def _relation_definition_key(self, definition: ExtensionModelRelationDefinition) -> tuple[Any, str]:
+        return (self._model_identity_key(definition.model), str(definition.name or "").strip())
+
+    def _cast_definition_key(self, definition: ExtensionModelCastDefinition) -> tuple[Any, str]:
+        return (self._model_identity_key(definition.model), str(definition.attribute or "").strip())
+
+    def _default_definition_key(self, definition: ExtensionModelDefaultDefinition) -> tuple[Any, str]:
+        return (self._model_identity_key(definition.model), str(definition.attribute or "").strip())
+
+    def _model_identity_key(self, model: Any) -> tuple[Any, ...]:
+        if isinstance(model, ExtensionModelReference):
+            return (
+                "reference",
+                str(model.service_key or "").strip(),
+                str(model.attribute or "model").strip() or "model",
+            )
+        resolved_model = resolve_model_reference(model, self._host)
+        target = resolved_model if resolved_model is not None else model
+        if isinstance(target, type):
+            return (
+                "class",
+                getattr(target, "__module__", ""),
+                getattr(target, "__qualname__", getattr(target, "__name__", "")),
+            )
+        if isinstance(target, (str, int, float, bool, tuple)):
+            return ("value", target)
+        return ("object", id(target))
+
+    @staticmethod
+    def _replace_definition(definitions, definition, key):
+        definition_key = key(definition)
+        return tuple([
+            *(item for item in definitions or () if key(item) != definition_key),
+            definition,
+        ])
 
 
 class ApplicationModelUrlService:
@@ -388,6 +457,114 @@ class ApplicationModelUrlService:
             exclude_id=exclude_id,
             max_length=definition.max_length,
         )
+
+    def to_slug(
+        self,
+        model: Any,
+        instance: Any,
+        *,
+        identifier: str = "default",
+        context: dict | None = None,
+    ) -> str:
+        definition = self.get_slug_driver(model, identifier)
+        if definition is None:
+            raise KeyError(f"slug driver not registered: {model}.{identifier}")
+
+        resolved_context = self._driver_context(model, definition, identifier, context)
+        driver = resolve_container_value(definition.driver, self._host)
+        if hasattr(driver, "to_slug"):
+            return str(self._invoke_driver_method(driver.to_slug, instance, resolved_context) or "").strip()
+        if hasattr(driver, "toSlug"):
+            return str(self._invoke_driver_method(driver.toSlug, instance, resolved_context) or "").strip()
+        return str(getattr(instance, definition.field, "") or "").strip()
+
+    def resolve_slug(
+        self,
+        model: Any,
+        slug: str,
+        *,
+        identifier: str = "default",
+        context: dict | None = None,
+    ):
+        definition = self.get_slug_driver(model, identifier)
+        if definition is None:
+            raise KeyError(f"slug driver not registered: {model}.{identifier}")
+
+        normalized_slug = str(slug or "").strip()
+        if not normalized_slug:
+            return None
+
+        resolved_context = self._driver_context(model, definition, identifier, context)
+        driver = resolve_container_value(definition.driver, self._host)
+        if hasattr(driver, "from_slug"):
+            return self._invoke_driver_method(driver.from_slug, normalized_slug, resolved_context)
+        if hasattr(driver, "fromSlug"):
+            return self._invoke_driver_method(driver.fromSlug, normalized_slug, resolved_context)
+
+        manager = getattr(model, "objects", None)
+        if manager is None:
+            return None
+        try:
+            return manager.get(**{definition.field: unquote(normalized_slug)})
+        except getattr(model, "DoesNotExist", Exception):
+            return None
+
+    def resolve_slugs(
+        self,
+        model: Any,
+        slugs: list[str] | tuple[str, ...],
+        *,
+        identifier: str = "default",
+        context: dict | None = None,
+    ) -> dict[str, Any]:
+        definition = self.get_slug_driver(model, identifier)
+        if definition is None:
+            raise KeyError(f"slug driver not registered: {model}.{identifier}")
+
+        normalized_slugs = [
+            str(slug or "").strip()
+            for slug in slugs or ()
+            if str(slug or "").strip()
+        ]
+        if not normalized_slugs:
+            return {}
+
+        resolved_context = self._driver_context(model, definition, identifier, context)
+        driver = resolve_container_value(definition.driver, self._host)
+        if hasattr(driver, "from_slugs"):
+            resolved = self._invoke_driver_method(driver.from_slugs, normalized_slugs, resolved_context)
+            return dict(resolved or {})
+        if hasattr(driver, "fromSlugs"):
+            resolved = self._invoke_driver_method(driver.fromSlugs, normalized_slugs, resolved_context)
+            return dict(resolved or {})
+
+        return {
+            slug: instance
+            for slug in normalized_slugs
+            if (instance := self.resolve_slug(model, slug, identifier=identifier, context=context)) is not None
+        }
+
+    @staticmethod
+    def _driver_context(
+        model: Any,
+        definition: ExtensionModelSlugDriverDefinition,
+        identifier: str,
+        context: dict | None,
+    ) -> dict:
+        return {
+            **dict(context or {}),
+            "model": model,
+            "identifier": str(identifier or "default").strip() or "default",
+            "field": definition.field,
+            "source_field": definition.source_field,
+        }
+
+    @staticmethod
+    def _invoke_driver_method(method: Any, value: Any, context: dict):
+        try:
+            return method(value, context=context)
+        except TypeError:
+            return method(value)
 
     @staticmethod
     def _invoke_slug_driver(driver: Any, source: Any, explicit_slug: str, context: dict) -> str:

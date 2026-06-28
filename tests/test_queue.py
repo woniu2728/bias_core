@@ -14,9 +14,9 @@ class QueueServiceTests(TestCase):
         self.assertFalse(status["available"])
 
     @override_settings(CELERY_BROKER_URL="redis://localhost:6379/1")
-    @patch("config.celery.app.control.inspect")
+    @patch("bias_core.services.queue.QueueService._get_celery_app")
     @patch("bias_core.queue_service.QueueService._should_skip_live_worker_check", return_value=False)
-    def test_queue_worker_status_reports_available_workers(self, _skip_live_worker_check, inspect):
+    def test_queue_worker_status_reports_available_workers(self, _skip_live_worker_check, get_celery_app):
         from bias_core.queue_service import QueueService
 
         Setting.objects.update_or_create(
@@ -24,6 +24,7 @@ class QueueServiceTests(TestCase):
             defaults={"value": json.dumps(True)},
         )
         clear_runtime_setting_caches()
+        inspect = get_celery_app.return_value.control.inspect
         inspect.return_value.ping.return_value = {
             "celery@worker-a": {"ok": "pong"},
             "celery@worker-b": {"ok": "pong"},
@@ -36,9 +37,9 @@ class QueueServiceTests(TestCase):
         self.assertEqual(status["worker_count"], 2)
 
     @override_settings(CELERY_BROKER_URL="redis://localhost:6379/1")
-    @patch("config.celery.app.control.inspect")
+    @patch("bias_core.services.queue.QueueService._get_celery_app")
     @patch("bias_core.queue_service.QueueService._should_skip_live_worker_check", return_value=False)
-    def test_queue_worker_status_reports_unavailable_without_ping_response(self, _skip_live_worker_check, inspect):
+    def test_queue_worker_status_reports_unavailable_without_ping_response(self, _skip_live_worker_check, get_celery_app):
         from bias_core.queue_service import QueueService
 
         Setting.objects.update_or_create(
@@ -46,6 +47,7 @@ class QueueServiceTests(TestCase):
             defaults={"value": json.dumps(True)},
         )
         clear_runtime_setting_caches()
+        inspect = get_celery_app.return_value.control.inspect
         inspect.return_value.ping.return_value = None
 
         status = QueueService.get_worker_status()
@@ -55,8 +57,8 @@ class QueueServiceTests(TestCase):
         self.assertEqual(status["worker_count"], 0)
 
     @override_settings(CELERY_BROKER_URL="redis://localhost:6379/1")
-    @patch("config.celery.app.control.inspect")
-    def test_queue_worker_status_skips_live_probe_during_tests(self, inspect):
+    @patch("bias_core.services.queue.QueueService._get_celery_app")
+    def test_queue_worker_status_skips_live_probe_during_tests(self, get_celery_app):
         from bias_core.queue_service import QueueService
 
         Setting.objects.update_or_create(
@@ -70,7 +72,7 @@ class QueueServiceTests(TestCase):
         self.assertEqual(status["status"], "unavailable")
         self.assertEqual(status["label"], "测试环境跳过")
         self.assertFalse(status["available"])
-        inspect.assert_not_called()
+        get_celery_app.assert_not_called()
 
     def test_queue_metrics_record_sync_dispatch(self):
         from bias_core.queue_service import QueueService
@@ -118,7 +120,7 @@ class QueueServiceTests(TestCase):
             QueueService.dispatch_celery_task(SuccessfulTask(), fallback=lambda: "sync"),
             "queued",
         )
-        with self.assertLogs("bias_core.queue_service", level="WARNING") as logs:
+        with self.assertLogs("bias_core.services.queue", level="WARNING") as logs:
             self.assertEqual(
                 QueueService.dispatch_celery_task(FailingTask(), fallback=lambda: "fallback"),
                 "fallback",

@@ -32,6 +32,18 @@ if TYPE_CHECKING:
     from bias_core.extensions.application import ExtensionHost, ExtensionRuntimeView
 
 
+def _camel_to_snake(value: str) -> str:
+    output = []
+    for index, char in enumerate(str(value or "").strip()):
+        if char.isupper() and index > 0 and output and output[-1] != "_":
+            output.append("_")
+        if char in ("-", ".", " "):
+            output.append("_")
+        else:
+            output.append(char.lower())
+    return "".join(output).strip("_")
+
+
 @dataclass(frozen=True)
 class ForumPermissionExtender:
     checkers: tuple[ExtensionSystemHookDefinition, ...] = ()
@@ -403,6 +415,112 @@ class NotificationsExtender:
     notification_types: tuple[NotificationTypeDefinition, ...] = ()
     user_preferences: tuple[UserPreferenceDefinition, ...] = ()
 
+    def type(
+        self,
+        notification_type: str | NotificationTypeDefinition,
+        *,
+        label: str = "",
+        description: str = "",
+        icon: str = "fas fa-bell",
+        navigation_scope: str = "notifications",
+        preference_key: str = "",
+        preference_label: str = "",
+        preference_description: str = "",
+        preference_default_enabled: bool = True,
+        register_preference: bool = True,
+    ) -> "NotificationsExtender":
+        if isinstance(notification_type, NotificationTypeDefinition):
+            definition = notification_type
+        else:
+            code = str(notification_type or "").strip()
+            if not code:
+                return self
+            resolved_preference_key = str(preference_key or f"notify_{_camel_to_snake(code)}").strip()
+            definition = NotificationTypeDefinition(
+                code=code,
+                label=str(label or code).strip(),
+                module_id="",
+                description=str(description or "").strip(),
+                icon=str(icon or "fas fa-bell").strip(),
+                navigation_scope=str(navigation_scope or "notifications").strip(),
+                preference_key=resolved_preference_key,
+                preference_label=str(preference_label or label or code).strip(),
+                preference_description=str(preference_description or description or "").strip(),
+                preference_default_enabled=bool(preference_default_enabled),
+            )
+
+        preference = None
+        if register_preference and definition.preference_key:
+            preference = UserPreferenceDefinition(
+                key=definition.preference_key,
+                label=definition.preference_label or definition.label,
+                module_id=definition.module_id,
+                description=definition.preference_description or definition.description,
+                category="notification",
+                default_value=bool(definition.preference_default_enabled),
+            )
+
+        preferences = self.user_preferences
+        if preference is not None:
+            preferences = tuple([
+                *(
+                    item
+                    for item in preferences
+                    if item.key != preference.key
+                ),
+                preference,
+            ])
+
+        return NotificationsExtender(
+            notification_types=tuple([
+                *(
+                    item
+                    for item in self.notification_types
+                    if item.code != definition.code
+                ),
+                definition,
+            ]),
+            user_preferences=preferences,
+        )
+
+    def types(self, *notification_types: str | NotificationTypeDefinition, **kwargs) -> "NotificationsExtender":
+        extender = self
+        for notification_type in notification_types:
+            extender = extender.type(notification_type, **kwargs)
+        return extender
+
+    def preference(
+        self,
+        key: str,
+        *,
+        label: str = "",
+        description: str = "",
+        default_value: bool = True,
+        category: str = "notification",
+    ) -> "NotificationsExtender":
+        normalized_key = str(key or "").strip()
+        if not normalized_key:
+            return self
+        definition = UserPreferenceDefinition(
+            key=normalized_key,
+            label=str(label or normalized_key).strip(),
+            module_id="",
+            description=str(description or "").strip(),
+            category=str(category or "notification").strip() or "notification",
+            default_value=bool(default_value),
+        )
+        return NotificationsExtender(
+            notification_types=self.notification_types,
+            user_preferences=tuple([
+                *(
+                    item
+                    for item in self.user_preferences
+                    if item.key != definition.key
+                ),
+                definition,
+            ]),
+        )
+
     def extend(self, app: "ExtensionHost", extension: "ExtensionRuntimeView") -> None:
         if not (self.notification_types or self.user_preferences):
             return
@@ -411,9 +529,9 @@ class NotificationsExtender:
 
         def apply(forum, host: "ExtensionHost"):
             for definition in self.notification_types:
-                forum.register_notification_type(definition, extension_id=extension_id)
+                forum.register_notification_type(replace(definition, module_id=definition.module_id or extension_id), extension_id=extension_id)
             for definition in self.user_preferences:
-                forum.register_user_preference(definition, extension_id=extension_id)
+                forum.register_user_preference(replace(definition, module_id=definition.module_id or extension_id), extension_id=extension_id)
             return forum
 
         app.resolving("forum", apply)

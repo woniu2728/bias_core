@@ -8,6 +8,7 @@ from bias_core.extensions.application_types import (
     ApplicationRouteMount,
     ApplicationWebSocketRoute,
 )
+from bias_core.extensions.application_event_helpers import register_event_type_aliases
 from bias_core.extensions.container import resolve_container_value
 from bias_core.extensions.types import ExtensionFrontendRouteDefinition
 
@@ -99,9 +100,11 @@ class ApplicationRouteService:
             router=router,
             tags=tuple(tags or ()),
         )
-        mounts = list(self._mounts_by_extension.get(normalized_extension_id, ()))
-        mounts.append(mount)
-        self._mounts_by_extension[normalized_extension_id] = tuple(mounts)
+        self._mounts_by_extension[normalized_extension_id] = _replace_by_key(
+            self._mounts_by_extension.get(normalized_extension_id, ()),
+            mount,
+            _route_mount_key,
+        )
         self._host._get_or_create_runtime_view(normalized_extension_id).route_mounts = tuple(
             self.get_mounts(extension_id=normalized_extension_id)
         )
@@ -320,11 +323,11 @@ class ApplicationFrontendService:
             frontend.common_entry = str(common_entry).strip()
         frontend.css = self._merge_pages(frontend.css, css)
         frontend.js_directories = self._merge_pages(frontend.js_directories, js_directories)
-        frontend.preloads = tuple([*frontend.preloads, *(preloads or ())])
-        frontend.content_callbacks = tuple([*frontend.content_callbacks, *(content_callbacks or ())])
-        frontend.document_attributes = tuple([*frontend.document_attributes, *(document_attributes or ())])
-        frontend.head_tags = tuple([*frontend.head_tags, *(head_tags or ())])
-        frontend.theme_variables = tuple([*frontend.theme_variables, *(theme_variables or ())])
+        frontend.preloads = self._merge_keyed(frontend.preloads, preloads, _preload_key)
+        frontend.content_callbacks = self._merge_keyed(frontend.content_callbacks, content_callbacks, _content_callback_key)
+        frontend.document_attributes = self._merge_keyed(frontend.document_attributes, document_attributes, _document_attributes_key)
+        frontend.head_tags = self._merge_keyed(frontend.head_tags, head_tags, _head_tag_key)
+        frontend.theme_variables = self._merge_keyed(frontend.theme_variables, theme_variables, _theme_variables_key)
         if title_driver is not None:
             frontend.title_driver = title_driver
         frontend.routes = self._merge_routes(frontend.routes, routes)
@@ -454,6 +457,17 @@ class ApplicationFrontendService:
                 merged.append(normalized)
         return tuple(merged)
 
+    def _merge_keyed(self, current: tuple[Any, ...], additions, key) -> tuple[Any, ...]:
+        merged = list(current)
+        for value in additions or ():
+            value_key = key(value)
+            if value_key:
+                merged = [item for item in merged if key(item) != value_key]
+            elif value in merged:
+                continue
+            merged.append(value)
+        return tuple(merged)
+
     def _merge_routes(
         self,
         current: tuple[ExtensionFrontendRouteDefinition, ...],
@@ -470,6 +484,93 @@ class ApplicationFrontendService:
             merged.append(route)
             seen.add(key)
         return tuple(sorted(merged, key=lambda item: (item.frontend, item.order, item.name)))
+
+
+def _preload_key(value: Any) -> tuple | str:
+    if isinstance(value, dict):
+        return (
+            str(value.get("href") or "").strip(),
+            str(value.get("as") or "").strip(),
+            str(value.get("type") or "").strip(),
+            str(value.get("crossorigin") or "").strip(),
+        )
+    return str(value or "").strip()
+
+
+def _route_mount_key(value: ApplicationRouteMount) -> tuple:
+    return (
+        str(getattr(value, "prefix", "") or "").strip(),
+        _callback_identity(getattr(value, "router", None)),
+    )
+
+
+def _replace_by_key(items, item, key):
+    item_key = key(item)
+    return tuple([
+        *(current for current in items or () if key(current) != item_key),
+        item,
+    ])
+
+
+def _content_callback_key(value: Any) -> str:
+    if isinstance(value, dict):
+        return _callback_identity(value.get("callback"))
+    return _callback_identity(value)
+
+
+def _document_attributes_key(value: Any) -> tuple:
+    if isinstance(value, dict):
+        return tuple(sorted(str(key) for key in value.keys()))
+    return (_callback_identity(value),)
+
+
+def _head_tag_key(value: Any) -> tuple:
+    if isinstance(value, dict):
+        tag = str(value.get("tag") or "").strip().lower()
+        attributes = value.get("attributes") if isinstance(value.get("attributes"), dict) else {}
+        if not tag and "attributes" not in value:
+            tag = str(value.get("name") or value.get("property") or "").strip().lower()
+            attributes = value
+        identity_attrs = tuple(
+            sorted(
+                (str(key), str(attributes.get(key) or ""))
+                for key in ("name", "property", "rel", "href", "src")
+                if str(attributes.get(key) or "").strip()
+            )
+        )
+        return (tag, identity_attrs)
+    return (_callback_identity(value),)
+
+
+def _theme_variables_key(value: Any) -> tuple:
+    if isinstance(value, dict):
+        return tuple(sorted(str(key) for key in value.keys()))
+    return (_callback_identity(value),)
+
+
+def _callback_identity(callback: Any) -> str:
+    label = str(getattr(callback, "__bias_callback_label__", "") or "").strip()
+    if label:
+        return label
+    if isinstance(callback, str):
+        return callback.strip()
+    module = str(getattr(callback, "__module__", "") or "").strip()
+    qualname = str(getattr(callback, "__qualname__", "") or getattr(callback, "__name__", "") or "").strip()
+    if module or qualname:
+        name = ".".join(item for item in (module, qualname) if item)
+        if "<lambda>" not in qualname:
+            return name
+    code = getattr(callback, "__code__", None)
+    if code is not None:
+        location = ":".join((
+            str(getattr(code, "co_filename", "") or "").strip(),
+            str(getattr(code, "co_firstlineno", "") or "").strip(),
+        )).strip(":")
+        if location:
+            return f"{name or '<callable>'}@{location}"
+    if callback is None:
+        return ""
+    return f"{type(callback).__module__}.{type(callback).__qualname__}:{id(callback)}"
 
 
 class ApplicationServiceProviderRegistry:
@@ -489,15 +590,17 @@ class ApplicationServiceProviderRegistry:
         if not normalized_extension_id or not normalized_key:
             return ""
 
-        providers = list(self._providers_by_extension.get(normalized_extension_id, ()))
-        if any(item.key == normalized_key for item in providers):
-            return normalized_key
-
+        providers = [
+            item
+            for item in self._providers_by_extension.get(normalized_extension_id, ())
+            if item.key != normalized_key
+        ]
         providers.append(provider)
         self._providers_by_extension[normalized_extension_id] = tuple(providers)
-        if normalized_key not in self._registered_provider_keys:
-            provider.register(self._host)
-            self._registered_provider_keys.add(normalized_key)
+        provider.register(self._host)
+        self._registered_provider_keys.add(normalized_key)
+        self._booted_provider_keys.discard(normalized_key)
+        self._register_provider_event_type_aliases(provider)
         self._host._get_or_create_runtime_view(normalized_extension_id).service_providers = tuple(
             self.get_provider_keys(extension_id=normalized_extension_id)
         )
@@ -538,4 +641,15 @@ class ApplicationServiceProviderRegistry:
 
     def get_provider_keys(self, *, extension_id: str | None = None) -> list[str]:
         return [provider.key for provider in self.get_providers(extension_id=extension_id)]
+
+    def _register_provider_event_type_aliases(self, provider: ApplicationServiceProvider) -> None:
+        target = provider._resolve_target()
+        event_types = getattr(target, "event_types", None)
+        if callable(event_types):
+            event_types = event_types()
+        if event_types is None and isinstance(target, dict):
+            event_types = target.get("event_types")
+        register_event_type_aliases(event_types)
+        self._host.events.resolve_pending_listeners()
+        self._host.realtime.resolve_pending_discussion_broadcasts()
 

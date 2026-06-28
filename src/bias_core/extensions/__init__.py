@@ -98,6 +98,7 @@ from bias_core.extensions.sdk import (
     runtime_action,
     setting_field,
 )
+from bias_core.extensions.notifications import NotificationBlueprint
 from bias_core.extensions.platform import get_enabled_theme, get_theme_settings
 
 __all__ = [
@@ -158,6 +159,7 @@ __all__ = [
     'ModelUrlExtender',
     'ModelVisibilityExtender',
     'NotificationTypeDefinition',
+    'NotificationBlueprint',
     'NotificationsExtender',
     'PermissionDefinition',
     'PolicyExtender',

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 from django.conf import settings
 from django.core.management import BaseCommand, CommandError
@@ -47,10 +48,19 @@ class Command(BaseCommand):
             help="附带权限分组明细，默认仅输出权限摘要",
         )
         parser.add_argument(
+            "--contract-baseline-only",
+            action="store_true",
+            help="仅输出扩展契约基线，供 prepare_release --contract-baseline 消费",
+        )
+        parser.add_argument(
             "--format",
             choices=("json",),
             default="json",
             help="输出格式，当前仅支持 json",
+        )
+        parser.add_argument(
+            "--output",
+            help="可选：把输出写入指定 JSON 文件，使用 UTF-8 编码",
         )
 
     def handle(self, *args, **options):
@@ -58,6 +68,8 @@ class Command(BaseCommand):
         only_attention = bool(options.get("only_attention"))
         only_blocking = bool(options.get("only_blocking"))
         include_permissions = bool(options.get("include_permissions"))
+        contract_baseline_only = bool(options.get("contract_baseline_only"))
+        output = str(options.get("output") or "").strip()
 
         try:
             registry = get_extension_registry()
@@ -152,6 +164,7 @@ class Command(BaseCommand):
             "only_attention": only_attention,
             "only_blocking": only_blocking,
             "include_permissions": include_permissions,
+            "contract_baseline_only": contract_baseline_only,
         }
         try:
             payload["package_lock"] = registry.inspect_extension_packages(force=True)
@@ -162,7 +175,18 @@ class Command(BaseCommand):
                 "message": "Django 数据库迁移尚未应用，无法读取扩展安装状态。请先执行 python manage.py migrate。",
                 "error": str(exc),
             }
-        self.stdout.write(json.dumps(payload, ensure_ascii=False, indent=2))
+        if contract_baseline_only:
+            payload = _build_contract_baseline_payload(payload)
+        serialized = json.dumps(payload, ensure_ascii=False, indent=2)
+        if output:
+            output_path = Path(output)
+            if not output_path.is_absolute():
+                output_path = settings.BASE_DIR / output_path
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_text(serialized + "\n", encoding="utf-8")
+            self.stdout.write(str(output_path))
+            return
+        self.stdout.write(serialized)
 
 
 def _resolve_inspection_extensions(filesystem_extensions):
@@ -194,6 +218,26 @@ def _resolve_core_module_extension(extension_id: str):
     if module is None:
         return None
     return resolve_module_extension_definition(module)
+
+
+def _build_contract_baseline_payload(payload: dict) -> dict:
+    snapshots = {}
+    for extension in payload.get("extensions") or ():
+        if not isinstance(extension, dict):
+            continue
+        extension_id = str(extension.get("id") or "").strip()
+        snapshot = extension.get("contract_snapshot")
+        if extension_id and isinstance(snapshot, dict):
+            snapshots[extension_id] = snapshot
+    return {
+        "schema_version": 1,
+        "contract_snapshots": dict(sorted(snapshots.items())),
+        "meta": {
+            "source": "inspect_extensions",
+            "extension_count": len(snapshots),
+            "base_dir": (payload.get("meta") or {}).get("base_dir", ""),
+        },
+    }
 
 
 def _build_database_unavailable_payload(

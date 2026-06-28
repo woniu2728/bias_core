@@ -23,6 +23,10 @@ def get_runtime_tag_model():
     return _tag.value("model", required_message="tags.service 未提供标签模型")
 
 
+def get_runtime_tag_state_model():
+    return _tag.value("state_model", required_message="tags.service 未提供用户标签状态模型")
+
+
 def get_runtime_discussion_tag_model():
     return _tag.value("relationship_model", required_message="tags.service 未提供讨论标签关系模型")
 
@@ -51,8 +55,16 @@ def create_runtime_tag(**kwargs):
     return _tag.create_tag(**kwargs)
 
 
+def update_runtime_tag(tag_id: int, user: Any, **kwargs):
+    return _tag.update_tag(tag_id, user, **kwargs)
+
+
 def move_runtime_tag(*, tag_id: int, direction: str, user: Any) -> bool:
     return bool(_tag.move_tag(tag_id, direction, user))
+
+
+def order_runtime_tags(*, order: list[dict], user: Any) -> list[Any]:
+    return list(_tag.order_tags(order, user))
 
 
 def delete_runtime_tag(tag_id: int, user: Any) -> bool:
@@ -75,8 +87,27 @@ def can_runtime_start_discussion_in_tag(tag: Any, user: Any) -> bool:
     return bool(_tag.can_start_discussion_in_tag(tag, user))
 
 
+def can_runtime_add_to_discussion(tag: Any, user: Any) -> bool:
+    try:
+        return bool(_tag.can_add_to_discussion(tag, user))
+    except RuntimeError:
+        return can_runtime_start_discussion_in_tag(tag, user)
+
+
 def can_runtime_reply_in_tag(tag: Any, user: Any) -> bool:
     return bool(_tag.can_reply_in_tag(tag, user))
+
+
+def get_runtime_tag_state_for_user(tag: Any, user: Any):
+    return _tag.state_for_user(tag, user)
+
+
+def prefetch_runtime_tag_state_for_user(queryset: Any, user: Any):
+    return _tag.prefetch_state_for_user(queryset, user)
+
+
+def mark_runtime_tag_read(tag: Any, user: Any, marked_as_read_at=None):
+    return _tag.mark_tag_read(tag, user, marked_as_read_at)
 
 
 def refresh_runtime_discussion_tag_stats(discussion) -> None:
@@ -89,6 +120,13 @@ def refresh_runtime_tag_stats(tag_ids=None) -> None:
 
 def ensure_can_start_discussion_in_runtime_tags(user: Any, tag_ids) -> list[Any]:
     return list(_tag.ensure_can_start_discussion(user, tag_ids))
+
+
+def ensure_can_change_runtime_discussion_tags(user: Any, discussion: Any, tag_ids) -> list[Any]:
+    try:
+        return list(_tag.ensure_can_change_discussion_tags(user, discussion, tag_ids))
+    except RuntimeError:
+        return ensure_can_start_discussion_in_runtime_tags(user, tag_ids)
 
 
 # 向后兼容：旧版 runtime_tag_method 动态方法解析

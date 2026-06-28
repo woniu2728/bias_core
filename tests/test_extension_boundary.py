@@ -1,6 +1,63 @@
 from tests.common import *
+import importlib
+
+
+def core_source_root() -> Path:
+    return Path(settings.BASE_DIR) / "src" / "bias_core"
+
+
+def extension_backend_roots() -> list[tuple[str, Path]]:
+    site_extensions_root = Path(settings.BASE_DIR) / "extensions"
+    roots: list[tuple[str, Path]] = []
+
+    if site_extensions_root.exists():
+        for extension_dir in site_extensions_root.iterdir():
+            backend_root = extension_dir / "backend"
+            if backend_root.is_dir():
+                roots.append((extension_dir.name, backend_root))
+        return roots
+
+    workspace_root = Path(settings.BASE_DIR).parent
+    for extension_dir in sorted(workspace_root.glob("bias-ext-*")):
+        package_name = extension_dir.name.replace("-", "_")
+        backend_root = extension_dir / package_name / "backend"
+        if backend_root.is_dir():
+            roots.append((extension_dir.name.removeprefix("bias-ext-"), backend_root))
+
+    return roots
+
+
+def iter_extension_backend_files():
+    for extension_id, backend_root in extension_backend_roots():
+        for path in backend_root.glob("**/*.py"):
+            if path.name == "tests.py" or "django_migrations" in path.parts:
+                continue
+            yield extension_id, path
+
+
+def extension_source_backend_root(extension_id: str) -> Path | None:
+    workspace_root = Path(settings.BASE_DIR).parent
+    extension_dir = workspace_root / f"bias-ext-{extension_id}"
+    package_root = extension_dir / f"bias_ext_{extension_id.replace('-', '_')}" / "backend"
+    if package_root.is_dir():
+        return package_root
+    return None
+
+
+def relative_to_known_root(path: Path) -> str:
+    try:
+        return str(path.relative_to(settings.BASE_DIR))
+    except ValueError:
+        return str(path)
 
 class ExtensionPublicApiBoundaryTests(TestCase):
+    def test_public_sdk_import_whitelist_modules_are_importable(self):
+        from bias_core.extensions.validation_rules import PUBLIC_EXTENSION_IMPORT_MODULES
+
+        for module_name in sorted(PUBLIC_EXTENSION_IMPORT_MODULES):
+            with self.subTest(module_name=module_name):
+                importlib.import_module(module_name)
+
     def test_public_sdk_exports_common_extension_definitions_and_helpers(self):
         from bias_core.extensions import (
             ExtensionEventListenerDefinition,
@@ -52,6 +109,8 @@ class ExtensionPublicApiBoundaryTests(TestCase):
             "clear_refresh_token_cookie",
             "require_forum_permission",
             "require_staff",
+            "resolve_authenticated_user",
+            "resolve_user_from_refresh_token",
             "set_access_token_cookie",
             "set_refresh_token_cookie",
         )
@@ -61,7 +120,6 @@ class ExtensionPublicApiBoundaryTests(TestCase):
             self.assertTrue(callable(getattr(platform, name)))
 
     def test_builtin_extension_admin_code_uses_platform_staff_guard(self):
-        extensions_root = Path(settings.BASE_DIR) / "extensions"
         violations = []
         forbidden = (
             "def _require_staff",
@@ -69,13 +127,11 @@ class ExtensionPublicApiBoundaryTests(TestCase):
             "request.auth.is_staff",
         )
 
-        for path in extensions_root.glob("*/backend/**/*.py"):
-            if path.name == "tests.py" or "django_migrations" in path.parts:
-                continue
+        for _, path in iter_extension_backend_files():
             text = path.read_text(encoding="utf-8")
             for marker in forbidden:
                 if marker in text:
-                    violations.append(f"{path.relative_to(settings.BASE_DIR)}: {marker}")
+                    violations.append(f"{relative_to_known_root(path)}: {marker}")
 
         self.assertEqual(violations, [])
 
@@ -86,7 +142,7 @@ class ExtensionPublicApiBoundaryTests(TestCase):
         self.assertEqual(contracts.ExtensionModelVisibilityDefinition.__name__, "ExtensionModelVisibilityDefinition")
         self.assertEqual(contracts.ResourceEndpointDefinition.__name__, "ResourceEndpointDefinition")
 
-        sdk_path = Path(settings.BASE_DIR) / "apps" / "core" / "extensions" / "sdk.py"
+        sdk_path = core_source_root() / "extensions" / "sdk.py"
         sdk_source = sdk_path.read_text(encoding="utf-8")
         forbidden = (
             "from bias_core.extensions.types",
@@ -99,19 +155,17 @@ class ExtensionPublicApiBoundaryTests(TestCase):
         forbidden = (
             "from bias_core.extensions.runtime_access",
             "from bias_core.extensions import runtime_access",
+            "from bias_core.extensions.forum",
             "from bias_core.extensions.types",
             "from bias_core.forum_registry_types",
             "from bias_core.resource_registry",
         )
-        extensions_root = Path(settings.BASE_DIR) / "extensions"
         violations = []
-        for path in extensions_root.glob("*/backend/**/*.py"):
-            if path.name == "tests.py" or "django_migrations" in path.parts:
-                continue
+        for _, path in iter_extension_backend_files():
             text = path.read_text(encoding="utf-8")
             for marker in forbidden:
                 if marker in text:
-                    violations.append(f"{path.relative_to(settings.BASE_DIR)}: {marker}")
+                    violations.append(f"{relative_to_known_root(path)}: {marker}")
 
         self.assertEqual(violations, [])
 
@@ -148,15 +202,12 @@ class ExtensionPublicApiBoundaryTests(TestCase):
             "from bias_core.storage_service",
             "from bias_core.visibility",
         )
-        extensions_root = Path(settings.BASE_DIR) / "extensions"
         violations = []
-        for path in extensions_root.glob("*/backend/**/*.py"):
-            if path.name == "tests.py" or "django_migrations" in path.parts:
-                continue
+        for _, path in iter_extension_backend_files():
             text = path.read_text(encoding="utf-8")
             for marker in forbidden:
                 if marker in text:
-                    violations.append(f"{path.relative_to(settings.BASE_DIR)}: {marker}")
+                    violations.append(f"{relative_to_known_root(path)}: {marker}")
 
         self.assertEqual(violations, [])
 
@@ -191,52 +242,86 @@ class ExtensionPublicApiBoundaryTests(TestCase):
             "from bias_core.storage_service",
             "from bias_core.visibility",
         )
-        extensions_root = Path(settings.BASE_DIR) / "extensions"
         violations = []
-        for path in extensions_root.glob("*/backend/**/*.py"):
-            if path.name == "tests.py" or "django_migrations" in path.parts:
-                continue
+        for _, path in iter_extension_backend_files():
             text = path.read_text(encoding="utf-8")
             for marker in forbidden:
                 if marker in text:
-                    violations.append(f"{path.relative_to(settings.BASE_DIR)}: {marker}")
+                    violations.append(f"{relative_to_known_root(path)}: {marker}")
 
         self.assertEqual(violations, [])
 
     def test_builtin_extension_backend_code_does_not_import_other_extension_backends(self):
-        extensions_root = Path(settings.BASE_DIR) / "extensions"
         violations = []
-        for source_extension in extensions_root.iterdir():
-            backend_root = source_extension / "backend"
-            if not backend_root.is_dir():
-                continue
+        backend_roots = extension_backend_roots()
+        for source_extension, backend_root in backend_roots:
             for path in backend_root.glob("**/*.py"):
                 if path.name == "tests.py" or "django_migrations" in path.parts:
                     continue
                 text = path.read_text(encoding="utf-8")
-                for target_extension in extensions_root.iterdir():
+                for target_extension, _ in backend_roots:
                     if target_extension == source_extension:
                         continue
-                    target_name = target_extension.name.replace("-", "_")
+                    target_name = target_extension.replace("-", "_")
                     markers = (
                         f"from extensions.{target_name}.backend",
                         f"import extensions.{target_name}.backend",
+                        f"from bias_ext_{target_name}.backend",
+                        f"import bias_ext_{target_name}.backend",
                     )
                     if any(marker in text for marker in markers):
-                        violations.append(f"{path.relative_to(settings.BASE_DIR)}: {target_name}")
+                        violations.append(f"{relative_to_known_root(path)}: {target_name}")
 
         self.assertEqual(violations, [], "extension backend code must depend on public contracts, not other extension backends")
+
+    def test_refactored_builtin_extension_entries_stay_thin(self):
+        violations = []
+        checked = []
+        for extension_id, _ in extension_backend_roots():
+            backend_root = extension_source_backend_root(extension_id)
+            if backend_root is None:
+                continue
+            checked.append(extension_id)
+            entry_path = backend_root / "ext.py"
+            extenders_path = backend_root / "extenders.py"
+            if not entry_path.exists():
+                violations.append(f"{extension_id}: missing backend/ext.py")
+                continue
+            if not extenders_path.exists():
+                violations.append(f"{extension_id}: missing backend/extenders.py")
+                continue
+            source = entry_path.read_text(encoding="utf-8")
+            line_count = len(source.splitlines())
+            if line_count > 40:
+                violations.append(f"{extension_id}: backend/ext.py has {line_count} lines")
+            expected_import = f"from bias_ext_{extension_id.replace('-', '_')}.backend.extenders import"
+            if expected_import not in source:
+                violations.append(f"{extension_id}: backend/ext.py does not import backend.extenders")
+            forbidden_markers = (
+                "from bias_core.extensions import",
+                "from bias_core.extensions.",
+                "ApiResourceExtender(",
+                "ForumCapabilitiesExtender(",
+                "ModelExtender(",
+                "RealtimeExtender(",
+                "ServiceProviderExtender(",
+            )
+            for marker in forbidden_markers:
+                if marker in source:
+                    violations.append(f"{extension_id}: backend/ext.py contains {marker}")
+
+        self.assertTrue(checked, "expected at least one source extension backend entry to be checked")
+        self.assertEqual(violations, [])
 
     def test_core_runtime_code_uses_runtime_facade_instead_of_runtime_access_imports(self):
         forbidden = "from bias_core.extensions.runtime_access"
         allowed_files = {
-            Path(settings.BASE_DIR) / "apps" / "core" / "extensions" / "runtime_access.py",
-            Path(settings.BASE_DIR) / "apps" / "core" / "tests.py",
+            core_source_root() / "extensions" / "runtime_access.py",
         }
         allowed_dirs = {
-            Path(settings.BASE_DIR) / "apps" / "core" / "tests",
+            Path(settings.BASE_DIR) / "tests",
         }
-        core_root = Path(settings.BASE_DIR) / "apps" / "core"
+        core_root = core_source_root()
         violations = []
         for path in core_root.glob("**/*.py"):
             if path in allowed_files:
@@ -250,7 +335,7 @@ class ExtensionPublicApiBoundaryTests(TestCase):
         self.assertEqual(violations, [])
 
     def test_extension_serialization_does_not_import_admin_private_serializers(self):
-        source = (Path(settings.BASE_DIR) / "apps" / "core" / "extension_serialization.py").read_text(encoding="utf-8")
+        source = (core_source_root() / "extension_serialization.py").read_text(encoding="utf-8")
 
         self.assertNotIn("import _serialize_admin_extension", source)
         self.assertNotIn("import _serialize_admin_extensions_payload", source)

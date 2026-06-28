@@ -6,6 +6,16 @@ if TYPE_CHECKING:
     from bias_core.extensions.application import ExtensionHost
 
 
+def _replace_by_key(collection, definition, key):
+    definition_key = key(definition)
+    if not definition_key:
+        return [*collection, definition]
+    return [
+        *(item for item in collection if key(item) != definition_key),
+        definition,
+    ]
+
+
 class ApplicationSettingsService:
     def __init__(self, host: "ExtensionHost") -> None:
         self._host = host
@@ -30,19 +40,31 @@ class ApplicationSettingsService:
         view = self._host._get_or_create_runtime_view(normalized_extension_id)
         fields_collection = list(view.settings_schema)
         for field in fields or ():
-            fields_collection.append(field)
+            fields_collection = _replace_by_key(
+                fields_collection,
+                field,
+                lambda item: str(getattr(item, "key", "") or "").strip(),
+            )
         view.settings_schema = tuple(fields_collection)
 
         default_collection = list(view.settings_defaults)
         for definition in defaults or ():
             if getattr(definition, "key", ""):
-                default_collection.append(definition)
+                default_collection = _replace_by_key(
+                    default_collection,
+                    definition,
+                    lambda item: str(getattr(item, "key", "") or "").strip(),
+                )
         view.settings_defaults = tuple(default_collection)
 
         reset_collection = list(view.settings_reset_rules)
         for definition in reset_when or ():
             if getattr(definition, "key", "") and callable(getattr(definition, "callback", None)):
-                reset_collection.append(definition)
+                reset_collection = _replace_by_key(
+                    reset_collection,
+                    definition,
+                    lambda item: str(getattr(item, "key", "") or "").strip(),
+                )
         view.settings_reset_rules = tuple(reset_collection)
 
         cache_keys = list(view.settings_frontend_cache_keys)
@@ -55,13 +77,21 @@ class ApplicationSettingsService:
         theme_collection = list(view.settings_theme_variables)
         for definition in theme_variables or ():
             if getattr(definition, "name", "") and getattr(definition, "key", ""):
-                theme_collection.append(definition)
+                theme_collection = _replace_by_key(
+                    theme_collection,
+                    definition,
+                    lambda item: str(getattr(item, "name", "") or "").strip(),
+                )
         view.settings_theme_variables = tuple(theme_collection)
 
         forum_serialization_collection = list(view.settings_forum_serializations)
         for definition in forum_serializations or ():
             if getattr(definition, "attribute", "") and getattr(definition, "key", ""):
-                forum_serialization_collection.append(definition)
+                forum_serialization_collection = _replace_by_key(
+                    forum_serialization_collection,
+                    definition,
+                    lambda item: str(getattr(item, "attribute", "") or "").strip(),
+                )
         view.settings_forum_serializations = tuple(forum_serialization_collection)
 
         forum_keys = list(view.forum_settings_keys)
@@ -97,7 +127,11 @@ class ApplicationAdminActionService:
         view = self._host._get_or_create_runtime_view(normalized_extension_id)
         collection = list(view.runtime_actions)
         for action in actions or ():
-            collection.append(action)
+            collection = _replace_by_key(
+                collection,
+                action,
+                lambda item: str(getattr(item, "key", "") or "").strip(),
+            )
         view.runtime_actions = tuple(collection)
 
         if generated_page:
@@ -122,7 +156,11 @@ class ApplicationAdminActionService:
         view = self._host._get_or_create_runtime_view(normalized_extension_id)
         collection = list(view.admin_actions)
         for action in actions or ():
-            collection.append(action)
+            collection = _replace_by_key(
+                collection,
+                action,
+                lambda item: str(getattr(item, "key", "") or "").strip(),
+            )
         view.admin_actions = tuple(collection)
 
         if generated_permissions_page:
