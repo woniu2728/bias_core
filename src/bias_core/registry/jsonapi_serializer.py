@@ -66,7 +66,9 @@ class JsonApiSerializer:
         if not rt or self._store.get_resource(rt) is None:
             return value
         nested_include = tuple(self._flatten_include_tree(include_tree or ()))
-        return self.serialize(rt, value, context, include=nested_include)
+        related_fields = context.get("plain_related_fields") or {}
+        only = related_fields.get(rt) if isinstance(related_fields, dict) else None
+        return self.serialize(rt, value, context, only=only, include=nested_include)
 
     @staticmethod
     def _flatten_include_tree(tree, prefix=""):
@@ -181,4 +183,3 @@ class JsonApiSerializer:
     @staticmethod
     def _is_jsonapi_identifier(value):
         return ResourceSerializer.is_jsonapi_identifier(value)
-
