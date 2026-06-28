@@ -34,6 +34,13 @@ def get_runtime_post_model():
     return _post_service.value("model", required_message="posts.service 未提供帖子模型")
 
 
+def get_runtime_post_model_or_none():
+    service = get_extension_host_service("posts.service", None)
+    if isinstance(service, dict):
+        return service.get("model")
+    return getattr(service, "model", None)
+
+
 def get_runtime_post_by_id(
     post_id: int,
     *,
