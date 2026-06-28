@@ -49,6 +49,26 @@ def reject_runtime_discussion(discussion: Any, admin_user: Any, note: str = ""):
     return _discussion.reject(discussion, admin_user, note=note)
 
 
+def list_runtime_discussion_approval_queue_items() -> list[dict]:
+    return list(_discussion.list_approval_queue() or [])
+
+
+def count_runtime_discussion_pending_approvals() -> int:
+    return int(_discussion.count_pending_approvals() or 0)
+
+
+def list_runtime_pending_discussion_first_post_ids() -> list[int]:
+    return [
+        int(item)
+        for item in (_discussion.pending_first_post_ids() or [])
+        if item is not None
+    ]
+
+
+def process_runtime_discussion_approval_item(*, content_id: int, action: str, actor: Any, note: str = "") -> dict:
+    return dict(_discussion.process_approval(content_id=content_id, action=action, actor=actor, note=note) or {})
+
+
 def create_runtime_discussion(*, title: str, content: str, user: Any, extension_payload: dict | None = None):
     return _discussion.create(title=title, content=content, user=user, extension_payload=extension_payload)
 
@@ -67,6 +87,21 @@ def set_runtime_discussion_hidden_state(discussion: Any, user: Any, hidden: bool
 
 def list_runtime_discussions(**kwargs):
     return _discussion.list(**kwargs)
+
+
+def get_runtime_visible_discussion_ids(user: Any = None, *, ability: str = "view", context: dict | None = None):
+    return _discussion.get_visible_ids(user=user, ability=ability, context=context or {})
+
+
+def has_runtime_discussion_visibility(*, ability: str | None = None) -> bool:
+    service = get_runtime_discussion_service()
+    if service is None:
+        return False
+    try:
+        checker = service.get("has_visibility") if isinstance(service, dict) else getattr(service, "has_visibility")
+    except (AttributeError, KeyError):
+        return False
+    return bool(checker(ability=ability))
 
 
 def validate_runtime_replyable_discussion(discussion_id: int, user: Any, *, discussion: Any = None):

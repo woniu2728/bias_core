@@ -7,10 +7,11 @@ from bias_core.extensions.runtime_core import (
     get_extension_host_service,
     require_extension_host_service,
     runtime_service_method,
-    runtime_service_value,
 )
 
 _post_service = RuntimeServiceProxy("posts.service")
+_discussion_posts_service = RuntimeServiceProxy("discussion.posts")
+_realtime_post_payload_service = RuntimeServiceProxy("realtime.post_payload")
 
 
 def get_runtime_post_service(default: Any = None):
@@ -22,18 +23,11 @@ def require_runtime_post_service():
 
 
 def get_runtime_discussion_posts_service():
-    service = require_runtime_post_service()
-    discussion_posts = runtime_service_value(
-        service,
-        "discussion_posts",
-        None,
-        required_message="posts.service 未提供讨论帖子协作服务",
-    )
-    return discussion_posts
+    return require_extension_host_service("discussion.posts")
 
 
 def _discussion_posts_method(name: str):
-    return runtime_service_method(get_runtime_discussion_posts_service(), name)
+    return _discussion_posts_service.method(name)
 
 
 def get_runtime_post_model():
@@ -66,12 +60,32 @@ def can_runtime_view_post(post: Any, user: Any = None) -> bool:
     return bool(_post_service.can_view(post, user))
 
 
+def get_runtime_visible_post_ids(user: Any = None, *, context: dict | None = None):
+    return _post_service.get_visible_ids(user=user, context=context or {})
+
+
+def get_runtime_post_action_context(post_id: int, user: Any = None, *, require_visible: bool = True) -> dict | None:
+    return _post_service.get_action_context(post_id, user=user, require_visible=require_visible)
+
+
 def approve_runtime_post(post: Any, admin_user: Any, note: str = ""):
     return _post_service.approve(post, admin_user, note=note)
 
 
 def reject_runtime_post(post: Any, admin_user: Any, note: str = ""):
     return _post_service.reject(post, admin_user, note=note)
+
+
+def list_runtime_post_approval_queue_items() -> list[dict]:
+    return list(_post_service.list_approval_queue() or [])
+
+
+def count_runtime_post_pending_approvals() -> int:
+    return int(_post_service.count_pending_approvals() or 0)
+
+
+def process_runtime_post_approval_item(*, content_id: int, action: str, actor: Any, note: str = "") -> dict:
+    return dict(_post_service.process_approval(content_id=content_id, action=action, actor=actor, note=note) or {})
 
 
 def get_runtime_post_approval_approved() -> str:
@@ -202,6 +216,10 @@ def serialize_runtime_post(post: Any, user: Any = None, **kwargs) -> dict:
 
 def serialize_runtime_post_by_id(post_id: int, user: Any = None, **kwargs) -> dict | None:
     return _post_service.serialize_by_id(post_id, user=user, **kwargs)
+
+
+def serialize_runtime_realtime_post_by_id(post_id: int, user: Any = None, **kwargs) -> dict | None:
+    return _realtime_post_payload_service.serialize_by_id(post_id, user=user, **kwargs)
 
 
 def create_runtime_post_event(**kwargs):

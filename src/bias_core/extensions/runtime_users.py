@@ -38,6 +38,13 @@ def has_runtime_forum_permission(user: Any, permission_names) -> bool:
     return has_forum_permission(user, permission_names)
 
 
+def get_runtime_forum_permissions(user: Any) -> set[str]:
+    try:
+        return {str(item) for item in (_user.get_forum_permissions(user) or set()) if str(item)}
+    except RuntimeError:
+        return set()
+
+
 def requires_runtime_content_approval(user: Any, bypass_permission: str) -> bool:
     return bool(_user.requires_content_approval(user, bypass_permission))
 
