@@ -4,7 +4,6 @@ from typing import Any, Callable
 
 from bias_core.extensions.container import wrap_callback
 from bias_core.resource_objects import ResourceEndpoint, ResourceField, ResourceFilter, ResourceRelationship, ResourceSort
-from bias_core.resource_registry import ResourceRegistry
 
 
 def normalize_names(names) -> tuple[str, ...]:
@@ -30,6 +29,8 @@ def resolve_definition_groups(items: tuple[Any, ...], host) -> tuple[Any, ...]:
 
 
 def normalize_resource_fields(resource_name: str, items: tuple[Any, ...]) -> tuple[Any, ...]:
+    from bias_core.resource_registry import ResourceRegistry
+
     return tuple(
         ResourceRegistry._field_to_definition(resource_name, item)
         if isinstance(item, ResourceField) and not isinstance(item, ResourceRelationship)
@@ -39,6 +40,8 @@ def normalize_resource_fields(resource_name: str, items: tuple[Any, ...]) -> tup
 
 
 def normalize_resource_relationships(resource_name: str, items: tuple[Any, ...]) -> tuple[Any, ...]:
+    from bias_core.resource_registry import ResourceRegistry
+
     return tuple(
         ResourceRegistry._relationship_to_definition(resource_name, item)
         if isinstance(item, ResourceRelationship)
@@ -48,6 +51,8 @@ def normalize_resource_relationships(resource_name: str, items: tuple[Any, ...])
 
 
 def normalize_resource_endpoints(resource_name: str, items: tuple[Any, ...]) -> tuple[Any, ...]:
+    from bias_core.resource_registry import ResourceRegistry
+
     return tuple(
         ResourceRegistry._endpoint_to_definition(resource_name, item)
         if isinstance(item, ResourceEndpoint)
@@ -57,6 +62,8 @@ def normalize_resource_endpoints(resource_name: str, items: tuple[Any, ...]) -> 
 
 
 def normalize_resource_sorts(resource_name: str, items: tuple[Any, ...]) -> tuple[Any, ...]:
+    from bias_core.resource_registry import ResourceRegistry
+
     return tuple(
         ResourceRegistry._sort_to_definition(resource_name, item)
         if isinstance(item, ResourceSort)
@@ -66,6 +73,8 @@ def normalize_resource_sorts(resource_name: str, items: tuple[Any, ...]) -> tupl
 
 
 def normalize_resource_filters(resource_name: str, items: tuple[Any, ...]) -> tuple[Any, ...]:
+    from bias_core.resource_registry import ResourceRegistry
+
     return tuple(
         ResourceRegistry._filter_to_definition(resource_name, item)
         if isinstance(item, ResourceFilter)

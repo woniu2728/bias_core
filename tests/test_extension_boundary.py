@@ -1,5 +1,8 @@
 from tests.common import *
 import importlib
+import os
+import subprocess
+import sys
 
 
 def core_source_root() -> Path:
@@ -51,6 +54,50 @@ def relative_to_known_root(path: Path) -> str:
         return str(path)
 
 class ExtensionPublicApiBoundaryTests(TestCase):
+    def test_extension_public_package_import_is_lightweight_without_django_settings(self):
+        env = os.environ.copy()
+        env.pop("DJANGO_SETTINGS_MODULE", None)
+        env["PYTHONPATH"] = str(core_source_root().parent)
+        code = (
+            "import bias_core.extensions\n"
+            "from bias_core.extensions import (\n"
+            "    ApiResourceExtender,\n"
+            "    ConditionalExtender,\n"
+            "    EventListenersExtender,\n"
+            "    FrontendExtender,\n"
+            "    LifecycleExtender,\n"
+            "    ModelExtender,\n"
+            "    RoutesExtender,\n"
+            "    ServiceProviderExtender,\n"
+            "    SettingsExtender,\n"
+            "    sdk,\n"
+            "    setting_field,\n"
+            "    ExtensionManifestSettingFieldDefinition,\n"
+            ")\n"
+            "field = setting_field(key='alpha.enabled', label='Enabled')\n"
+            "assert isinstance(field, ExtensionManifestSettingFieldDefinition)\n"
+            "assert FrontendExtender().forum('forum.js').forum_entry == 'forum.js'\n"
+            "assert SettingsExtender(fields=(field,)).fields == (field,)\n"
+            "assert LifecycleExtender().lifecycle_hook_keys == ()\n"
+            "assert ApiResourceExtender('discussions').resource_name == 'discussions'\n"
+            "assert RoutesExtender().get('/alpha', 'alpha.index', lambda: None).routes\n"
+            "assert ConditionalExtender().callbacks == ()\n"
+            "assert ModelExtender(model='alpha').model == 'alpha'\n"
+            "assert EventListenersExtender().listeners == ()\n"
+            "assert ServiceProviderExtender('alpha', object()).key == 'alpha'\n"
+        )
+
+        result = subprocess.run(
+            [sys.executable, "-c", code],
+            cwd=settings.BASE_DIR,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_public_sdk_import_whitelist_modules_are_importable(self):
         from bias_core.extensions.validation_rules import PUBLIC_EXTENSION_IMPORT_MODULES
 
