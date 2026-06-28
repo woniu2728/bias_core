@@ -3,9 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Callable, Dict, List, Tuple
 
-from django.db import OperationalError, ProgrammingError
-
-from bias_core.models import ExtensionInstallation
+from bias_core.extension_state_cache import clear_extension_state_cache, get_extension_state_overrides
 from bias_core.resource_definitions import (
     ResourceAnnotateResolver,
     ResourceBaseFieldResolver,
@@ -70,7 +68,6 @@ class ResourceRegistry:
         self._core_endpoint_keys: set[tuple[str, str, str]] = set()
         self._resolved_resource_cache: Dict[str, Resource] = {}
         self._resource_modifiers: dict[type, dict[str, list[Callable[[list[Any], Resource], list[Any]]]]] = {}
-        self._enabled_module_ids_cache: set[str] | None = _NOT_CACHED
 
         from bias_core.registry.preload_planner import PreloadPlanner
         from bias_core.registry.search_bridge import SearchBridge
@@ -87,14 +84,8 @@ class ResourceRegistry:
         self._resource_validator: ResourceValidator = ResourceValidator(self)
 
     def _get_enabled_module_ids(self) -> set[str] | None:
-        if self._enabled_module_ids_cache is not _NOT_CACHED:
-            return self._enabled_module_ids_cache
-        try:
-            overrides = {
-                item["extension_id"]: bool(item["enabled"])
-                for item in ExtensionInstallation.objects.filter(source="filesystem").values("extension_id", "enabled")
-            }
-        except (OperationalError, ProgrammingError, RuntimeError):
+        overrides = get_extension_state_overrides()
+        if overrides is None:
             return None
 
         if not overrides:
@@ -120,12 +111,10 @@ class ResourceRegistry:
         enabled_ids.update(definition.module_id for definitions in self._endpoints.values() for definition in definitions)
         enabled_ids.update(definition.module_id for definitions in self._sorts.values() for definition in definitions)
         enabled_ids.update(definition.module_id for definitions in self._filters.values() for definition in definitions)
-        result = enabled_ids - disabled_ids
-        self._enabled_module_ids_cache = result
-        return result
+        return enabled_ids - disabled_ids
 
     def _invalidate_enabled_module_ids_cache(self) -> None:
-        self._enabled_module_ids_cache = _NOT_CACHED
+        clear_extension_state_cache()
 
     def _is_module_enabled(self, module_id: str, enabled_module_ids: set[str] | None) -> bool:
         if enabled_module_ids is None:

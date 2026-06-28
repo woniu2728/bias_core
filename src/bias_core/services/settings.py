@@ -267,6 +267,18 @@ def clear_runtime_setting_caches():
     global _ADVANCED_SETTINGS_PROCESS_CACHE_AT
 
     _EXTENSION_SETTING_GROUP_DEFAULTS_CACHE.clear()
+    try:
+        from bias_core.extension_settings_service import clear_extension_settings_cache
+
+        clear_extension_settings_cache()
+    except Exception:
+        pass
+    try:
+        from bias_core.extension_state_cache import clear_extension_state_cache
+
+        clear_extension_state_cache()
+    except Exception:
+        pass
     _ADVANCED_SETTINGS_PROCESS_CACHE = None
     _ADVANCED_SETTINGS_PROCESS_CACHE_KEY = ""
     _ADVANCED_SETTINGS_PROCESS_CACHE_AT = 0.0

@@ -43,3 +43,45 @@ class RuntimeStatusCacheTests(TestCase):
         self.assertEqual(status.state, "ready")
 
 
+class ExtensionStateCacheTests(TestCase):
+    def tearDown(self):
+        from bias_core.extension_state_cache import clear_extension_state_cache
+
+        clear_extension_state_cache()
+        super().tearDown()
+
+    def test_forum_registry_reuses_extension_state_overrides(self):
+        from bias_core.extensions.forum_registry_types import ForumModuleDefinition, PermissionDefinition
+        from bias_core.extension_state_cache import clear_extension_state_cache
+        from bias_core.forum_registry import ForumRegistry
+
+        ExtensionInstallation.objects.create(
+            extension_id="alpha",
+            version="0.1.0",
+            source="filesystem",
+            enabled=True,
+            installed=True,
+            booted=True,
+        )
+        registry = ForumRegistry()
+        registry.register_module(ForumModuleDefinition(
+            module_id="alpha",
+            name="Alpha",
+            description="Alpha module",
+            version="0.1.0",
+            enabled=True,
+        ))
+        registry.register_permission(PermissionDefinition(
+            code="alpha.view",
+            label="Alpha View",
+            section="alpha",
+            section_label="Alpha",
+            module_id="alpha",
+        ))
+
+        clear_extension_state_cache()
+        with self.assertNumQueries(1):
+            self.assertEqual(registry.get_all_permissions()[0].code, "alpha.view")
+            self.assertEqual(registry.get_all_permissions()[0].code, "alpha.view")
+
+

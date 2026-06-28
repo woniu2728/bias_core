@@ -4,8 +4,7 @@ import logging
 from dataclasses import replace
 from typing import Dict, List, Tuple
 
-from django.db import OperationalError, ProgrammingError
-
+from bias_core.extension_state_cache import get_extension_state_overrides
 from bias_core.forum_registry_core import _register_core_modules
 from bias_core.extensions.forum_registry_types import (
     AdminPageDefinition,
@@ -25,9 +24,6 @@ from bias_core.extensions.forum_registry_types import (
     SearchFilterParser,
     UserPreferenceDefinition,
 )
-from bias_core.models import ExtensionInstallation
-
-
 logger = logging.getLogger(__name__)
 
 
@@ -181,13 +177,7 @@ class ForumRegistry:
         })
 
     def _get_extension_state_overrides(self) -> Dict[str, bool]:
-        try:
-            return {
-                item["extension_id"]: bool(item["enabled"])
-                for item in ExtensionInstallation.objects.filter(source="filesystem").values("extension_id", "enabled")
-            }
-        except (OperationalError, ProgrammingError, RuntimeError):
-            return {}
+        return get_extension_state_overrides() or {}
 
     def _apply_module_runtime_state(self, module: ForumModuleDefinition, enabled_overrides: Dict[str, bool]) -> ForumModuleDefinition:
         if module.module_id not in enabled_overrides:
@@ -551,5 +541,4 @@ def get_registry_staff_managed_admin_permission_codes() -> Tuple[str, ...]:
         for definition in registry.get_all_permissions()
         if definition.code.startswith("admin.")
     ))
-
 
