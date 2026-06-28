@@ -83,7 +83,8 @@ class PreloadPlanner:
                 include=include,
             )
             nested_include = include_tree.get(definition.relationship) or {}
-            if nested_include and definition.resource_type:
+            resolver_handles_nested_preloads = getattr(definition, "preload_resolver", None) is not None
+            if nested_include and definition.resource_type and not resolver_handles_nested_preloads:
                 nested_plan = self.build_preload_plan(
                     definition.resource_type,
                     resolved_context,

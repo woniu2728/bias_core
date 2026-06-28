@@ -1734,6 +1734,111 @@ class ResourceRegistryTests(TestCase):
         self.assertIn("owner", plan.select_related)
         self.assertIn("owner__profile", plan.select_related)
 
+    def test_plain_serializer_applies_nested_relationship_includes(self):
+        registry = ResourceRegistry()
+
+        class ProfileModel:
+            def __init__(self, id, bio):
+                self.id = id
+                self.bio = bio
+
+        class OwnerModel:
+            def __init__(self, id, username, profile):
+                self.id = id
+                self.username = username
+                self.profile = profile
+
+        class DiscussionModel:
+            def __init__(self, id, owner):
+                self.id = id
+                self.owner = owner
+
+        class ProfileResource(Resource):
+            def type(self):
+                return "plain_profiles"
+
+            def fields(self):
+                return [ResourceField("bio", resolver=lambda instance, context: instance.bio)]
+
+        class OwnerResource(Resource):
+            def type(self):
+                return "plain_owners"
+
+            def fields(self):
+                return [
+                    ResourceField("username", resolver=lambda instance, context: instance.username),
+                    ResourceRelationship(
+                        "profile",
+                        resolver=lambda instance, context: instance.profile,
+                        resource_type="plain_profiles",
+                    ),
+                ]
+
+        class DiscussionResource(Resource):
+            def type(self):
+                return "plain_discussions"
+
+            def fields(self):
+                return [
+                    ResourceRelationship(
+                        "owner",
+                        resolver=lambda instance, context: instance.owner,
+                        resource_type="plain_owners",
+                    )
+                ]
+
+        registry.register_resource(ProfileResource())
+        registry.register_resource(OwnerResource())
+        registry.register_resource(DiscussionResource())
+
+        payload = registry.serialize(
+            "plain_discussions",
+            DiscussionModel(1, OwnerModel(2, "ada", ProfileModel(3, "engineer"))),
+            include=("owner.profile",),
+        )
+
+        self.assertEqual(payload["owner"]["username"], "ada")
+        self.assertEqual(payload["owner"]["profile"]["bio"], "engineer")
+
+    def test_custom_relationship_preload_resolver_owns_nested_preload_plan(self):
+        registry = ResourceRegistry()
+
+        class OwnerResource(Resource):
+            def type(self):
+                return "custom_preload_owner"
+
+            def fields(self):
+                return [
+                    ResourceRelationship(
+                        "profile",
+                        resolver=lambda instance, context: getattr(instance, "profile", None),
+                        resource_type="custom_preload_profile",
+                        select_related=("profile",),
+                    )
+                ]
+
+        class DiscussionResource(Resource):
+            def type(self):
+                return "custom_preload_discussion"
+
+            def fields(self):
+                return [
+                    ResourceRelationship(
+                        "owner",
+                        resolver=lambda instance, context: getattr(instance, "owner", None),
+                        resource_type="custom_preload_owner",
+                        preload_resolver=lambda context: (("virtual_owner",), ()),
+                    )
+                ]
+
+        registry.register_resource(OwnerResource())
+        registry.register_resource(DiscussionResource())
+
+        plan = registry.build_preload_plan("custom_preload_discussion", include=("owner.profile",))
+
+        self.assertIn("virtual_owner", plan.select_related)
+        self.assertNotIn("owner__profile", plan.select_related)
+
     def test_jsonapi_serializer_resolves_deferred_field_and_relationship_values(self):
         registry = ResourceRegistry()
 

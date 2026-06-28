@@ -31,28 +31,33 @@ class JsonApiSerializer:
                 continue
             payload[d.field] = d.resolver(instance, ctx)
         payload = self.apply_payload_field_mutators(resource, payload, ctx)
-        include_set = set(include or [])
-        if include_set:
+        include_tree = self._store._build_include_tree(include or ())
+        if include_tree:
             for d in self._store.get_effective_relationships(resource, ctx):
-                if d.relationship not in include_set:
+                if d.relationship not in include_tree:
                     continue
                 if not self._store._is_relationship_visible(d, instance, ctx):
                     continue
                 if not self._store._is_relationship_includable(d, ctx):
                     continue
-                payload[d.relationship] = self._serialize_plain_relationship(d, d.resolver(instance, ctx), ctx)
+                payload[d.relationship] = self._serialize_plain_relationship(
+                    d,
+                    d.resolver(instance, ctx),
+                    ctx,
+                    include_tree=include_tree.get(d.relationship) or {},
+                )
         return payload
 
-    def _serialize_plain_relationship(self, definition, value, context):
+    def _serialize_plain_relationship(self, definition, value, context, *, include_tree=None):
         plain_output = str(getattr(definition, "plain_output", "") or "").strip().lower()
         if plain_output == "linkage":
             return self._relationship_linkage(definition, value, context)
         if definition.many:
-            return [self._serialize_plain_related_item(definition, item, context)
+            return [self._serialize_plain_related_item(definition, item, context, include_tree=include_tree or {})
                     for item in ResourceSerializer.relationship_values(value, many=True) if item is not None]
-        return self._serialize_plain_related_item(definition, value, context)
+        return self._serialize_plain_related_item(definition, value, context, include_tree=include_tree or {})
 
-    def _serialize_plain_related_item(self, definition, value, context):
+    def _serialize_plain_related_item(self, definition, value, context, *, include_tree=None):
         if value is None or isinstance(value, (str, int, float, bool)):
             return value
         if isinstance(value, dict):
@@ -60,7 +65,22 @@ class JsonApiSerializer:
         rt = ResourceSerializer(self._store, context).related_resource_type(definition, value, ensure_resource_context(context))
         if not rt or self._store.get_resource(rt) is None:
             return value
-        return self.serialize(rt, value, context)
+        nested_include = tuple(self._flatten_include_tree(include_tree or ()))
+        return self.serialize(rt, value, context, include=nested_include)
+
+    @staticmethod
+    def _flatten_include_tree(tree, prefix=""):
+        output = []
+        if not isinstance(tree, dict):
+            return output
+        for key, nested in tree.items():
+            normalized = str(key or "").strip()
+            if not normalized:
+                continue
+            path = f"{prefix}.{normalized}" if prefix else normalized
+            output.append(path)
+            output.extend(JsonApiSerializer._flatten_include_tree(nested, path))
+        return output
 
     def serialize_jsonapi_document(self, resource, data, context=None, *, only=None, include=None, many=False):
         serializer = ResourceSerializer(self._store, context)
@@ -161,5 +181,4 @@ class JsonApiSerializer:
     @staticmethod
     def _is_jsonapi_identifier(value):
         return ResourceSerializer.is_jsonapi_identifier(value)
-
 
