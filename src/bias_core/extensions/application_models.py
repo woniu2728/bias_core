@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 from urllib.parse import unquote
 from typing import TYPE_CHECKING, Any
+
+from django.db import OperationalError, ProgrammingError
 
 from bias_core.extensions.container import resolve_container_value
 from bias_core.extensions.model_references import model_class, model_matches, resolve_model_reference
@@ -388,6 +391,7 @@ class ApplicationModelUrlService:
     def __init__(self, host: "ExtensionHost") -> None:
         self._host = host
         self._slug_drivers_by_extension: dict[str, tuple[ExtensionModelSlugDriverDefinition, ...]] = {}
+        self._active_slug_driver_cache: dict[Any, str] = {}
 
     def register_slug_driver(self, extension_id: str, definition: ExtensionModelSlugDriverDefinition) -> None:
         normalized = str(extension_id or "").strip()
@@ -419,19 +423,38 @@ class ApplicationModelUrlService:
             definitions = [definition for definition in definitions if definition.model == model]
         return definitions
 
-    def get_slug_driver(self, model: Any, identifier: str = "default") -> ExtensionModelSlugDriverDefinition | None:
-        normalized_identifier = str(identifier or "default").strip() or "default"
+    def get_slug_driver(self, model: Any, identifier: str | None = "default") -> ExtensionModelSlugDriverDefinition | None:
+        normalized_identifier = self.resolve_slug_driver_identifier(model, identifier)
         for definition in reversed(self.get_slug_drivers(model)):
             if str(definition.identifier or "").strip() == normalized_identifier:
                 return definition
         return None
+
+    def resolve_slug_driver_identifier(self, model: Any, identifier: str | None = "default") -> str:
+        if identifier is not None:
+            return str(identifier or "default").strip() or "default"
+        cached = self._active_slug_driver_cache.get(model)
+        if cached:
+            return cached
+
+        configured = self._configured_slug_driver_identifier(model)
+        if self.get_slug_driver(model, configured) is None:
+            configured = "default"
+        self._active_slug_driver_cache[model] = configured
+        return configured
+
+    def clear_active_slug_driver_cache(self, model: Any | None = None) -> None:
+        if model is None:
+            self._active_slug_driver_cache.clear()
+            return
+        self._active_slug_driver_cache.pop(model, None)
 
     def generate_slug(
         self,
         model: Any,
         source: Any,
         *,
-        identifier: str = "default",
+        identifier: str | None = "default",
         explicit_slug: str = "",
         exclude_id: int | None = None,
         context: dict | None = None,
@@ -443,7 +466,7 @@ class ApplicationModelUrlService:
         resolved_context = {
             **dict(context or {}),
             "model": model,
-            "identifier": str(identifier or "default").strip() or "default",
+            "identifier": self.resolve_slug_driver_identifier(model, identifier),
             "field": definition.field,
             "source_field": definition.source_field,
             "exclude_id": exclude_id,
@@ -463,14 +486,14 @@ class ApplicationModelUrlService:
         model: Any,
         instance: Any,
         *,
-        identifier: str = "default",
+        identifier: str | None = "default",
         context: dict | None = None,
     ) -> str:
         definition = self.get_slug_driver(model, identifier)
         if definition is None:
             raise KeyError(f"slug driver not registered: {model}.{identifier}")
 
-        resolved_context = self._driver_context(model, definition, identifier, context)
+        resolved_context = self._driver_context(model, definition, self.resolve_slug_driver_identifier(model, identifier), context)
         driver = resolve_container_value(definition.driver, self._host)
         if hasattr(driver, "to_slug"):
             return str(self._invoke_driver_method(driver.to_slug, instance, resolved_context) or "").strip()
@@ -483,7 +506,7 @@ class ApplicationModelUrlService:
         model: Any,
         slug: str,
         *,
-        identifier: str = "default",
+        identifier: str | None = "default",
         context: dict | None = None,
     ):
         definition = self.get_slug_driver(model, identifier)
@@ -494,7 +517,7 @@ class ApplicationModelUrlService:
         if not normalized_slug:
             return None
 
-        resolved_context = self._driver_context(model, definition, identifier, context)
+        resolved_context = self._driver_context(model, definition, self.resolve_slug_driver_identifier(model, identifier), context)
         driver = resolve_container_value(definition.driver, self._host)
         if hasattr(driver, "from_slug"):
             return self._invoke_driver_method(driver.from_slug, normalized_slug, resolved_context)
@@ -514,7 +537,7 @@ class ApplicationModelUrlService:
         model: Any,
         slugs: list[str] | tuple[str, ...],
         *,
-        identifier: str = "default",
+        identifier: str | None = "default",
         context: dict | None = None,
     ) -> dict[str, Any]:
         definition = self.get_slug_driver(model, identifier)
@@ -529,7 +552,7 @@ class ApplicationModelUrlService:
         if not normalized_slugs:
             return {}
 
-        resolved_context = self._driver_context(model, definition, identifier, context)
+        resolved_context = self._driver_context(model, definition, self.resolve_slug_driver_identifier(model, identifier), context)
         driver = resolve_container_value(definition.driver, self._host)
         if hasattr(driver, "from_slugs"):
             resolved = self._invoke_driver_method(driver.from_slugs, normalized_slugs, resolved_context)
@@ -558,6 +581,37 @@ class ApplicationModelUrlService:
             "field": definition.field,
             "source_field": definition.source_field,
         }
+
+    @staticmethod
+    def active_slug_driver_setting_key(model: Any) -> str:
+        return f"slug_driver_{ApplicationModelUrlService._model_setting_name(model)}"
+
+    @staticmethod
+    def _model_setting_name(model: Any) -> str:
+        if isinstance(model, str):
+            return model
+        module = str(getattr(model, "__module__", "") or "").strip()
+        qualname = str(getattr(model, "__qualname__", "") or getattr(model, "__name__", "") or "").strip()
+        if module and qualname:
+            return f"{module}.{qualname}"
+        return str(model)
+
+    @staticmethod
+    def _configured_slug_driver_identifier(model: Any) -> str:
+        from bias_core.models import Setting
+
+        key = ApplicationModelUrlService.active_slug_driver_setting_key(model)
+        try:
+            raw_value = Setting.objects.filter(key=key).values_list("value", flat=True).first()
+        except (OperationalError, ProgrammingError):
+            return "default"
+        if raw_value in (None, ""):
+            return "default"
+        try:
+            value = json.loads(raw_value)
+        except (TypeError, json.JSONDecodeError):
+            value = raw_value
+        return str(value or "default").strip() or "default"
 
     @staticmethod
     def _invoke_driver_method(method: Any, value: Any, context: dict):

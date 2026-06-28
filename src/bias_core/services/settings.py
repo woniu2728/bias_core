@@ -279,6 +279,16 @@ def clear_runtime_setting_caches():
         clear_extension_state_cache()
     except Exception:
         pass
+    try:
+        from bias_core.extensions.bootstrap import get_extension_host
+
+        host = get_extension_host()
+        model_urls = getattr(host, "model_urls", None) if host is not None else None
+        clear_slug_driver_cache = getattr(model_urls, "clear_active_slug_driver_cache", None)
+        if callable(clear_slug_driver_cache):
+            clear_slug_driver_cache()
+    except Exception:
+        pass
     _ADVANCED_SETTINGS_PROCESS_CACHE = None
     _ADVANCED_SETTINGS_PROCESS_CACHE_KEY = ""
     _ADVANCED_SETTINGS_PROCESS_CACHE_AT = 0.0
