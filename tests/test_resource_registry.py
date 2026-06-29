@@ -1734,6 +1734,45 @@ class ResourceRegistryTests(TestCase):
         self.assertIn("owner", plan.select_related)
         self.assertIn("owner__profile", plan.select_related)
 
+    def test_included_resource_default_fields_contribute_preload_plan(self):
+        registry = ResourceRegistry()
+
+        class OwnerResource(Resource):
+            def type(self):
+                return "nested_default_owner"
+
+            def fields(self):
+                return [
+                    ResourceField(
+                        "score",
+                        resolver=lambda instance, context: getattr(instance, "score", 0),
+                        select_related=("score_account",),
+                        prefetch_related=("badges",),
+                    )
+                ]
+
+        class DiscussionResource(Resource):
+            def type(self):
+                return "nested_default_discussion"
+
+            def fields(self):
+                return [
+                    ResourceRelationship(
+                        "owner",
+                        resolver=lambda instance, context: getattr(instance, "owner", None),
+                        resource_type="nested_default_owner",
+                        select_related=("owner",),
+                    )
+                ]
+
+        registry.register_resource(OwnerResource())
+        registry.register_resource(DiscussionResource())
+
+        plan = registry.build_preload_plan("nested_default_discussion", include=("owner",))
+        self.assertIn("owner", plan.select_related)
+        self.assertIn("owner__score_account", plan.select_related)
+        self.assertIn("owner__badges", plan.prefetch_related)
+
     def test_plain_serializer_applies_nested_relationship_includes(self):
         registry = ResourceRegistry()
 
