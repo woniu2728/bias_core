@@ -14,6 +14,10 @@ _discussion_posts_service = RuntimeServiceProxy("discussion.posts")
 _realtime_post_payload_service = RuntimeServiceProxy("realtime.post_payload")
 
 
+def get_runtime_content_posts_service(default: Any = None):
+    return get_extension_host_service("content.posts", default)
+
+
 def get_runtime_post_service(default: Any = None):
     return get_extension_host_service("posts.service", default)
 
@@ -23,10 +27,16 @@ def require_runtime_post_service():
 
 
 def get_runtime_discussion_posts_service():
+    service = get_runtime_content_posts_service(None)
+    if service is not None:
+        return service
     return require_extension_host_service("discussion.posts")
 
 
 def _discussion_posts_method(name: str):
+    content_posts = get_runtime_content_posts_service(None)
+    if content_posts is not None:
+        return runtime_service_method(content_posts, name)
     return _discussion_posts_service.method(name)
 
 

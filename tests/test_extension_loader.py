@@ -1666,6 +1666,31 @@ class ExtensionManifestLoaderTests(TestCase):
 
         self.assertFalse(is_extension_host_bootstrapped())
 
+    def test_discussion_post_runtime_facades_prefer_content_foundation(self):
+        from bias_core.extensions.runtime_posts import (
+            create_runtime_first_post,
+            get_runtime_discussion_posts_service,
+        )
+
+        app = ExtensionApplication()
+        content_calls = []
+        legacy_calls = []
+        content_service = {
+            "create_first_post": lambda **kwargs: content_calls.append(kwargs) or "content",
+        }
+        legacy_service = {
+            "create_first_post": lambda **kwargs: legacy_calls.append(kwargs) or "legacy",
+        }
+        app.instance("content.posts", content_service)
+        app.instance("discussion.posts", legacy_service)
+
+        with patch("bias_core.extensions.bootstrap.get_extension_host", return_value=app):
+            self.assertIs(get_runtime_discussion_posts_service(), content_service)
+            self.assertEqual(create_runtime_first_post(discussion_id=1), "content")
+
+        self.assertEqual(content_calls, [{"discussion_id": 1}])
+        self.assertEqual(legacy_calls, [])
+
     def test_view_extender_registers_template_namespaces(self):
         from django.template.loader import render_to_string
 
