@@ -6,6 +6,7 @@ from bias_core.extensions.runtime_core import (
     RuntimeServiceProxy,
     get_extension_host_service,
     require_extension_host_service,
+    runtime_service_method,
 )
 
 _discussion = RuntimeServiceProxy("discussions.service")
@@ -118,11 +119,18 @@ def list_runtime_discussions(**kwargs):
 
 
 def get_runtime_visible_discussion_ids(user: Any = None, *, ability: str = "view", context: dict | None = None):
+    content_discussions = get_runtime_content_discussion_service(None)
+    if content_discussions is not None:
+        return runtime_service_method(content_discussions, "get_visible_ids")(
+            user=user,
+            ability=ability,
+            context=context or {},
+        )
     return _discussion.get_visible_ids(user=user, ability=ability, context=context or {})
 
 
 def has_runtime_discussion_visibility(*, ability: str | None = None) -> bool:
-    service = get_runtime_discussion_service()
+    service = get_runtime_content_discussion_service(None) or get_runtime_discussion_service()
     if service is None:
         return False
     try:
@@ -133,6 +141,13 @@ def has_runtime_discussion_visibility(*, ability: str | None = None) -> bool:
 
 
 def validate_runtime_replyable_discussion(discussion_id: int, user: Any, *, discussion: Any = None):
+    content_discussions = get_runtime_content_discussion_service(None)
+    if content_discussions is not None:
+        return runtime_service_method(content_discussions, "validate_replyable")(
+            discussion_id,
+            user,
+            discussion=discussion,
+        )
     return _discussion.validate_replyable(discussion_id, user, discussion=discussion)
 
 
@@ -153,10 +168,16 @@ def refresh_runtime_discussion_approved_stats(
 
 
 def get_runtime_discussion_subscription_state(discussion: Any, user: Any) -> bool:
+    content_discussions = get_runtime_content_discussion_service(None)
+    if content_discussions is not None:
+        return bool(runtime_service_method(content_discussions, "is_subscribed")(discussion, user))
     return bool(_discussion.is_subscribed(discussion, user))
 
 
 def set_runtime_discussion_subscription_state(discussion_id: int, user: Any, subscribed: bool) -> bool:
+    content_discussions = get_runtime_content_discussion_service(None)
+    if content_discussions is not None:
+        return bool(runtime_service_method(content_discussions, "set_subscription")(discussion_id, user, subscribed))
     return bool(_discussion.set_subscription(discussion_id, user, subscribed))
 
 
@@ -166,6 +187,13 @@ def follow_runtime_discussion(
     user_id: int,
     last_read_post_number: int | None = None,
 ) -> bool:
+    content_discussions = get_runtime_content_discussion_service(None)
+    if content_discussions is not None:
+        return bool(runtime_service_method(content_discussions, "follow_if_enabled")(
+            discussion_id=discussion_id,
+            user_id=user_id,
+            last_read_post_number=last_read_post_number,
+        ))
     return bool(_discussion.follow_if_enabled(
         discussion_id=discussion_id,
         user_id=user_id,
@@ -181,6 +209,15 @@ def mark_runtime_discussion_read(
     subscribed: bool | None = None,
     require_view: bool = True,
 ) -> bool:
+    content_discussions = get_runtime_content_discussion_service(None)
+    if content_discussions is not None:
+        return bool(runtime_service_method(content_discussions, "mark_read")(
+            discussion_id=discussion_id,
+            user=user,
+            last_read_post_number=last_read_post_number,
+            subscribed=subscribed,
+            require_view=require_view,
+        ))
     return bool(_discussion.mark_read(
         discussion_id=discussion_id,
         user=user,
@@ -195,6 +232,12 @@ def clamp_runtime_discussion_read_states(
     discussion_id: int,
     last_post_number: int | None,
 ) -> int:
+    content_discussions = get_runtime_content_discussion_service(None)
+    if content_discussions is not None:
+        return int(runtime_service_method(content_discussions, "clamp_read_states")(
+            discussion_id=discussion_id,
+            last_post_number=last_post_number,
+        ) or 0)
     return int(_discussion.clamp_read_states(
         discussion_id=discussion_id,
         last_post_number=last_post_number,
@@ -202,5 +245,8 @@ def clamp_runtime_discussion_read_states(
 
 
 def get_runtime_discussion_reply_notification_context(discussion_id: int, post_id: int, from_user: Any):
+    content_discussions = get_runtime_content_discussion_service(None)
+    if content_discussions is not None:
+        return runtime_service_method(content_discussions, "reply_notification_context")(discussion_id, post_id, from_user)
     return _discussion.reply_notification_context(discussion_id, post_id, from_user)
 

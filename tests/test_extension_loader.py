@@ -1737,6 +1737,59 @@ class ExtensionManifestLoaderTests(TestCase):
         ])
         self.assertEqual(legacy_calls, [])
 
+    def test_discussion_runtime_queries_prefer_content_foundation(self):
+        from bias_core.extensions.runtime_discussions import (
+            get_runtime_discussion_reply_notification_context,
+            get_runtime_visible_discussion_ids,
+            mark_runtime_discussion_read,
+        )
+
+        app = ExtensionApplication()
+        content_calls = []
+        legacy_calls = []
+        content_discussion_service = {
+            "get_visible_ids": lambda **kwargs: content_calls.append(("visible", kwargs)) or "content-visible",
+            "mark_read": lambda **kwargs: content_calls.append(("mark_read", kwargs)) or True,
+            "reply_notification_context": lambda *args: content_calls.append(("reply", args)) or {"source": "content"},
+        }
+        discussion_service = {
+            "get_visible_ids": lambda **kwargs: legacy_calls.append(("visible", kwargs)) or "legacy-visible",
+            "mark_read": lambda **kwargs: legacy_calls.append(("mark_read", kwargs)) or False,
+            "reply_notification_context": lambda *args: legacy_calls.append(("reply", args)) or {"source": "legacy"},
+        }
+        app.instance("content.discussions", content_discussion_service)
+        app.instance("discussions.service", discussion_service)
+
+        actor = object()
+        with patch("bias_core.extensions.bootstrap.get_extension_host", return_value=app):
+            self.assertEqual(get_runtime_visible_discussion_ids(user=actor), "content-visible")
+            self.assertTrue(mark_runtime_discussion_read(
+                discussion_id=1,
+                user=actor,
+                last_read_post_number=2,
+                subscribed=True,
+            ))
+            self.assertEqual(
+                get_runtime_discussion_reply_notification_context(1, 2, actor),
+                {"source": "content"},
+            )
+
+        self.assertEqual(content_calls, [
+            ("visible", {"user": actor, "ability": "view", "context": {}}),
+            (
+                "mark_read",
+                {
+                    "discussion_id": 1,
+                    "user": actor,
+                    "last_read_post_number": 2,
+                    "subscribed": True,
+                    "require_view": True,
+                },
+            ),
+            ("reply", (1, 2, actor)),
+        ])
+        self.assertEqual(legacy_calls, [])
+
     def test_view_extender_registers_template_namespaces(self):
         from django.template.loader import render_to_string
 
