@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from bias_core.resource_registry import (
+    ResourceEndpointDefinition,
     ResourceDefinition,
     get_resource_registry,
 )
@@ -25,6 +26,16 @@ def bootstrap_forum_resource_fields(registry=None) -> None:
             module_id="core",
             resolver=_serialize_forum_base,
             description="论坛公开运行时资源。",
+        )
+    )
+    registry.register_core_endpoint(
+        ResourceEndpointDefinition(
+            resource="forum",
+            endpoint="show",
+            module_id="core",
+            handler=lambda context: {},
+            methods=("GET",),
+            description="论坛公开运行时资源端点。",
         )
     )
     registry.register_resource(

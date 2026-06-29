@@ -616,10 +616,22 @@ def _serialize_extension_runtime_stamp() -> dict:
 def _serialize_forum_resource_fields(forum_settings: dict, *, user=None) -> dict:
     from bias_core.resource_registry import get_resource_registry
 
-    return get_resource_registry().serialize(
+    registry = get_resource_registry()
+    context = {"user": user}
+    endpoint = registry.get_dispatch_endpoint(
+        "forum",
+        "show",
+        "GET",
+        context,
+    )
+    default_include = tuple(getattr(endpoint, "default_include", ()) or ()) if endpoint else ()
+    if default_include:
+        context["default_include"] = default_include
+    return registry.serialize(
         "forum",
         SimpleNamespace(settings=forum_settings),
-        {"user": user},
+        context,
+        include=default_include,
     )
 
 

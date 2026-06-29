@@ -666,6 +666,52 @@ class ResourceRegistryTests(TestCase):
         self.assertEqual(plan.select_related, ("owner",))
         self.assertEqual(plan.prefetch_related, ("comments",))
 
+    def test_forum_resource_bootstrap_registers_show_endpoint_for_default_includes(self):
+        from bias_core.forum_resources import bootstrap_forum_resource_fields
+
+        registry = ResourceRegistry()
+        bootstrap_forum_resource_fields(registry)
+
+        endpoint = registry.get_dispatch_endpoint("forum", "show", "GET")
+
+        self.assertIsNotNone(endpoint)
+        self.assertEqual(endpoint.resource, "forum")
+        self.assertEqual(endpoint.endpoint, "show")
+
+    def test_forum_settings_serialization_uses_forum_show_default_includes(self):
+        from dataclasses import replace
+
+        from bias_core.forum_resources import bootstrap_forum_resource_fields
+        from bias_core.resources.definitions import ResourceEndpointDefinition
+        from bias_core.services.settings import _serialize_forum_resource_fields
+
+        registry = ResourceRegistry()
+        bootstrap_forum_resource_fields(registry)
+        registry.register_relationship(ResourceRelationshipDefinition(
+            resource="forum",
+            relationship="owner",
+            module_id="test",
+            resolver=lambda instance, context: SimpleNamespace(name="neo"),
+            resource_type="forum_owner",
+        ))
+        registry.register_resource(ResourceDefinition(
+            resource="forum_owner",
+            module_id="test",
+            resolver=lambda instance, context: {"name": instance.name},
+        ))
+        registry.register_endpoint(ResourceEndpointDefinition(
+            resource="forum",
+            endpoint="show",
+            module_id="test",
+            operation="mutate",
+            mutator=lambda endpoint: replace(endpoint, default_include=("owner",)),
+        ))
+
+        with patch("bias_core.resource_registry.get_resource_registry", return_value=registry):
+            payload = _serialize_forum_resource_fields({}, user=None)
+
+        self.assertEqual(payload["owner"], {"name": "neo"})
+
     def test_resource_registry_ignores_non_filesystem_installation_state_overrides(self):
         registry = ResourceRegistry()
 
