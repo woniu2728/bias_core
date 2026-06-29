@@ -5535,6 +5535,17 @@ class ResourceRegistryTests(TestCase):
         self.assertEqual(sparse_payload["data"]["attributes"], {"title": "hello"})
         self.assertNotIn("relationships", sparse_payload["data"])
 
+    def test_resource_field_plain_and_jsonapi_visibility_helpers(self):
+        plain_field = ResourceField("legacy", resolver=lambda instance, context: "plain").plain_only()
+        jsonapi_field = ResourceField("wire", resolver=lambda instance, context: "jsonapi").jsonapi_only()
+        plain_context = {"request": RequestFactory().get("/api/items/1")}
+        jsonapi_context = {"request": RequestFactory().get("/api/items/1", HTTP_ACCEPT="application/vnd.api+json")}
+
+        self.assertTrue(plain_field.is_visible(None, plain_context))
+        self.assertFalse(plain_field.is_visible(None, jsonapi_context))
+        self.assertFalse(jsonapi_field.is_visible(None, plain_context))
+        self.assertTrue(jsonapi_field.is_visible(None, jsonapi_context))
+
     def test_jsonapi_validation_error_carries_source_pointer(self):
         registry = ResourceRegistry()
 

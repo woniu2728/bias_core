@@ -4,6 +4,8 @@ from dataclasses import dataclass, replace
 import re
 from typing import Any, Callable, Iterable, Tuple
 
+from bias_core.resource_api import wants_jsonapi_response
+
 
 ResourceContext = dict[str, Any]
 
@@ -60,6 +62,12 @@ class ResourceField:
 
     def visible_when(self, condition: Callable[[Any, ResourceContext], bool] | bool) -> "ResourceField":
         return replace(self, visible=condition)
+
+    def plain_only(self) -> "ResourceField":
+        return self.visible_when(lambda instance, context: not wants_jsonapi_response(context))
+
+    def jsonapi_only(self) -> "ResourceField":
+        return self.visible_when(lambda instance, context: wants_jsonapi_response(context))
 
     def writable_when(self, condition: Callable[[Any, ResourceContext], bool] | bool = True) -> "ResourceField":
         return replace(self, writable=condition)
