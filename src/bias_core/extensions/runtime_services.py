@@ -46,6 +46,7 @@ def create_runtime_timeline_from_builder(
     *,
     extra: dict | None = None,
     update_discussion_last_post: bool | None = None,
+    merge_strategy: str = "",
 ):
     service = get_runtime_timeline_service()
     if service is None:
@@ -55,6 +56,7 @@ def create_runtime_timeline_from_builder(
         builder,
         extra=dict(extra or {}),
         update_discussion_last_post=update_discussion_last_post,
+        merge_strategy=merge_strategy,
     )
 
 
