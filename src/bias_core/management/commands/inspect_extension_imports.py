@@ -9,7 +9,10 @@ from django.core.management.base import CommandParser
 
 from bias_core.extensions.exceptions import ExtensionManifestError
 from bias_core.extensions.manifest import ExtensionManifestLoader
-from bias_core.extensions.validation_source import validate_cross_extension_imports
+from bias_core.extensions.validation_source import (
+    validate_cross_extension_imports,
+    validate_runtime_facade_dependency_graph,
+)
 from bias_core.extensions.validation_types import ExtensionValidationCollector
 from bias_core.forum_registry import get_core_module_ids
 
@@ -95,6 +98,14 @@ class Command(BaseCommand):
                 public_sdk_only=not internal,
                 include_tests=include_tests,
                 check_runtime_facade_dependencies=check_runtime_facades,
+            )
+        if check_runtime_facades:
+            validate_runtime_facade_dependency_graph(
+                collector,
+                manifests,
+                extensions_path,
+                known_extension_ids=known_extension_ids,
+                include_tests=include_tests,
             )
         result = collector.build()
 

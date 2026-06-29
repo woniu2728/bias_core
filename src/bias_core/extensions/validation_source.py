@@ -396,6 +396,79 @@ def validate_runtime_facade_extension_dependencies(
         )
 
 
+def validate_runtime_facade_dependency_graph(
+    collector: ExtensionValidationCollector,
+    manifests: list[ExtensionManifest],
+    base_path: Path,
+    *,
+    known_extension_ids: set[str],
+    include_tests: bool = False,
+) -> None:
+    manifest_ids = {manifest.id for manifest in manifests}
+    graph: dict[str, set[str]] = {manifest.id: set() for manifest in manifests}
+    runtime_edges: dict[tuple[str, str], list[tuple[str, str]]] = {}
+
+    for manifest in manifests:
+        for dependency_id in (*manifest.dependencies, *manifest.optional_dependencies):
+            if dependency_id in manifest_ids:
+                graph[manifest.id].add(dependency_id)
+
+        extension_dir = extension_root_path(manifest, base_path)
+        if not extension_dir.exists():
+            continue
+        for file_path in iter_extension_runtime_python_files(extension_dir, include_tests=include_tests):
+            try:
+                source = file_path.read_text(encoding="utf-8")
+            except UnicodeDecodeError:
+                continue
+            try:
+                tree = ast.parse(source)
+            except SyntaxError:
+                continue
+            relative_path = file_path.relative_to(base_path.parent).as_posix()
+            for imported_name, required_extension_id in iter_runtime_facade_extension_references(tree):
+                if (
+                    not required_extension_id
+                    or required_extension_id == manifest.id
+                    or required_extension_id not in known_extension_ids
+                    or required_extension_id not in manifest_ids
+                ):
+                    continue
+                graph[manifest.id].add(required_extension_id)
+                runtime_edges.setdefault((manifest.id, required_extension_id), []).append(
+                    (relative_path, imported_name)
+                )
+
+    for cycle in _find_dependency_cycles(graph):
+        cycle_edges = list(zip(cycle, (*cycle[1:], cycle[0])))
+        inferred_edges = [
+            (source_id, target_id, runtime_edges[(source_id, target_id)])
+            for source_id, target_id in cycle_edges
+            if (source_id, target_id) in runtime_edges
+        ]
+        if not inferred_edges:
+            continue
+        cycle_text = " -> ".join((*cycle, cycle[0]))
+        for source_id, target_id, references in inferred_edges:
+            fields = sorted({field for field, _name in references})
+            names = sorted({name for _field, name in references})
+            names_text = ", ".join(names[:8])
+            if len(names) > 8:
+                names_text = f"{names_text}, ..."
+            fields_text = ", ".join(fields[:4])
+            if len(fields) > 4:
+                fields_text = f"{fields_text}, ..."
+            collector.add_error(
+                "runtime_facade_dependency_cycle",
+                f"runtime facade 推断出 {source_id} -> {target_id} 依赖，"
+                f"与现有依赖图形成循环: {cycle_text}。"
+                f"涉及 facade: {names_text or '-'}。涉及文件: {fields_text or '-'}。"
+                "这类问题不能靠补 manifest 依赖解决，需要合并领域边界或把共享生命周期契约下沉到更低层。",
+                extension_id=source_id,
+                field=fields[0] if fields else "dependencies",
+            )
+
+
 def validate_conditional_extension_dependencies(
     collector: ExtensionValidationCollector,
     manifest: ExtensionManifest,
@@ -606,6 +679,50 @@ def _is_missing_extension_dependency(
         and normalized in known_extension_ids
         and normalized not in declared_dependency_ids
     )
+
+
+def _find_dependency_cycles(graph: dict[str, set[str]]) -> list[tuple[str, ...]]:
+    visited: set[str] = set()
+    active: set[str] = set()
+    stack: list[str] = []
+    cycles: list[tuple[str, ...]] = []
+    seen_cycles: set[tuple[str, ...]] = set()
+
+    def visit(node: str) -> None:
+        if node in active:
+            try:
+                cycle = tuple(stack[stack.index(node):])
+            except ValueError:
+                return
+            normalized = _normalize_cycle(cycle)
+            if normalized not in seen_cycles:
+                seen_cycles.add(normalized)
+                cycles.append(normalized)
+            return
+        if node in visited:
+            return
+
+        active.add(node)
+        stack.append(node)
+        for dependency_id in sorted(graph.get(node, ())):
+            visit(dependency_id)
+        stack.pop()
+        active.remove(node)
+        visited.add(node)
+
+    for node in sorted(graph):
+        visit(node)
+    return cycles
+
+
+def _normalize_cycle(cycle: tuple[str, ...]) -> tuple[str, ...]:
+    if not cycle:
+        return cycle
+    rotations = [
+        cycle[index:] + cycle[:index]
+        for index in range(len(cycle))
+    ]
+    return min(rotations)
 
 
 def validate_public_sdk_imports(

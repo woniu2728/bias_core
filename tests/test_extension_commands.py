@@ -1237,6 +1237,51 @@ class ExtensionManagementCommandTests(TestCase):
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
+    def test_inspect_extension_imports_command_reports_runtime_facade_dependency_cycles(self):
+        temp_dir = make_workspace_temp_dir()
+        try:
+            alpha_dir = Path(temp_dir) / "extensions" / "alpha-tools"
+            alpha_backend_dir = alpha_dir / "backend"
+            alpha_backend_dir.mkdir(parents=True, exist_ok=False)
+            (alpha_dir / "extension.json").write_text(json.dumps({
+                "id": "alpha-tools",
+                "name": "Alpha Tools",
+                "version": "1.0.0",
+                "dependencies": ["core"],
+                "backend_entry": "extensions.alpha_tools.backend.ext",
+            }, ensure_ascii=False), encoding="utf-8")
+            (alpha_backend_dir / "ext.py").write_text(
+                "from bias_core.extensions.runtime import get_runtime_user_by_id\n"
+                "\n"
+                "def extend():\n"
+                "    return []\n",
+                encoding="utf-8",
+            )
+
+            users_dir = Path(temp_dir) / "extensions" / "users"
+            users_dir.mkdir(parents=True, exist_ok=False)
+            (users_dir / "extension.json").write_text(json.dumps({
+                "id": "users",
+                "name": "Users",
+                "version": "1.0.0",
+                "dependencies": ["core", "alpha-tools"],
+            }, ensure_ascii=False), encoding="utf-8")
+
+            with self.assertRaisesMessage(CommandError, "扩展 import 边界审计失败"):
+                stdout = StringIO()
+                call_command(
+                    "inspect_extension_imports",
+                    "--extensions-path",
+                    str(Path(temp_dir) / "extensions"),
+                    "--check-runtime-facades",
+                    stdout=stdout,
+                )
+            output = stdout.getvalue()
+            self.assertIn("runtime_facade_dependency_cycle", output)
+            self.assertIn("alpha-tools -> users", output)
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
     def test_validate_extensions_command_rejects_testing_facade_by_default(self):
         temp_dir = make_workspace_temp_dir()
         try:
