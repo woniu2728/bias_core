@@ -3,8 +3,30 @@ from __future__ import annotations
 from pathlib import Path
 
 
+FOUNDATION_EXTENSION_PACKAGES: dict[str, tuple[str, str]] = {
+    "content": ("bias-content", "bias_content"),
+}
+
+
+def is_foundation_extension(extension_id: str) -> bool:
+    return str(extension_id or "").strip().replace("-", "_") in FOUNDATION_EXTENSION_PACKAGES
+
+
+def extension_distribution_package(extension_id: str) -> str:
+    normalized = str(extension_id or "").strip()
+    if not normalized:
+        return ""
+    foundation = FOUNDATION_EXTENSION_PACKAGES.get(normalized.replace("-", "_"))
+    if foundation:
+        return foundation[0]
+    return f"bias-ext-{normalized}"
+
+
 def extension_python_package(extension_id: str) -> str:
     normalized = str(extension_id or "").strip().replace("-", "_")
+    foundation = FOUNDATION_EXTENSION_PACKAGES.get(normalized)
+    if foundation:
+        return foundation[1]
     return f"bias_ext_{normalized}" if normalized else ""
 
 

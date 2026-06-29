@@ -97,7 +97,13 @@ def validate_extension_manifests_with_available_ids(
     collector.manifests.extend(manifests)
 
     manifest_ids = {manifest.id for manifest in manifests}
-    known_extension_ids = set(available_extension_ids or set()) | manifest_ids
+    provided_ids = {
+        str(item or "").strip()
+        for manifest in manifests
+        for item in manifest.provides
+        if str(item or "").strip()
+    }
+    known_extension_ids = set(available_extension_ids or set()) | manifest_ids | provided_ids
     seen_ids: set[str] = set()
     base_path = Path(extensions_base_path) if extensions_base_path else None
 
@@ -921,6 +927,7 @@ def _validate_dependency_graph(
     manifests: list[ExtensionManifest],
 ) -> None:
     manifest_ids = {manifest.id for manifest in manifests}
+    providers_by_capability = _build_manifest_capability_provider_map(manifests)
     graph: dict[str, set[str]] = {manifest.id: set() for manifest in manifests}
 
     for manifest in manifests:
@@ -952,8 +959,13 @@ def _validate_dependency_graph(
             )
 
         for dependency_id in sorted(required | optional):
-            if dependency_id in manifest_ids:
-                graph[manifest.id].add(dependency_id)
+            provider_id = _resolve_manifest_dependency_provider_id(
+                dependency_id,
+                manifest_ids=manifest_ids,
+                providers_by_capability=providers_by_capability,
+            )
+            if provider_id:
+                graph[manifest.id].add(provider_id)
 
     for cycle in _find_dependency_cycles(graph):
         cycle_text = " -> ".join((*cycle, cycle[0]))
@@ -964,6 +976,29 @@ def _validate_dependency_graph(
                 extension_id=extension_id,
                 field="dependencies",
             )
+
+
+def _build_manifest_capability_provider_map(manifests: list[ExtensionManifest]) -> dict[str, str]:
+    providers: dict[str, str] = {}
+    for manifest in sorted(manifests, key=lambda item: item.id):
+        for capability in manifest.provides:
+            normalized = str(capability or "").strip()
+            if normalized and normalized not in providers:
+                providers[normalized] = manifest.id
+    return providers
+
+
+def _resolve_manifest_dependency_provider_id(
+    dependency_id: str,
+    *,
+    manifest_ids: set[str],
+    providers_by_capability: dict[str, str],
+) -> str:
+    normalized = str(dependency_id or "").strip()
+    if normalized in manifest_ids:
+        return normalized
+    provider_id = providers_by_capability.get(normalized, "")
+    return provider_id if provider_id in manifest_ids else ""
 
 
 def _find_dependency_cycles(graph: dict[str, set[str]]) -> list[tuple[str, ...]]:

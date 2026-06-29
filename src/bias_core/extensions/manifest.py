@@ -26,6 +26,8 @@ from bias_core.extensions.validation import EXTENSION_ID_PATTERN, SEMVER_PATTERN
 
 _distribution_manifest_cache: list[ExtensionManifest] | None = None
 SITE_HOST_DIRECTORY_NAMES = {"bias", "bias_site", "site"}
+WORKSPACE_PACKAGE_PREFIXES = ("bias-ext-", "bias-")
+FOUNDATION_PACKAGE_NAMES = {"bias-content"}
 GENERATED_EXTENSION_SOURCE_MARKER = ".bias-generated-extension-source"
 
 
@@ -69,7 +71,7 @@ class ExtensionManifestLoader:
             return []
 
         manifests: list[ExtensionManifest] = []
-        for manifest_path in sorted(workspace_root.glob("bias-ext-*/extension.json")):
+        for manifest_path in self._iter_workspace_manifest_paths(workspace_root):
             try:
                 manifests.append(self.load_manifest_only(manifest_path))
             except ExtensionManifestError:
@@ -317,16 +319,16 @@ class ExtensionManifestLoader:
         except OSError:
             is_default_path = self.base_path == default_extensions_path
 
-        if self.base_path.exists() and any(self.base_path.glob("bias-ext-*/extension.json")):
+        if self.base_path.exists() and self._has_workspace_manifest_paths(self.base_path):
             return self.base_path
-        if self.base_path.parent.exists() and any(self.base_path.parent.glob("bias-ext-*/extension.json")):
+        if self.base_path.parent.exists() and self._has_workspace_manifest_paths(self.base_path.parent):
             return self.base_path.parent
 
         if (
             is_default_path
             and Path(settings.BASE_DIR).name in SITE_HOST_DIRECTORY_NAMES
             and self.base_path.parent.exists()
-            and any(self.base_path.parent.glob("bias-ext-*/extension.json"))
+            and self._has_workspace_manifest_paths(self.base_path.parent)
         ):
             return self.base_path.parent
 
@@ -334,9 +336,28 @@ class ExtensionManifestLoader:
             return None
 
         cwd = Path.cwd()
-        if cwd.exists() and any(cwd.glob("bias-ext-*/extension.json")):
+        if cwd.exists() and self._has_workspace_manifest_paths(cwd):
             return cwd
         return None
+
+    def _iter_workspace_manifest_paths(self, workspace_root: Path):
+        candidates: list[Path] = []
+        for prefix in WORKSPACE_PACKAGE_PREFIXES:
+            candidates.extend(workspace_root.glob(f"{prefix}*/extension.json"))
+        return sorted({
+            manifest_path
+            for manifest_path in candidates
+            if self._is_workspace_manifest_path(manifest_path)
+        })
+
+    def _has_workspace_manifest_paths(self, workspace_root: Path) -> bool:
+        return any(self._iter_workspace_manifest_paths(workspace_root))
+
+    def _is_workspace_manifest_path(self, manifest_path: Path) -> bool:
+        directory_name = manifest_path.parent.name
+        if directory_name.startswith("bias-ext-"):
+            return True
+        return directory_name in FOUNDATION_PACKAGE_NAMES
 
     def _is_distribution_manifest_file(self, filename: str) -> bool:
         return (

@@ -11,6 +11,8 @@ import tomllib
 from typing import Any
 import zipfile
 
+from bias_core.extensions.paths import extension_distribution_package, extension_python_package
+
 
 PACKAGE_RESOURCE_DIRS = ("frontend", "locale")
 
@@ -121,7 +123,7 @@ def inspect_extension_package_metadata(
     if not isinstance(project, dict):
         project = {}
 
-    expected_package_name = f"bias-ext-{extension_id}"
+    expected_package_name = extension_distribution_package(extension_id)
     actual_package_name = str(project.get("name") or "").strip()
     if actual_package_name != expected_package_name:
         errors.append(f"project.name 应为 {expected_package_name}")
@@ -149,7 +151,7 @@ def inspect_extension_package_metadata(
         errors.append(f"project.entry-points.bias.extensions.{expected_entry_key} 应为 {expected_backend_entry}")
 
     package_include = _project_package_find_include(payload)
-    expected_include = [f"bias_ext_{extension_id.replace('-', '_')}*"]
+    expected_include = [f"{extension_python_package(extension_id)}*"]
     if package_include != expected_include:
         errors.append(f"tool.setuptools.packages.find.include 应为 {expected_include}")
 
@@ -454,7 +456,7 @@ def _select_extension_wheel(
 ) -> Path | None:
     if not wheel_dir.exists():
         return None
-    package_prefix = f"bias_ext_{extension_id.replace('-', '_')}-"
+    package_prefix = f"{extension_python_package(extension_id)}-"
     version_marker = f"-{extension_version}-"
     candidates = [
         path
@@ -463,7 +465,7 @@ def _select_extension_wheel(
     ]
     if candidates:
         return candidates[-1]
-    fallback_prefix = f"bias_ext_{extension_id.replace('-', '_')}"
+    fallback_prefix = extension_python_package(extension_id)
     fallback = [path for path in sorted(wheel_dir.glob("*.whl")) if path.name.startswith(fallback_prefix)]
     return fallback[-1] if fallback else None
 
@@ -1182,7 +1184,7 @@ def _normalized_package_metadata_payload(
     updates: list[str] = []
 
     project = _ensure_mapping(normalized, "project")
-    _set_if_changed(project, "name", f"bias-ext-{extension_id}", updates, "project.name")
+    _set_if_changed(project, "name", extension_distribution_package(extension_id), updates, "project.name")
     _set_if_changed(project, "version", str(extension_version or "").strip(), updates, "project.version")
 
     dependencies = _normalize_project_dependencies(
@@ -1215,7 +1217,7 @@ def _normalized_package_metadata_payload(
     _set_if_changed(
         package_find,
         "include",
-        [f"bias_ext_{extension_id.replace('-', '_')}*"],
+        [f"{extension_python_package(extension_id)}*"],
         updates,
         "tool.setuptools.packages.find.include",
     )
@@ -1246,7 +1248,7 @@ def _normalize_project_dependencies(
         if not text:
             continue
         package_name = _dependency_package_name(text)
-        if package_name == f"bias-ext-{extension_id}":
+        if package_name == extension_distribution_package(extension_id):
             continue
         if package_name == "bias-core" or package_name.startswith("bias-ext-"):
             continue

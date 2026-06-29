@@ -6,7 +6,7 @@ import re
 from pathlib import Path
 from types import ModuleType
 
-from bias_core.extensions.paths import module_file_from_entry, module_path
+from bias_core.extensions.paths import extension_python_package, module_file_from_entry, module_path
 
 
 BACKEND_FUNCTION_PATTERN = re.compile(r"^(?:async\s+)?def\s+([A-Za-z0-9_]+)\s*\(", re.MULTILINE)
@@ -80,7 +80,13 @@ def inspect_extension_backend_module(definition) -> dict:
 
 def load_extension_backend_module(definition) -> ModuleType | None:
     backend_entry = module_path(str(definition.manifest.backend_entry or "").strip()).split(":", 1)[0]
-    if definition.source == "python-package" or backend_entry.startswith("bias_ext_"):
+    extension_id = str(getattr(definition, "id", "") or getattr(definition.manifest, "id", "") or "").strip()
+    package_name = extension_python_package(extension_id)
+    if (
+        definition.source == "python-package"
+        or backend_entry.startswith("bias_ext_")
+        or (package_name and backend_entry.startswith(f"{package_name}."))
+    ):
         if not backend_entry:
             return None
         try:

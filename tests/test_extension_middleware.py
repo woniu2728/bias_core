@@ -768,6 +768,36 @@ class ExtensionMiddlewareIntegrationTests(TestCase):
             for item in result.issues
         ))
 
+    def test_validate_extension_manifests_allows_dependencies_satisfied_by_provides(self):
+        manifests = [
+            ExtensionManifest(
+                id="content",
+                name="Content Foundation",
+                version="1.0.0",
+                provides=("discussions", "posts"),
+            ),
+            ExtensionManifest(
+                id="tags",
+                name="Tags",
+                version="1.0.0",
+                dependencies=("discussions",),
+            ),
+            ExtensionManifest(
+                id="flags",
+                name="Flags",
+                version="1.0.0",
+                dependencies=("posts",),
+            ),
+        ]
+
+        result = validate_extension_manifests_with_available_ids(
+            manifests,
+            available_extension_ids={"core"},
+        )
+
+        self.assertTrue(result.ok)
+        self.assertFalse(any(item.code == "missing_dependency" for item in result.issues))
+
     def test_validate_extension_manifests_rejects_ambiguous_dependency_declarations(self):
         manifests = [
             ExtensionManifest(

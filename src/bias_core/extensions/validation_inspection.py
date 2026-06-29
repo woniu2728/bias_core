@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from bias_core.extensions.backend import inspect_extension_backend_entry
-from bias_core.extensions.paths import frontend_entry_key, frontend_entry_path
+from bias_core.extensions.paths import extension_python_package, frontend_entry_key, frontend_entry_path
 from bias_core.extensions.types import ExtensionManifest
 from bias_core.extensions.validation_rules import EXPORT_DECLARATION_PATTERN, EXPORT_FUNCTION_PATTERN
 
@@ -238,7 +238,11 @@ def inspect_backend_entry(
         payload["resolved_path"] = _path_for_payload(payload.get("resolved_path"))
         return payload
 
-    if not entry.startswith(("extensions.", "bias_ext_")):
+    internal_prefixes = ("extensions.", "bias_ext_")
+    package_name = extension_python_package(manifest.id)
+    if package_name:
+        internal_prefixes = (*internal_prefixes, f"{package_name}.")
+    if not entry.startswith(internal_prefixes):
         payload.update({
             "entry_type": "external",
             "exists": False,

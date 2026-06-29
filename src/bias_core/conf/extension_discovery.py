@@ -1,5 +1,6 @@
 from __future__ import annotations
 import json
+import sys
 from importlib import metadata
 from pathlib import Path
 from typing import Any
@@ -37,6 +38,7 @@ def _discover_workspace_extension_django_app_records(base_dir=None) -> list[dict
         app_config = str(payload.get("django_app_config") or django_payload.get("app_config") or "").strip()
         if not app_config:
             continue
+        _ensure_workspace_package_import_path(manifest_path.parent)
         app_label = str(
             payload.get("django_app_label")
             or django_payload.get("app_label")
@@ -57,6 +59,15 @@ def _discover_workspace_extension_django_app_records(base_dir=None) -> list[dict
             "migration_module": migration_module,
         })
     return records
+
+
+def _ensure_workspace_package_import_path(package_root: Path) -> None:
+    try:
+        resolved = str(package_root.resolve())
+    except OSError:
+        resolved = str(package_root)
+    if resolved and resolved not in sys.path:
+        sys.path.insert(0, resolved)
 
 
 def _discover_distribution_extension_django_app_records() -> list[dict[str, str]]:

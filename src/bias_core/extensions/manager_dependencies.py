@@ -15,6 +15,7 @@ def get_core_satisfied_dependency_ids() -> set[str]:
 def resolve_extension_order(extensions: list[Extension], *, satisfied_dependency_ids: set[str] | None = None) -> dict:
     satisfied_dependency_ids = set(satisfied_dependency_ids or set())
     extension_map = {extension.id: extension for extension in extensions}
+    providers_by_capability = _build_capability_provider_map(extensions)
     sorted_extensions = sorted(extensions, key=lambda item: item.id)
     graph: dict[str, list[str]] = {}
     in_degree: dict[str, int] = {extension.id: 0 for extension in sorted_extensions}
@@ -26,24 +27,37 @@ def resolve_extension_order(extensions: list[Extension], *, satisfied_dependency
         for dependency_id in dependencies:
             if dependency_id in satisfied_dependency_ids:
                 continue
-            if dependency_id not in extension_map:
+            provider_id = _resolve_dependency_provider_id(
+                dependency_id,
+                extension_map=extension_map,
+                providers_by_capability=providers_by_capability,
+            )
+            if not provider_id:
                 missing_dependencies.setdefault(extension.id, []).append(dependency_id)
                 continue
-            graph.setdefault(dependency_id, [])
-            graph[dependency_id].append(extension.id)
+            graph.setdefault(provider_id, [])
+            graph[provider_id].append(extension.id)
             in_degree[extension.id] = in_degree.get(extension.id, 0) + 1
         optional_dependencies = [
-            dependency_id
+            provider_id
             for dependency_id in extension.manifest.optional_dependencies
+            for provider_id in (
+                _resolve_dependency_provider_id(
+                    dependency_id,
+                    extension_map=extension_map,
+                    providers_by_capability=providers_by_capability,
+                ),
+            )
             if (
                 dependency_id not in satisfied_dependency_ids
-                and dependency_id in extension_map
+                and provider_id
                 and dependency_id not in dependencies
+                and provider_id not in dependencies
             )
         ]
-        for dependency_id in optional_dependencies:
-            graph.setdefault(dependency_id, [])
-            graph[dependency_id].append(extension.id)
+        for provider_id in optional_dependencies:
+            graph.setdefault(provider_id, [])
+            graph[provider_id].append(extension.id)
             in_degree[extension.id] = in_degree.get(extension.id, 0) + 1
 
     pending = sorted([extension_id for extension_id, count in in_degree.items() if count == 0])
@@ -74,6 +88,29 @@ def resolve_extension_order(extensions: list[Extension], *, satisfied_dependency
         "missing_dependencies": missing_dependencies,
         "circular_dependencies": circular_dependencies,
     }
+
+
+def _build_capability_provider_map(extensions: list[Extension]) -> dict[str, str]:
+    providers: dict[str, str] = {}
+    for extension in sorted(extensions, key=lambda item: item.id):
+        for capability in extension.manifest.provides:
+            normalized = str(capability or "").strip()
+            if normalized and normalized not in providers:
+                providers[normalized] = extension.id
+    return providers
+
+
+def _resolve_dependency_provider_id(
+    dependency_id: str,
+    *,
+    extension_map: dict[str, Extension],
+    providers_by_capability: dict[str, str],
+) -> str:
+    normalized = str(dependency_id or "").strip()
+    if normalized in extension_map:
+        return normalized
+    provider_id = providers_by_capability.get(normalized, "")
+    return provider_id if provider_id in extension_map else ""
 
 
 def build_dependency_resolution_payload(extensions: list[Extension]) -> dict:

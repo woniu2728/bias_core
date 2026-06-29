@@ -214,6 +214,32 @@ class ExtensionManifestLoaderTests(TestCase):
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
+    def test_loader_discovers_content_foundation_workspace_package(self):
+        temp_dir = make_workspace_temp_dir()
+        try:
+            workspace_root = Path(temp_dir)
+            extensions_dir = workspace_root / "bias" / "extensions"
+            extensions_dir.mkdir(parents=True, exist_ok=False)
+            foundation_dir = workspace_root / "bias-content"
+            foundation_dir.mkdir(parents=True, exist_ok=False)
+            (foundation_dir / "extension.json").write_text(json.dumps({
+                "id": "content",
+                "name": "Content Foundation",
+                "version": "1.0.0",
+                "provides": ["discussions", "posts"],
+                "backend": {"entry": "bias_content.backend.ext:extend"},
+            }, ensure_ascii=False), encoding="utf-8")
+
+            with override_settings(BASE_DIR=workspace_root / "bias", BIAS_EXTENSION_WORKSPACE_ROOT=workspace_root):
+                loader = ExtensionManifestLoader(extensions_dir, include_workspace=True)
+                manifests = loader.discover_manifests()
+
+            self.assertEqual([manifest.id for manifest in manifests], ["content"])
+            self.assertEqual(manifests[0].provides, ("discussions", "posts"))
+            self.assertEqual(manifests[0].path, str(foundation_dir))
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
     def test_loader_discovers_split_workspace_extension_packages_from_bias_site_host(self):
         temp_dir = make_workspace_temp_dir()
         try:
@@ -5251,6 +5277,34 @@ class ExtensionManifestLoaderTests(TestCase):
         ordered = manager.sort_extensions_for_boot([tags])
 
         self.assertEqual([item.id for item in ordered], ["tags"])
+
+    def test_extension_dependency_sort_uses_manifest_provides_as_dependency_capabilities(self):
+        content = Extension.from_manifest(ExtensionManifest(
+            id="content",
+            name="Content Foundation",
+            version="1.0.0",
+            provides=("discussions", "posts"),
+            source="filesystem",
+        ))
+        tags = Extension.from_manifest(ExtensionManifest(
+            id="tags",
+            name="Tags",
+            version="1.0.0",
+            dependencies=("discussions",),
+            source="filesystem",
+        ))
+        flags = Extension.from_manifest(ExtensionManifest(
+            id="flags",
+            name="Flags",
+            version="1.0.0",
+            dependencies=("posts",),
+            source="filesystem",
+        ))
+        manager = ExtensionRegistry()
+
+        ordered = manager.sort_extensions_for_boot([tags, flags, content])
+
+        self.assertEqual([item.id for item in ordered], ["content", "flags", "tags"])
 
     def test_extension_dependency_sort_detects_optional_dependency_cycles(self):
         discussions = Extension.from_manifest(ExtensionManifest(
