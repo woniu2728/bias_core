@@ -48,6 +48,22 @@ class ExtensionManagementCommandTests(TestCase):
         self.assertIn("--require-extensions", workflow)
         self.assertIn("--migration-smoke", workflow)
 
+    def test_content_foundation_migration_state_is_current(self):
+        stdout = StringIO()
+
+        call_command(
+            "makemigrations",
+            "content",
+            "discussions",
+            "posts",
+            "--check",
+            "--dry-run",
+            stdout=stdout,
+            stderr=StringIO(),
+        )
+
+        self.assertIn("No changes detected", stdout.getvalue())
+
     def test_extension_console_command_lists_and_runs_runtime_commands(self):
         commands = [{
             "name": "alpha:refresh",
