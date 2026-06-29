@@ -44,6 +44,7 @@ class ExtensionManagementCommandTests(TestCase):
 
         self.assertIn("Audit extension backend import boundaries", workflow)
         self.assertIn("python -m django inspect_extension_imports", workflow)
+        self.assertIn("--fail-on-warnings", workflow)
         self.assertIn("python -m django inspect_extension_packages", workflow)
         self.assertIn("--require-extensions", workflow)
         self.assertIn("--migration-smoke", workflow)
@@ -1296,6 +1297,57 @@ class ExtensionManagementCommandTests(TestCase):
             output = stdout.getvalue()
             self.assertIn("runtime_facade_top_level_import", output)
             self.assertIn("get_runtime_user_by_id", output)
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_inspect_extension_imports_command_can_fail_on_warnings(self):
+        temp_dir = make_workspace_temp_dir()
+        try:
+            users_dir = Path(temp_dir) / "extensions" / "users"
+            users_dir.mkdir(parents=True, exist_ok=False)
+            (users_dir / "extension.json").write_text(json.dumps({
+                "id": "users",
+                "name": "Users",
+                "version": "1.0.0",
+                "dependencies": ["core"],
+            }, ensure_ascii=False), encoding="utf-8")
+            manifest_dir = Path(temp_dir) / "extensions" / "alpha-tools"
+            backend_dir = manifest_dir / "backend"
+            backend_dir.mkdir(parents=True, exist_ok=False)
+            (manifest_dir / "extension.json").write_text(json.dumps({
+                "id": "alpha-tools",
+                "name": "Alpha Tools",
+                "version": "1.0.0",
+                "dependencies": ["core", "users"],
+                "backend_entry": "extensions.alpha_tools.backend.ext",
+            }, ensure_ascii=False), encoding="utf-8")
+            (backend_dir / "ext.py").write_text(
+                "from bias_core.extensions.runtime import get_runtime_user_by_id\n"
+                "\n"
+                "def extend():\n"
+                "    return []\n",
+                encoding="utf-8",
+            )
+
+            stdout = StringIO()
+            with self.assertRaisesMessage(CommandError, "扩展 import 边界审计失败，共 1 个警告"):
+                call_command(
+                    "inspect_extension_imports",
+                    "--extensions-path",
+                    str(Path(temp_dir) / "extensions"),
+                    "--extension-id",
+                    "alpha-tools",
+                    "--check-runtime-facades",
+                    "--fail-on-warnings",
+                    "--format",
+                    "json",
+                    stdout=stdout,
+                )
+
+            payload = json.loads(stdout.getvalue())
+            self.assertFalse(payload["summary"]["ok"])
+            self.assertEqual(payload["summary"]["warning_count"], 1)
+            self.assertEqual(payload["issues"][0]["code"], "runtime_facade_top_level_import")
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
@@ -2861,6 +2913,7 @@ class ExtensionManagementCommandTests(TestCase):
             self.assertIsNotNone(import_call)
             self.assertNotIn("--internal", import_call)
             self.assertIn("--require-extensions", import_call)
+            self.assertIn("--fail-on-warnings", import_call)
             self.assertIn("--extensions-path", import_call)
             self.assertIsNotNone(package_call)
             self.assertIn("--install-set-smoke", package_call)

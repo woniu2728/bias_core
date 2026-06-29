@@ -80,7 +80,7 @@ jobs:
           BIAS_FRONTEND_DIR: ${{ github.workspace }}/../bias/frontend
         run: |
           if [ -d "$BIAS_EXTENSION_WORKSPACE_ROOT/bias-ext-tags" ]; then
-            python -m django inspect_extension_imports --extensions-path "$BIAS_EXTENSION_WORKSPACE_ROOT/extensions" --require-extensions
+            python -m django inspect_extension_imports --extensions-path "$BIAS_EXTENSION_WORKSPACE_ROOT/extensions" --require-extensions --fail-on-warnings
           else
             echo "Split extension workspace not present; backend import boundary audit is covered in workspace CI."
           fi
@@ -92,7 +92,7 @@ jobs:
           BIAS_FRONTEND_DIR: ${{ github.workspace }}/../bias/frontend
         run: |
           if [ -d "$BIAS_EXTENSION_WORKSPACE_ROOT/bias-ext-tags" ]; then
-            python -m django inspect_extension_imports --extensions-path "$BIAS_EXTENSION_WORKSPACE_ROOT/extensions" --require-extensions --include-tests
+            python -m django inspect_extension_imports --extensions-path "$BIAS_EXTENSION_WORKSPACE_ROOT/extensions" --require-extensions --fail-on-warnings --include-tests
           else
             echo "Split extension workspace not present; test import boundary audit is covered in workspace CI."
           fi

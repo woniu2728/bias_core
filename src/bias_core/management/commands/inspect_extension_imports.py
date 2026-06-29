@@ -52,6 +52,11 @@ class Command(BaseCommand):
             help="要求至少发现一个扩展；CI/发布校验可用它避免空目录误报通过",
         )
         parser.add_argument(
+            "--fail-on-warnings",
+            action="store_true",
+            help="将警告也视为失败；CI/发布校验可用它阻断软性边界规则回归",
+        )
+        parser.add_argument(
             "--format",
             choices=("text", "json"),
             default="text",
@@ -65,6 +70,7 @@ class Command(BaseCommand):
         include_tests = bool(options.get("include_tests"))
         check_runtime_facades = bool(options.get("check_runtime_facades"))
         require_extensions = bool(options.get("require_extensions"))
+        fail_on_warnings = bool(options.get("fail_on_warnings"))
         output_format = str(options.get("format") or "text").strip() or "text"
 
         include_workspace = extensions_path.name == "extensions"
@@ -118,7 +124,11 @@ class Command(BaseCommand):
                 "manifest_count": len(result.manifests),
                 "error_count": result.error_count,
                 "warning_count": result.warning_count,
-                "ok": result.ok and not (require_extensions and not result.manifests),
+                "ok": (
+                    result.ok
+                    and not (fail_on_warnings and result.warning_count)
+                    and not (require_extensions and not result.manifests)
+                ),
             },
             "manifests": [
                 {
@@ -160,3 +170,5 @@ class Command(BaseCommand):
             raise CommandError("扩展 import 边界审计未发现任何扩展")
         if result.error_count:
             raise CommandError(f"扩展 import 边界审计失败，共 {result.error_count} 个错误")
+        if fail_on_warnings and result.warning_count:
+            raise CommandError(f"扩展 import 边界审计失败，共 {result.warning_count} 个警告")
