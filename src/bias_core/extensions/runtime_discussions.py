@@ -9,6 +9,11 @@ from bias_core.extensions.runtime_core import (
 )
 
 _discussion = RuntimeServiceProxy("discussions.service")
+_content_discussion = RuntimeServiceProxy("content.discussions")
+
+
+def get_runtime_content_discussion_service(default: Any = None):
+    return get_extension_host_service("content.discussions", default)
 
 
 def get_runtime_discussion_service(default: Any = None):
@@ -16,19 +21,42 @@ def get_runtime_discussion_service(default: Any = None):
 
 
 def require_runtime_discussion_service():
+    content_discussions = get_runtime_content_discussion_service(None)
+    if content_discussions is not None:
+        return content_discussions
     return require_extension_host_service("discussions.service")
 
 
 def get_runtime_discussion_model():
+    content_discussions = get_runtime_content_discussion_service(None)
+    if isinstance(content_discussions, dict):
+        model = content_discussions.get("model")
+        if model is not None:
+            return model
+    elif content_discussions is not None:
+        model = getattr(content_discussions, "model", None)
+        if model is not None:
+            return model
     return _discussion.value("model", required_message="discussions.service 未提供讨论模型")
 
 
 def get_runtime_discussion_state_model():
+    content_discussions = get_runtime_content_discussion_service(None)
+    if isinstance(content_discussions, dict):
+        model = content_discussions.get("state_model")
+        if model is not None:
+            return model
+    elif content_discussions is not None:
+        model = getattr(content_discussions, "state_model", None)
+        if model is not None:
+            return model
     return _discussion.value("state_model", required_message="discussions.service 未提供讨论状态模型")
 
 
 def get_runtime_discussion_approval_approved() -> str:
-    value = _discussion.value("approval_approved", "")
+    value = _content_discussion.value("approval_approved", "") if get_runtime_content_discussion_service(None) is not None else ""
+    if not value:
+        value = _discussion.value("approval_approved", "")
     if not value:
         raise RuntimeError("discussions.service 未提供已审核状态常量")
     return str(value)

@@ -1671,27 +1671,53 @@ class ExtensionManifestLoaderTests(TestCase):
             create_runtime_first_post,
             create_runtime_post,
             get_runtime_discussion_posts_service,
+            get_runtime_post_model,
+        )
+        from bias_core.extensions.runtime_discussions import (
+            get_runtime_discussion_model,
+            get_runtime_discussion_state_model,
         )
 
         app = ExtensionApplication()
         content_calls = []
         legacy_calls = []
+        content_post_model = object()
+        legacy_post_model = object()
+        content_discussion_model = object()
+        content_state_model = object()
+        legacy_discussion_model = object()
+        legacy_state_model = object()
         content_service = {
+            "model": content_post_model,
             "create_first_post": lambda **kwargs: content_calls.append(kwargs) or "content",
             "create": lambda **kwargs: content_calls.append({"create": kwargs}) or "content-post",
+        }
+        content_discussion_service = {
+            "model": content_discussion_model,
+            "state_model": content_state_model,
         }
         legacy_service = {
             "create_first_post": lambda **kwargs: legacy_calls.append(kwargs) or "legacy",
         }
         post_service = {
+            "model": legacy_post_model,
             "create": lambda **kwargs: legacy_calls.append({"create": kwargs}) or "legacy-post",
         }
+        discussion_service = {
+            "model": legacy_discussion_model,
+            "state_model": legacy_state_model,
+        }
         app.instance("content.posts", content_service)
+        app.instance("content.discussions", content_discussion_service)
         app.instance("discussion.posts", legacy_service)
         app.instance("posts.service", post_service)
+        app.instance("discussions.service", discussion_service)
 
         with patch("bias_core.extensions.bootstrap.get_extension_host", return_value=app):
             self.assertIs(get_runtime_discussion_posts_service(), content_service)
+            self.assertIs(get_runtime_post_model(), content_post_model)
+            self.assertIs(get_runtime_discussion_model(), content_discussion_model)
+            self.assertIs(get_runtime_discussion_state_model(), content_state_model)
             self.assertEqual(create_runtime_first_post(discussion_id=1), "content")
             self.assertEqual(
                 create_runtime_post(discussion_id=2, content="Reply", user="actor", reply_to_post_id=3),

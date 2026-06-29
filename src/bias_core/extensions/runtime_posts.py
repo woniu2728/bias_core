@@ -10,6 +10,7 @@ from bias_core.extensions.runtime_core import (
 )
 
 _post_service = RuntimeServiceProxy("posts.service")
+_content_post_service = RuntimeServiceProxy("content.posts")
 _discussion_posts_service = RuntimeServiceProxy("discussion.posts")
 _realtime_post_payload_service = RuntimeServiceProxy("realtime.post_payload")
 
@@ -23,6 +24,9 @@ def get_runtime_post_service(default: Any = None):
 
 
 def require_runtime_post_service():
+    content_posts = get_runtime_content_posts_service(None)
+    if content_posts is not None:
+        return content_posts
     return require_extension_host_service("posts.service")
 
 
@@ -41,10 +45,27 @@ def _discussion_posts_method(name: str):
 
 
 def get_runtime_post_model():
+    content_posts = get_runtime_content_posts_service(None)
+    if content_posts is not None:
+        if isinstance(content_posts, dict):
+            model = content_posts.get("model")
+        else:
+            model = getattr(content_posts, "model", None)
+        if model is not None:
+            return model
     return _post_service.value("model", required_message="posts.service 未提供帖子模型")
 
 
 def get_runtime_post_model_or_none():
+    content_posts = get_runtime_content_posts_service(None)
+    if isinstance(content_posts, dict):
+        model = content_posts.get("model")
+        if model is not None:
+            return model
+    elif content_posts is not None:
+        model = getattr(content_posts, "model", None)
+        if model is not None:
+            return model
     service = get_extension_host_service("posts.service", None)
     if isinstance(service, dict):
         return service.get("model")
@@ -60,6 +81,14 @@ def get_runtime_post_by_id(
     select_related: tuple[str, ...] = (),
 ):
     if require_visible and not select_related:
+        content_posts = get_runtime_content_posts_service(None)
+        if content_posts is not None:
+            return runtime_service_method(content_posts, "get_by_id")(
+                post_id,
+                user=user,
+                preload=preload,
+                require_visible=True,
+            )
         return _post_service.get_by_id(post_id, user, preload=preload)
     model = get_runtime_post_model()
     queryset = model.objects
@@ -74,6 +103,9 @@ def get_runtime_post_by_id(
 
 
 def can_runtime_view_post(post: Any, user: Any = None) -> bool:
+    content_posts = get_runtime_content_posts_service(None)
+    if content_posts is not None:
+        return bool(runtime_service_method(content_posts, "can_view")(post, user))
     return bool(_post_service.can_view(post, user))
 
 
@@ -106,21 +138,27 @@ def process_runtime_post_approval_item(*, content_id: int, action: str, actor: A
 
 
 def get_runtime_post_approval_approved() -> str:
-    value = _post_service.value("approval_approved", "")
+    value = _content_post_service.value("approval_approved", "") if get_runtime_content_posts_service(None) is not None else ""
+    if not value:
+        value = _post_service.value("approval_approved", "")
     if not value:
         raise RuntimeError("posts.service 未提供已审核状态常量")
     return str(value)
 
 
 def get_runtime_post_approval_pending() -> str:
-    value = _post_service.value("approval_pending", "")
+    value = _content_post_service.value("approval_pending", "") if get_runtime_content_posts_service(None) is not None else ""
+    if not value:
+        value = _post_service.value("approval_pending", "")
     if not value:
         raise RuntimeError("posts.service 未提供待审核状态常量")
     return str(value)
 
 
 def get_runtime_post_approval_rejected() -> str:
-    value = _post_service.value("approval_rejected", "")
+    value = _content_post_service.value("approval_rejected", "") if get_runtime_content_posts_service(None) is not None else ""
+    if not value:
+        value = _post_service.value("approval_rejected", "")
     if not value:
         raise RuntimeError("posts.service 未提供已拒绝状态常量")
     return str(value)
@@ -164,6 +202,9 @@ def get_runtime_first_post(discussion: Any):
 
 
 def resolve_runtime_post_content_html(post: Any) -> str:
+    content_posts = get_runtime_content_posts_service(None)
+    if content_posts is not None:
+        return str(runtime_service_method(content_posts, "resolve_content_html")(post) or "")
     return str(_post_service.resolve_content_html(post) or "")
 
 
