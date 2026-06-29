@@ -2558,6 +2558,108 @@ class ExtensionManagementCommandTests(TestCase):
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
+    def test_validate_extensions_command_discovers_split_workspace_from_bias_site_host(self):
+        temp_dir = make_workspace_temp_dir()
+        try:
+            workspace_root = Path(temp_dir)
+            site_host = workspace_root / "bias"
+            extensions_dir = site_host / "extensions"
+            generated_dir = extensions_dir / "alpha"
+            generated_dir.mkdir(parents=True, exist_ok=False)
+            (generated_dir / ".bias-generated-extension-source").write_text("bias-ext-alpha\n", encoding="utf-8")
+            (generated_dir / "extension.json").write_text(json.dumps({
+                "id": "alpha",
+                "name": "Alpha Generated Copy",
+                "version": "1.0.0",
+                "backend": {"entry": "bias_ext_alpha.backend.ext:extend"},
+            }, ensure_ascii=False), encoding="utf-8")
+
+            workspace_manifest_dir = workspace_root / "bias-ext-alpha"
+            backend_dir = workspace_manifest_dir / "bias_ext_alpha" / "backend"
+            backend_dir.mkdir(parents=True, exist_ok=False)
+            (backend_dir / "__init__.py").write_text("", encoding="utf-8")
+            (backend_dir / "ext.py").write_text("def extend(app):\n    return None\n", encoding="utf-8")
+            (workspace_manifest_dir / "extension.json").write_text(json.dumps({
+                "id": "alpha",
+                "name": "Alpha Workspace Source",
+                "version": "1.0.0",
+                "backend": {"entry": "bias_ext_alpha.backend.ext:extend"},
+                "security": {"capabilities_notice": "Test extension fixture."},
+            }, ensure_ascii=False), encoding="utf-8")
+
+            stdout = StringIO()
+            with override_settings(BASE_DIR=site_host, BIAS_EXTENSION_WORKSPACE_ROOT=workspace_root):
+                call_command(
+                    "validate_extensions",
+                    "--extensions-path",
+                    str(extensions_dir),
+                    "--format",
+                    "json",
+                    "--strict",
+                    "--require-extensions",
+                    stdout=stdout,
+                    stderr=StringIO(),
+                )
+
+            payload = json.loads(stdout.getvalue())
+            self.assertTrue(payload["summary"]["ok"])
+            self.assertEqual(payload["summary"]["manifest_count"], 1)
+            self.assertEqual(payload["manifests"][0]["id"], "alpha")
+            self.assertEqual(payload["manifests"][0]["name"], "Alpha Workspace Source")
+            self.assertEqual(payload["manifests"][0]["path"], str(workspace_manifest_dir))
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_inspect_extension_imports_command_discovers_split_workspace_from_bias_site_host(self):
+        temp_dir = make_workspace_temp_dir()
+        try:
+            workspace_root = Path(temp_dir)
+            site_host = workspace_root / "bias"
+            extensions_dir = site_host / "extensions"
+            generated_dir = extensions_dir / "alpha"
+            generated_dir.mkdir(parents=True, exist_ok=False)
+            (generated_dir / ".bias-generated-extension-source").write_text("bias-ext-alpha\n", encoding="utf-8")
+            (generated_dir / "extension.json").write_text(json.dumps({
+                "id": "alpha",
+                "name": "Alpha Generated Copy",
+                "version": "1.0.0",
+            }, ensure_ascii=False), encoding="utf-8")
+
+            workspace_manifest_dir = workspace_root / "bias-ext-alpha"
+            backend_dir = workspace_manifest_dir / "bias_ext_alpha" / "backend"
+            backend_dir.mkdir(parents=True, exist_ok=False)
+            (backend_dir / "__init__.py").write_text("", encoding="utf-8")
+            (backend_dir / "ext.py").write_text("from bias_core.extensions.runtime import users\n", encoding="utf-8")
+            (workspace_manifest_dir / "extension.json").write_text(json.dumps({
+                "id": "alpha",
+                "name": "Alpha Workspace Source",
+                "version": "1.0.0",
+                "dependencies": ["users"],
+            }, ensure_ascii=False), encoding="utf-8")
+
+            stdout = StringIO()
+            with override_settings(BASE_DIR=site_host, BIAS_EXTENSION_WORKSPACE_ROOT=workspace_root):
+                call_command(
+                    "inspect_extension_imports",
+                    "--extensions-path",
+                    str(extensions_dir),
+                    "--format",
+                    "json",
+                    "--internal",
+                    "--require-extensions",
+                    stdout=stdout,
+                    stderr=StringIO(),
+                )
+
+            payload = json.loads(stdout.getvalue())
+            self.assertTrue(payload["summary"]["ok"])
+            self.assertEqual(payload["summary"]["manifest_count"], 1)
+            self.assertEqual(payload["manifests"][0]["id"], "alpha")
+            self.assertEqual(payload["manifests"][0]["name"], "Alpha Workspace Source")
+            self.assertEqual(payload["manifests"][0]["path"], str(workspace_manifest_dir))
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
     def test_validate_extensions_command_can_fail_when_no_extensions_are_discovered(self):
         temp_dir = make_workspace_temp_dir()
         try:

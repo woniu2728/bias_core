@@ -78,7 +78,8 @@ class AdminExtensionsApiTests(TestCase):
         self.assertTrue(posts_extension["product_visible"])
         self.assertTrue(posts_extension["protected"])
         self.assertFalse(any(action["action"] == "disable" for action in posts_extension["runtime_actions"]))
-        self.assertIn("post-types", posts_extension["provides"])
+        self.assertIn("post-api", posts_extension["provides"])
+        self.assertIn("post-ui", posts_extension["provides"])
 
         realtime_extension = next(item for item in payload["extensions"] if item["id"] == "realtime")
         self.assertEqual(realtime_extension["source"], "filesystem")

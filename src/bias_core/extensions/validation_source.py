@@ -241,7 +241,7 @@ def validate_manifest_field_contracts(
     except UnicodeDecodeError:
         return
 
-    relative_path = manifest_path.relative_to(base_path.parent).as_posix()
+    relative_path = extension_source_display_path(manifest_path, manifest=manifest, base_path=base_path)
     for code, pattern, message in FORBIDDEN_EXTENSION_MANIFEST_FIELD_PATTERNS:
         if pattern.search(source):
             collector.add_error(
@@ -267,7 +267,7 @@ def validate_extension_source_contracts(
         except UnicodeDecodeError:
             continue
 
-        relative_path = file_path.relative_to(base_path.parent).as_posix()
+        relative_path = extension_source_display_path(file_path, manifest=manifest, base_path=base_path)
         for code, pattern, message in FORBIDDEN_EXTENSION_SOURCE_PATTERNS:
             if pattern.search(source):
                 collector.add_error(
@@ -301,7 +301,7 @@ def validate_cross_extension_imports(
         except UnicodeDecodeError:
             continue
 
-        relative_path = file_path.relative_to(base_path.parent).as_posix()
+        relative_path = extension_source_display_path(file_path, manifest=manifest, base_path=base_path)
         validate_conditional_extension_dependencies(
             collector,
             manifest,
@@ -453,7 +453,7 @@ def validate_runtime_facade_dependency_graph(
                 tree = ast.parse(source)
             except SyntaxError:
                 continue
-            relative_path = file_path.relative_to(base_path.parent).as_posix()
+            relative_path = extension_source_display_path(file_path, manifest=manifest, base_path=base_path)
             for imported_name, required_extension_id in iter_runtime_facade_extension_references(tree):
                 required_provider_id = resolve_capability_provider_id(
                     required_extension_id,
@@ -898,6 +898,20 @@ def resolve_extension_local_path(value: str, *, manifest: ExtensionManifest, bas
 def extension_root_path(manifest: ExtensionManifest, base_path: Path) -> Path:
     manifest_path = str(getattr(manifest, "path", "") or "").strip()
     return Path(manifest_path) if manifest_path else Path(base_path) / manifest.id
+
+
+def extension_source_display_path(path: Path, *, manifest: ExtensionManifest, base_path: Path) -> str:
+    candidates = (
+        base_path.parent,
+        base_path,
+        extension_root_path(manifest, base_path).parent,
+    )
+    for root in candidates:
+        try:
+            return path.relative_to(root).as_posix()
+        except ValueError:
+            continue
+    return path.as_posix()
 
 
 

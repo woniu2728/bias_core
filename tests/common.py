@@ -225,10 +225,15 @@ def make_workspace_temp_dir() -> Path:
 TEST_EXTENSION_ID = "alpha-tools"
 
 
+def get_workspace_root() -> Path:
+    return Path(__file__).resolve().parents[2]
+
+
 def make_extension_test_base_dir() -> Path:
     base_dir = make_workspace_temp_dir()
     extensions_dir = base_dir / "extensions"
-    source_extensions_dir = Path.cwd() / "extensions"
+    workspace_root = get_workspace_root()
+    source_extensions_dir = workspace_root / "extensions"
     if source_extensions_dir.exists():
         shutil.copytree(
             source_extensions_dir,
@@ -243,7 +248,17 @@ def make_extension_test_base_dir() -> Path:
 
 
 def copy_split_workspace_extensions_for_tests(extensions_dir: Path) -> None:
-    workspace_root = Path.cwd().parent
+    workspace_root = get_workspace_root()
+    content_manifest = workspace_root / "bias-content" / "extension.json"
+    if content_manifest.exists():
+        target_dir = extensions_dir / "content"
+        shutil.copytree(
+            content_manifest.parent,
+            target_dir,
+            ignore=shutil.ignore_patterns(".git", "__pycache__", "*.pyc", "*.egg-info", "dist", "tests"),
+        )
+        normalize_split_manifest_for_legacy_tests(target_dir, "content")
+        ensure_legacy_frontend_entry_files(target_dir, "content")
     for manifest_path in sorted(workspace_root.glob("bias-ext-*/extension.json")):
         source_dir = manifest_path.parent
         extension_id = source_dir.name.removeprefix("bias-ext-")

@@ -55,11 +55,10 @@ class Command(BaseCommand):
         require_extensions = bool(options.get("require_extensions"))
         output_format = str(options.get("format") or "text").strip() or "text"
 
-        include_workspace = bool(extensions_path.name == "extensions" and any(extensions_path.parent.glob("bias-ext-*/extension.json")))
+        include_workspace = extensions_path.name == "extensions"
         loader = ExtensionManifestLoader(
             extensions_path,
             include_workspace=include_workspace,
-            workspace_root=extensions_path.parent if include_workspace else None,
         )
         try:
             manifests = loader.discover_manifests()

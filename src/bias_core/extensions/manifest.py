@@ -306,6 +306,11 @@ class ExtensionManifestLoader:
         if self.workspace_root is not None:
             return self.workspace_root if self.workspace_root.exists() else None
 
+        if self.base_path.exists() and self._has_workspace_manifest_paths(self.base_path):
+            return self.base_path
+        if self.base_path.parent.exists() and self._has_workspace_manifest_paths(self.base_path.parent):
+            return self.base_path.parent
+
         configured = str(getattr(settings, "BIAS_EXTENSION_WORKSPACE_ROOT", "") or "").strip()
         if configured:
             root = Path(configured)
@@ -318,11 +323,6 @@ class ExtensionManifestLoader:
             is_default_path = self.base_path.resolve() == default_extensions_path.resolve()
         except OSError:
             is_default_path = self.base_path == default_extensions_path
-
-        if self.base_path.exists() and self._has_workspace_manifest_paths(self.base_path):
-            return self.base_path
-        if self.base_path.parent.exists() and self._has_workspace_manifest_paths(self.base_path.parent):
-            return self.base_path.parent
 
         if (
             is_default_path
