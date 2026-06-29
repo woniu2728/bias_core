@@ -64,6 +64,31 @@ def jsonapi_response(payload, *, status: int = 200) -> JsonResponse:
     )
 
 
+def serialize_resource_jsonapi_response(
+    registry,
+    resource: str,
+    data,
+    context: dict,
+    *,
+    resource_options: ResourceQueryOptions | None = None,
+    include: Iterable[str] = (),
+    many: bool = False,
+    status: int = 200,
+):
+    if not wants_jsonapi_response(context):
+        return None
+    resource_options = resource_options or ResourceQueryOptions()
+    document = registry.serialize_jsonapi_document(
+        resource,
+        data,
+        context,
+        only=resource_options.fields,
+        include=merge_resource_includes(include, resource_options.includes),
+        many=many,
+    )
+    return jsonapi_response(document, status=status)
+
+
 def apply_resource_preloads(
     registry,
     queryset,

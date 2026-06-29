@@ -5456,6 +5456,85 @@ class ResourceRegistryTests(TestCase):
         self.assertEqual(jsonapi_response["data"]["type"], "plain_callback_item")
         self.assertEqual(jsonapi_response["data"]["attributes"], {"title": "plain"})
 
+    def test_serialize_resource_jsonapi_response_helper_respects_accept_and_options(self):
+        from bias_core.resource_api import ResourceQueryOptions, serialize_resource_jsonapi_response
+
+        registry = ResourceRegistry()
+
+        class Owner:
+            def __init__(self, id=7, username="neo"):
+                self.id = id
+                self.username = username
+
+        class Item:
+            def __init__(self, id=1, title="hello", owner=None):
+                self.id = id
+                self.title = title
+                self.owner = owner or Owner()
+
+        class OwnerResource(Resource):
+            def type(self):
+                return "helper_owner"
+
+            def fields(self):
+                return [ResourceField("username", resolver=lambda instance, context: instance.username)]
+
+        class ItemResource(Resource):
+            def type(self):
+                return "helper_item"
+
+            def fields(self):
+                return [ResourceField("title", resolver=lambda instance, context: instance.title)]
+
+            def relationships(self):
+                return [
+                    ResourceRelationship(
+                        "owner",
+                        resolver=lambda instance, context: instance.owner,
+                        resource_type="helper_owner",
+                    )
+                ]
+
+        registry.register_resource(OwnerResource())
+        registry.register_resource(ItemResource())
+        item = Item()
+        plain_context = {"request": RequestFactory().get("/api/helper-items/1")}
+        jsonapi_context = {"request": RequestFactory().get("/api/helper-items/1", HTTP_ACCEPT="application/vnd.api+json")}
+
+        self.assertIsNone(
+            serialize_resource_jsonapi_response(
+                registry,
+                "helper_item",
+                item,
+                plain_context,
+            )
+        )
+        response = serialize_resource_jsonapi_response(
+            registry,
+            "helper_item",
+            item,
+            jsonapi_context,
+            include=("owner",),
+            resource_options=ResourceQueryOptions(),
+        )
+
+        payload = json.loads(response.content)
+        self.assertEqual(response["Content-Type"], "application/vnd.api+json")
+        self.assertEqual(payload["data"]["attributes"], {"title": "hello"})
+        self.assertEqual(payload["data"]["relationships"]["owner"]["data"], {"type": "helper_owner", "id": "7"})
+        self.assertEqual(payload["included"][0]["type"], "helper_owner")
+
+        sparse_response = serialize_resource_jsonapi_response(
+            registry,
+            "helper_item",
+            item,
+            jsonapi_context,
+            resource_options=ResourceQueryOptions(fields=("title",)),
+        )
+        sparse_payload = json.loads(sparse_response.content)
+        self.assertEqual(sparse_payload["data"]["attributes"], {"title": "hello"})
+        self.assertNotIn("relationships", sparse_payload["data"])
+
     def test_jsonapi_validation_error_carries_source_pointer(self):
         registry = ResourceRegistry()
 
