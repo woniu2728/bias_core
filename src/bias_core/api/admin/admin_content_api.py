@@ -53,12 +53,20 @@ def _staff_denied(request):
     return denied if denied else None
 
 
+def _wants_summary_payload(request) -> bool:
+    value = request.GET.get("summary", "")
+    return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
 @router.get("/extensions", auth=AccessTokenAuth(), tags=["Admin"], response=ADMIN_EXTENSION_RESPONSES)
 def list_extensions(request):
     denied = _staff_denied(request)
     if denied:
         return denied
-    return _serialize_admin_extensions_payload(ExtensionService.list_extensions())
+    return _serialize_admin_extensions_payload(
+        ExtensionService.list_extensions(),
+        summary=_wants_summary_payload(request),
+    )
 
 
 @router.post("/extensions/sync", auth=AccessTokenAuth(), tags=["Admin"], response=ADMIN_EXTENSION_RESPONSES)

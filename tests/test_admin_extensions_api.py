@@ -120,6 +120,29 @@ class AdminExtensionsApiTests(TestCase):
         self.assertGreater(len(response.json()["extensions"]), 1)
         inspect_manifest.assert_called_once()
 
+    def test_extensions_api_summary_query_returns_lightweight_runtime_snapshot(self):
+        response = self.client.get(
+            "/api/admin/extensions?summary=1",
+            **self.auth_header(),
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        payload = response.json()
+        users_extension = next(item for item in payload["extensions"] if item["id"] == "users")
+        alpha_extension = next(item for item in payload["extensions"] if item["id"] == "alpha-tools")
+
+        self.assertIn("frontend_admin_entry", users_extension)
+        self.assertIn("frontend_boot", users_extension)
+        self.assertIn("frontend_outputs", users_extension)
+        self.assertIn("frontend_routes", users_extension)
+        self.assertTrue(users_extension["frontend_boot"]["admin"])
+        self.assertEqual(alpha_extension["frontend_boot"], {"admin": False, "forum": False})
+        self.assertNotIn("settings_schema", users_extension)
+        self.assertNotIn("settings_values", users_extension)
+        self.assertNotIn("contract_snapshot", users_extension)
+        self.assertNotIn("debug_info", users_extension)
+        self.assertNotIn("capability_summary", users_extension)
+
     def test_extensions_sync_api_prunes_missing_installations_and_returns_package_lock(self):
         ExtensionInstallation.objects.create(
             extension_id="missing-package",
