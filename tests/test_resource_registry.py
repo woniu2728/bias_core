@@ -5405,6 +5405,7 @@ class ResourceRegistryTests(TestCase):
                 return QuerySet([Item()])
 
         Item.objects = Manager()
+        serialize_calls = []
 
         class ItemResource(DatabaseResource):
             model = Item
@@ -5413,7 +5414,12 @@ class ResourceRegistryTests(TestCase):
                 return "plain_callback_item"
 
             def fields(self):
-                return [ResourceField("title", resolver=lambda instance, context: instance.title)]
+                return [
+                    ResourceField(
+                        "title",
+                        resolver=lambda instance, context: serialize_calls.append(instance.id) or instance.title,
+                    )
+                ]
 
             def endpoints(self):
                 return [
@@ -5439,6 +5445,8 @@ class ResourceRegistryTests(TestCase):
                 "query": {},
             },
         )
+        self.assertEqual(serialize_calls, [])
+
         jsonapi_response = registry.dispatch_resource_endpoint(
             definition,
             {
@@ -5455,6 +5463,7 @@ class ResourceRegistryTests(TestCase):
         self.assertEqual(plain_response, {"id": 1, "title": "plain"})
         self.assertEqual(jsonapi_response["data"]["type"], "plain_callback_item")
         self.assertEqual(jsonapi_response["data"]["attributes"], {"title": "plain"})
+        self.assertEqual(serialize_calls, [1])
 
     def test_serialize_resource_jsonapi_response_helper_respects_accept_and_options(self):
         from bias_core.resource_api import ResourceQueryOptions, serialize_resource_jsonapi_response
@@ -5545,6 +5554,33 @@ class ResourceRegistryTests(TestCase):
         self.assertFalse(plain_field.is_visible(None, jsonapi_context))
         self.assertFalse(jsonapi_field.is_visible(None, plain_context))
         self.assertTrue(jsonapi_field.is_visible(None, jsonapi_context))
+
+    def test_apply_resource_preloads_merges_default_and_requested_includes(self):
+        from bias_core.resource_api import ResourceQueryOptions, apply_resource_preloads
+
+        class Registry:
+            def __init__(self):
+                self.calls = []
+
+            def apply_preload_plan(self, queryset, resource, context, *, only=None, include=()):
+                self.calls.append((queryset, resource, context, only, include))
+                return ["preloaded"]
+
+        registry = Registry()
+        result = apply_resource_preloads(
+            registry,
+            ["row"],
+            "tag",
+            context={"user": "alice"},
+            resource_options=ResourceQueryOptions(fields=("name",), includes=("children", "parent")),
+            default_includes=("parent",),
+        )
+
+        self.assertEqual(result, ["preloaded"])
+        self.assertEqual(
+            registry.calls,
+            [(["row"], "tag", {"user": "alice"}, ("name",), ("parent", "children"))],
+        )
 
     def test_jsonapi_validation_error_carries_source_pointer(self):
         registry = ResourceRegistry()

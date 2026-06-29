@@ -104,6 +104,8 @@ class ResourceEndpointRunner:
         if pipeline.response is not None:
             if getattr(definition, "response_callback_only", False) and callable(getattr(definition, "response_callback", None)):
                 response = result
+            elif self.uses_plain_response_callback(definition, resolved_context):
+                response = result
             else:
                 response = pipeline.response(resolved_context, result)
         else:
@@ -124,6 +126,10 @@ class ResourceEndpointRunner:
             return response
         updated_response = callback(context, response)
         return response if updated_response is None else updated_response
+
+    @staticmethod
+    def uses_plain_response_callback(definition: Any, context: ResourceContext) -> bool:
+        return callable(getattr(definition, "plain_response_callback", None)) and not wants_jsonapi_response(context)
 
     def pipeline_for(self, resource_object: DatabaseResource, definition: Any) -> ResourceEndpointPipeline:
         build_pipeline = getattr(definition, "build_pipeline", None)
