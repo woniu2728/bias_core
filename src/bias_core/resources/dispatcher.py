@@ -8,6 +8,7 @@ from django.core.exceptions import PermissionDenied
 from django.http import HttpResponse, JsonResponse, RawPostDataException
 
 from bias_core.auth import get_optional_user
+from bias_core.api_errors import api_error
 from bias_core.jwt_auth import resolve_authenticated_user
 from bias_core.extensions.runtime import get_runtime_resource_registry
 from bias_core.forum_permissions import has_forum_permission
@@ -71,17 +72,17 @@ def dispatch_resource_endpoint(
         context.as_dict(),
     )
     if definition is None:
-        return jsonapi_error_response("资源端点不存在", status=404)
+        return _resource_error_response(request, "资源端点不存在", status=404)
     if definition.auth_required and (user is None or not getattr(user, "is_authenticated", False)):
-        return jsonapi_error_response("请先登录", status=401)
+        return _resource_error_response(request, "请先登录", status=401)
     forum_permission = str(definition.forum_permission or "").strip()
     if not forum_permission and definition.ability is None and definition.permission:
         forum_permission = str(definition.permission or "").strip()
     if forum_permission:
         if user is None or not getattr(user, "is_authenticated", False):
-            return jsonapi_error_response("请先登录", status=401)
+            return _resource_error_response(request, "请先登录", status=401)
         if not has_forum_permission(user, forum_permission):
-            return jsonapi_error_response("无权限", status=403)
+            return _resource_error_response(request, "无权限", status=403)
 
     try:
         context_payload = context.as_dict()
@@ -90,15 +91,15 @@ def dispatch_resource_endpoint(
         context_payload["paginate"] = bool(definition.paginate)
         result = registry.dispatch_resource_endpoint(definition, context_payload)
     except LookupError as exc:
-        return jsonapi_error_response(str(exc) or "资源不存在", status=404)
+        return _resource_error_response(request, str(exc) or "资源不存在", status=404)
     except JsonApiError as exc:
-        return jsonapi_error_response(exc)
+        return _resource_error_response(request, exc)
     except PermissionDenied as exc:
-        return jsonapi_error_response(str(exc) or "无权限", status=403)
+        return _resource_error_response(request, str(exc) or "无权限", status=403)
     except PermissionError as exc:
-        return jsonapi_error_response(str(exc) or "无权限", status=403)
+        return _resource_error_response(request, str(exc) or "无权限", status=403)
     except ValueError as exc:
-        return jsonapi_error_response(str(exc), status=400)
+        return _resource_error_response(request, str(exc), status=400)
 
     return _to_response(result)
 
@@ -153,5 +154,37 @@ def _to_response(result):
     if isinstance(result, list):
         return JsonResponse(result, safe=False)
     return JsonResponse(result, safe=isinstance(result, dict))
+
+
+def _resource_error_response(request, error: JsonApiError | str, *, status: int | None = None):
+    if _wants_jsonapi_response(request):
+        return jsonapi_error_response(error, status=status)
+    if isinstance(error, JsonApiError):
+        detail = error.detail
+        response_status = int(status or error.status)
+        field_errors = _jsonapi_field_errors(error)
+    else:
+        detail = str(error)
+        response_status = int(status or 400)
+        field_errors = {}
+    return api_error(detail, status=response_status, field_errors=field_errors)
+
+
+def _wants_jsonapi_response(request) -> bool:
+    accept = str(getattr(request, "META", {}).get("HTTP_ACCEPT", "") or "")
+    return "application/vnd.api+json" in accept.lower()
+
+
+def _jsonapi_field_errors(error: JsonApiError) -> dict[str, Any]:
+    output: dict[str, Any] = {}
+    for item in error.as_errors():
+        source = item.get("source") if isinstance(item, dict) else None
+        pointer = source.get("pointer") if isinstance(source, dict) else ""
+        if not pointer:
+            continue
+        field = str(pointer).strip("/").replace("/", ".")
+        if field:
+            output[field] = item.get("detail", error.detail)
+    return output
 
 

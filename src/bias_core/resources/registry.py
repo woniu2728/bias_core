@@ -914,12 +914,15 @@ class ResourceRegistry:
             )
         except Exception:
             policy_decision = None
-        if policy_decision is False:
-            raise PermissionError("无权限")
         if policy_decision is True:
             return
+        has_resource_can_override = type(resource_object).can is not DatabaseResource.can
+        if policy_decision is False and not has_resource_can_override:
+            raise PermissionError("无权限")
         if not resource_object.can(context.get("user"), ability, instance, context):
             raise PermissionError("无权限")
+        if policy_decision is False:
+            return
 
     @staticmethod
     def _resolve_endpoint_include(definition: ResourceEndpointDefinition, context: dict) -> tuple[str, ...]:

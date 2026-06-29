@@ -15,7 +15,7 @@ from django.apps import apps
 from django.contrib.auth.models import AnonymousUser
 from django.core.cache import cache
 from django.core.checks import run_checks
-from django.core.exceptions import ImproperlyConfigured
+from django.core.exceptions import ImproperlyConfigured, PermissionDenied
 from django.core.management import call_command, CommandError
 from django.db import OperationalError, connection
 from django.db.migrations.recorder import MigrationRecorder

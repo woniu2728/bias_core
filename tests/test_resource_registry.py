@@ -1660,6 +1660,95 @@ class ResourceRegistryTests(TestCase):
                     {"resource": "policy_item", "endpoint": "show", "method": "GET", "object_id": "1", "user": SimpleNamespace(is_authenticated=True), "query": {}},
                 )
 
+    def test_resource_endpoint_policy_deny_can_be_refined_by_resource_can_override(self):
+        registry = ResourceRegistry()
+
+        class Item:
+            objects = None
+
+            def __init__(self, id=1):
+                self.id = id
+
+        class QuerySet(list):
+            def filter(self, **kwargs):
+                return self
+
+            def first(self):
+                return self[0]
+
+        class Manager:
+            def all(self):
+                return QuerySet([Item()])
+
+        Item.objects = Manager()
+
+        class ItemResource(DatabaseResource):
+            model = Item
+
+            def type(self):
+                return "policy_refined_item"
+
+            def endpoints(self):
+                return [ResourceEndpoint.show().can("view")]
+
+            def can(self, user, ability, instance, context):
+                raise PermissionDenied("custom resource deny")
+
+        registry.register_resource(ItemResource())
+        endpoint = registry.get_dispatch_endpoint("policy_refined_item", "show", "GET")
+        app = ExtensionApplication(resource_registry=registry)
+        app.policies.model_policy("alpha", Item, lambda **context: False if context["ability"] == "view" else None)
+
+        with patch("bias_core.extensions.policy_runtime_service.get_extension_application", return_value=app):
+            with self.assertRaisesMessage(PermissionDenied, "custom resource deny"):
+                registry.dispatch_resource_endpoint(
+                    endpoint,
+                    {"resource": "policy_refined_item", "endpoint": "show", "method": "GET", "object_id": "1", "user": SimpleNamespace(is_authenticated=True), "query": {}},
+                )
+
+    def test_resource_endpoint_policy_deny_is_not_bypassed_by_default_resource_can(self):
+        registry = ResourceRegistry()
+
+        class Item:
+            objects = None
+
+            def __init__(self, id=1):
+                self.id = id
+
+        class QuerySet(list):
+            def filter(self, **kwargs):
+                return self
+
+            def first(self):
+                return self[0]
+
+        class Manager:
+            def all(self):
+                return QuerySet([Item()])
+
+        Item.objects = Manager()
+
+        class ItemResource(DatabaseResource):
+            model = Item
+
+            def type(self):
+                return "policy_default_item"
+
+            def endpoints(self):
+                return [ResourceEndpoint.show().can("view")]
+
+        registry.register_resource(ItemResource())
+        endpoint = registry.get_dispatch_endpoint("policy_default_item", "show", "GET")
+        app = ExtensionApplication(resource_registry=registry)
+        app.policies.model_policy("alpha", Item, lambda **context: False if context["ability"] == "view" else None)
+
+        with patch("bias_core.extensions.policy_runtime_service.get_extension_application", return_value=app):
+            with self.assertRaises(PermissionError):
+                registry.dispatch_resource_endpoint(
+                    endpoint,
+                    {"resource": "policy_default_item", "endpoint": "show", "method": "GET", "object_id": "1", "user": SimpleNamespace(is_authenticated=True), "query": {}},
+                )
+
     def test_resource_endpoint_hooks_meta_and_links_are_applied_to_default_crud(self):
         registry = ResourceRegistry()
         events = []
@@ -4906,9 +4995,24 @@ class ResourceRegistryTests(TestCase):
 
         self.assertEqual(result.results, ["open"])
 
-    def test_resource_dispatcher_returns_jsonapi_error_document(self):
+    def test_resource_dispatcher_returns_plain_error_document_by_default(self):
         registry = ResourceRegistry()
         request = RequestFactory().get("/api/resources/missing/index")
+
+        with patch("bias_core.resource_dispatcher.get_runtime_resource_registry", return_value=registry):
+            response = dispatch_resource_endpoint(request, resource="missing", endpoint="index")
+
+        payload = json.loads(response.content)
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(payload["error"], "资源端点不存在")
+        self.assertNotIn("errors", payload)
+
+    def test_resource_dispatcher_returns_jsonapi_error_document_when_requested(self):
+        registry = ResourceRegistry()
+        request = RequestFactory().get(
+            "/api/resources/missing/index",
+            HTTP_ACCEPT="application/vnd.api+json",
+        )
 
         with patch("bias_core.resource_dispatcher.get_runtime_resource_registry", return_value=registry):
             response = dispatch_resource_endpoint(request, resource="missing", endpoint="index")
