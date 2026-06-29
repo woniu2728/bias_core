@@ -5544,6 +5544,58 @@ class ResourceRegistryTests(TestCase):
         self.assertEqual(sparse_payload["data"]["attributes"], {"title": "hello"})
         self.assertNotIn("relationships", sparse_payload["data"])
 
+    def test_serialize_resource_plain_helper_respects_options_and_includes(self):
+        from bias_core.resource_api import ResourceQueryOptions, serialize_resource_plain
+
+        registry = ResourceRegistry()
+
+        class Owner:
+            def __init__(self, id=7, username="neo"):
+                self.id = id
+                self.username = username
+
+        class Item:
+            def __init__(self, id=1, title="hello", owner=None):
+                self.id = id
+                self.title = title
+                self.owner = owner or Owner()
+
+        class OwnerResource(Resource):
+            def type(self):
+                return "plain_helper_owner"
+
+            def fields(self):
+                return [ResourceField("username", resolver=lambda instance, context: instance.username)]
+
+        class ItemResource(Resource):
+            def type(self):
+                return "plain_helper_item"
+
+            def fields(self):
+                return [ResourceField("title", resolver=lambda instance, context: instance.title)]
+
+            def relationships(self):
+                return [
+                    ResourceRelationship(
+                        "owner",
+                        resolver=lambda instance, context: instance.owner,
+                        resource_type="plain_helper_owner",
+                    )
+                ]
+
+        registry.register_resource(OwnerResource())
+        registry.register_resource(ItemResource())
+
+        payload = serialize_resource_plain(
+            registry,
+            "plain_helper_item",
+            Item(),
+            {"plain_related_fields": {"plain_helper_owner": ("username",)}},
+            resource_options=ResourceQueryOptions(fields=("title",), includes=("owner",)),
+        )
+
+        self.assertEqual(payload, {"title": "hello", "owner": {"username": "neo"}})
+
     def test_resource_field_plain_and_jsonapi_visibility_helpers(self):
         plain_field = ResourceField("legacy", resolver=lambda instance, context: "plain").plain_only()
         jsonapi_field = ResourceField("wire", resolver=lambda instance, context: "jsonapi").jsonapi_only()

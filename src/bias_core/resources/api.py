@@ -89,6 +89,25 @@ def serialize_resource_jsonapi_response(
     return jsonapi_response(document, status=status)
 
 
+def serialize_resource_plain(
+    registry,
+    resource: str,
+    data,
+    context: dict,
+    *,
+    resource_options: ResourceQueryOptions | None = None,
+    include: Iterable[str] = (),
+):
+    resource_options = resource_options or ResourceQueryOptions()
+    return registry.serialize(
+        resource,
+        data,
+        context,
+        only=resource_options.fields,
+        include=merge_resource_includes(include, resource_options.includes),
+    )
+
+
 def apply_resource_preloads(
     registry,
     queryset,

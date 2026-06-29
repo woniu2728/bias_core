@@ -194,10 +194,12 @@ class ExtensionPublicApiBoundaryTests(TestCase):
         self.assertIn("JSONAPI_CONTENT_TYPE", platform.__all__)
         self.assertIn("jsonapi_response", platform.__all__)
         self.assertIn("serialize_resource_jsonapi_response", platform.__all__)
+        self.assertIn("serialize_resource_plain", platform.__all__)
         self.assertIn("wants_jsonapi_response", platform.__all__)
         self.assertEqual(platform.JSONAPI_CONTENT_TYPE, "application/vnd.api+json")
         self.assertTrue(callable(platform.jsonapi_response))
         self.assertTrue(callable(platform.serialize_resource_jsonapi_response))
+        self.assertTrue(callable(platform.serialize_resource_plain))
         self.assertTrue(callable(platform.wants_jsonapi_response))
 
     def test_builtin_extension_admin_code_uses_platform_staff_guard(self):
