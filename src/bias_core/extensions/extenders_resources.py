@@ -105,6 +105,7 @@ class ResourceExtender:
             "action_callback",
             "before_serialization_callback",
             "response_callback",
+            "plain_response_callback",
         ):
             if hasattr(definition, attr):
                 value = getattr(definition, attr)

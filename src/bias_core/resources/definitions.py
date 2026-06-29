@@ -108,6 +108,7 @@ class ResourceEndpointDefinition:
     action_callback: Callable[[dict], Any] | None = None
     before_serialization_callback: Callable[[dict, Any], Any] | None = None
     response_callback: Callable[[dict, Any], Any] | None = None
+    plain_response_callback: Callable[[dict, Any], Any] | None = None
     response_callback_only: bool = False
 
     def build_pipeline(self, registry, resource_object):

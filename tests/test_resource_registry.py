@@ -832,6 +832,13 @@ class ResourceRegistryTests(TestCase):
                     "seen_before": context.get("seen_before"),
                 }
 
+        class PlainResponseCallback:
+            def __call__(self, context, response):
+                return {
+                    "plain": response,
+                    "seen_before": context.get("seen_before"),
+                }
+
         endpoint = ResourceEndpointDefinition(
             resource="demo",
             endpoint="custom",
@@ -839,6 +846,7 @@ class ResourceRegistryTests(TestCase):
             handler=lambda context: {"ok": True},
             before_hook=BeforeHook,
             response_callback=ResponseCallback,
+            plain_response_callback=PlainResponseCallback,
         )
 
         ResourceExtender(endpoints=(endpoint,)).extend(app, extension)
@@ -852,6 +860,11 @@ class ResourceRegistryTests(TestCase):
         definition.before_hook(context)
         self.assertEqual(definition.response_callback(context, {"ok": True}), {
             "response": {"ok": True},
+            "seen_before": True,
+        })
+        self.assertIsNot(definition.plain_response_callback, PlainResponseCallback)
+        self.assertEqual(definition.plain_response_callback(context, {"ok": True}), {
+            "plain": {"ok": True},
             "seen_before": True,
         })
 
@@ -5369,6 +5382,79 @@ class ResourceRegistryTests(TestCase):
 
         self.assertEqual(response, {"count": 1})
         self.assertEqual(serialize_calls, [])
+
+    def test_database_resource_endpoint_plain_response_callback_runs_only_for_plain_requests(self):
+        registry = ResourceRegistry()
+
+        class Item:
+            objects = None
+
+            def __init__(self, id=1, title="plain"):
+                self.id = id
+                self.title = title
+
+        class QuerySet(list):
+            def filter(self, **kwargs):
+                return QuerySet([item for item in self if str(item.id) == str(kwargs.get("pk"))])
+
+            def first(self):
+                return self[0] if self else None
+
+        class Manager:
+            def all(self):
+                return QuerySet([Item()])
+
+        Item.objects = Manager()
+
+        class ItemResource(DatabaseResource):
+            model = Item
+
+            def type(self):
+                return "plain_callback_item"
+
+            def fields(self):
+                return [ResourceField("title", resolver=lambda instance, context: instance.title)]
+
+            def endpoints(self):
+                return [
+                    ResourceEndpoint.show().plain_response(
+                        lambda context, response: {
+                            "id": context["result"].id,
+                            "title": context["result"].title,
+                        }
+                    )
+                ]
+
+        registry.register_resource(ItemResource())
+        definition = registry.get_dispatch_endpoint("plain_callback_item", "show", "GET")
+
+        plain_response = registry.dispatch_resource_endpoint(
+            definition,
+            {
+                "resource": "plain_callback_item",
+                "endpoint": "show",
+                "method": "GET",
+                "object_id": "1",
+                "payload": {},
+                "query": {},
+            },
+        )
+        jsonapi_response = registry.dispatch_resource_endpoint(
+            definition,
+            {
+                "resource": "plain_callback_item",
+                "endpoint": "show",
+                "method": "GET",
+                "object_id": "1",
+                "payload": {},
+                "query": {},
+                "request": RequestFactory().get("/api/plain-callback-items/1", HTTP_ACCEPT="application/vnd.api+json"),
+            },
+        )
+
+        self.assertEqual(plain_response, {"id": 1, "title": "plain"})
+        self.assertEqual(jsonapi_response["data"]["type"], "plain_callback_item")
+        self.assertEqual(jsonapi_response["data"]["attributes"], {"title": "plain"})
 
     def test_jsonapi_validation_error_carries_source_pointer(self):
         registry = ResourceRegistry()

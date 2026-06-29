@@ -271,6 +271,8 @@ class DefinitionMutator:
             action_callback=getattr(value, "action_callback", None),
             before_serialization_callback=getattr(value, "before_serialization_callback", None),
             response_callback=getattr(value, "response_callback", None),
+            plain_response_callback=getattr(value, "plain_response_callback", None),
+            response_callback_only=getattr(value, "response_callback_only", False),
         )
 
     @staticmethod

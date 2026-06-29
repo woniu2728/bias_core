@@ -458,6 +458,7 @@ class ResourceEndpoint:
     action_callback: Callable[[ResourceContext], Any] | None = None
     before_serialization_callback: Callable[[ResourceContext, Any], Any] | None = None
     response_callback: Callable[[ResourceContext, Any], Any] | None = None
+    plain_response_callback: Callable[[ResourceContext, Any], Any] | None = None
     response_callback_only: bool = False
 
     @property
@@ -579,6 +580,9 @@ class ResourceEndpoint:
 
     def response(self, callback: Callable[[ResourceContext, Any], Any]) -> "ResourceEndpoint":
         return replace(self, response_callback=callback)
+
+    def plain_response(self, callback: Callable[[ResourceContext, Any], Any]) -> "ResourceEndpoint":
+        return replace(self, plain_response_callback=callback)
 
 
 @dataclass(frozen=True)

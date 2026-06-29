@@ -4,6 +4,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Callable
 
+from bias_core.resource_api import wants_jsonapi_response
 from bias_core.resource_context import ResourceContext, ensure_resource_context
 from bias_core.resource_objects import DatabaseResource
 
@@ -66,6 +67,7 @@ class ResourceEndpointRunner:
                 updated_response = definition.response_callback(resolved_context, response)
                 if updated_response is not None:
                     response = updated_response
+            response = self.apply_plain_response_callback(definition, resolved_context, response)
             return response
 
         resource_object = self.registry.get_resource_object(definition.resource)
@@ -112,7 +114,16 @@ class ResourceEndpointRunner:
             updated_response = definition.response_callback(resolved_context, response)
             if updated_response is not None:
                 response = updated_response
+        response = self.apply_plain_response_callback(definition, resolved_context, response)
         return response
+
+    @staticmethod
+    def apply_plain_response_callback(definition: Any, context: ResourceContext, response: Any) -> Any:
+        callback = getattr(definition, "plain_response_callback", None)
+        if wants_jsonapi_response(context) or not callable(callback):
+            return response
+        updated_response = callback(context, response)
+        return response if updated_response is None else updated_response
 
     def pipeline_for(self, resource_object: DatabaseResource, definition: Any) -> ResourceEndpointPipeline:
         build_pipeline = getattr(definition, "build_pipeline", None)

@@ -281,6 +281,7 @@ class ExtensionResourceEndpointDefinition:
     auth_required: bool = False
     ability: Any = None
     forum_permission: str = ""
+    plain_response_callback: Callable[[dict, Any], Any] | None = None
     pagination_default_limit: int = 20
     pagination_max_limit: int = 50
 
