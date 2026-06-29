@@ -5147,6 +5147,66 @@ class ResourceRegistryTests(TestCase):
         self.assertEqual(response["data"]["attributes"]["title"], "new")
         self.assertEqual(Item.objects.item.title, "new")
 
+    def test_database_resource_crud_accepts_declared_jsonapi_type_aliases(self):
+        registry = ResourceRegistry()
+
+        class Item:
+            objects = None
+
+            def __init__(self, id=1, title="old"):
+                self.id = id
+                self.title = title
+
+            def save(self):
+                return None
+
+        class QuerySet(list):
+            def filter(self, **kwargs):
+                return QuerySet([item for item in self if str(item.id) == str(kwargs.get("pk"))])
+
+            def first(self):
+                return self[0] if self else None
+
+        class Manager:
+            def __init__(self):
+                self.item = Item()
+
+            def all(self):
+                return QuerySet([self.item])
+
+        Item.objects = Manager()
+
+        class ItemResource(DatabaseResource):
+            model = Item
+
+            def type(self):
+                return "alias_item"
+
+            def jsonapi_types(self):
+                return ("alias_item", "alias-items")
+
+            def fields(self):
+                return [ResourceField("title", resolver=lambda instance, context: instance.title).string().writable_when()]
+
+            def endpoints(self):
+                return [ResourceEndpoint.update()]
+
+        registry.register_resource(ItemResource())
+        response = registry.dispatch_resource_endpoint(
+            registry.get_dispatch_endpoint("alias_item", "update", "PATCH"),
+            {
+                "resource": "alias_item",
+                "endpoint": "update",
+                "method": "PATCH",
+                "object_id": "1",
+                "payload": {"data": {"type": "alias-items", "attributes": {"title": "new"}}},
+                "query": {},
+            },
+        )
+
+        self.assertEqual(response["data"]["attributes"]["title"], "new")
+        self.assertEqual(Item.objects.item.title, "new")
+
     def test_jsonapi_validation_error_carries_source_pointer(self):
         registry = ResourceRegistry()
 

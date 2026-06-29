@@ -770,6 +770,9 @@ class Resource:
     def resource_for(self, instance: Any, context: ResourceContext) -> str | None:
         return None
 
+    def jsonapi_types(self) -> tuple[str, ...]:
+        return (self.type(),)
+
     def can(self, user: Any, ability: str, instance: Any | None, context: ResourceContext) -> bool:
         return True
 

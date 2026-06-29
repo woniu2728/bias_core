@@ -771,6 +771,8 @@ class ResourceRegistry:
         instance: Any | None = None,
         resource_object: Resource | None = None,
     ) -> dict:
+        if resource_object is None:
+            resource_object = self.get_resource_object(resource)
         payload = context.get("payload") or {}
         if not isinstance(payload, dict):
             raise BadJsonApiRequest("request body must be an object")
@@ -787,7 +789,7 @@ class ResourceRegistry:
         data_type = data.get("type")
         if data_type is None:
             raise BadJsonApiRequest("data.type must be present", pointer="/data/type")
-        if str(data_type) != str(resource):
+        if str(data_type) not in self._resource_jsonapi_types(resource, resource_object):
             raise JsonApiConflict("collection does not support this resource type", pointer="/data/type")
         if creating and data.get("id") not in (None, ""):
             raise JsonApiForbidden("Client-generated IDs are not supported", pointer="/data/id")
@@ -817,6 +819,16 @@ class ResourceRegistry:
         if callable(accepts):
             return bool(accepts(context))
         return bool(getattr(resource_object, "accept_legacy_payload", False))
+
+    @staticmethod
+    def _resource_jsonapi_types(resource: str, resource_object: Resource | None) -> set[str]:
+        output = {str(resource)}
+        if resource_object is None:
+            return output
+        aliases = getattr(resource_object, "jsonapi_types", None)
+        if callable(aliases):
+            output.update(str(item) for item in (aliases() or ()) if item)
+        return output
 
     def _run_validation_factory(self, resource_object: Resource | None, context: dict, data: dict) -> None:
         self._resource_validator._run_validation_factory(resource_object, context, data)

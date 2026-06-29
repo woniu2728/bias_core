@@ -423,7 +423,7 @@ class DatabaseResourceEndpoint(
             self.call_before_hook(context)
             self.ensure_ability(None, context)
             instance = resource_object.new_model(context)
-            self.registry._parse_jsonapi_data(context, definition.resource, creating=True)
+            self.registry._parse_jsonapi_data(context, definition.resource, creating=True, resource_object=resource_object)
             self.registry.apply_resource_payload(definition.resource, instance, self.registry._extract_resource_payload(context), context, creating=True)
             instance = resource_object.create_action(instance, context)
             return self.call_after_hook(context, instance)
