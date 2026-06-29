@@ -358,6 +358,8 @@ class ResourceRelationship(ResourceField):
     plain_output: str = ""
     relationship_setter: Callable[[Any, Any, ResourceContext], None] | None = None
     direct_linkage: Callable[[Any, ResourceContext], Any] | None = None
+    scope_callback: Callable[[Any, ResourceContext], Any] | None = None
+    prefetch_to_attr: str = ""
 
     @property
     def relationship(self) -> str:
@@ -390,6 +392,12 @@ class ResourceRelationship(ResourceField):
 
     def with_linkage(self, linkage: Callable[[Any, ResourceContext], Any] | bool) -> "ResourceRelationship":
         return replace(self, linkage=linkage)
+
+    def scope(self, callback: Callable[[Any, ResourceContext], Any]) -> "ResourceRelationship":
+        return replace(self, scope_callback=callback if callable(callback) else None)
+
+    def prefetch_to(self, attribute: str) -> "ResourceRelationship":
+        return replace(self, prefetch_to_attr=str(attribute or "").strip())
 
     def with_foreign_key_linkage(
         self,

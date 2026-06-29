@@ -62,6 +62,8 @@ class ResourceRelationshipDefinition:
     setter: Callable[[Any, Any, dict], None] | None = None
     writable: Callable[[Any, dict], bool] | bool = False
     linkage: Callable[[Any, dict], Any] | bool = True
+    scope_callback: Callable[[Any, dict], Any] | None = None
+    prefetch_to_attr: str = ""
     plain_output: str = ""
     required_on_create: Callable[[Any, dict], bool] | bool = False
     required_on_update: Callable[[Any, dict], bool] | bool = False
@@ -173,7 +175,7 @@ class ResourceFilterDefinition:
 class ResourcePreloadPlan:
     select_related: tuple[str, ...] = ()
     prefetch_related: tuple[Any, ...] = ()
-    prefetch_where: tuple[tuple[str, Callable[[Any, dict], Any]], ...] = ()
+    prefetch_where: tuple[tuple[Any, ...], ...] = ()
     annotations: tuple[tuple[str, Any], ...] = ()
 
 

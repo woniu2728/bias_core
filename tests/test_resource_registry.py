@@ -276,6 +276,8 @@ class ResourceRegistryTests(TestCase):
             .to_one("users")
             .include_when(lambda context: context.get("include_owner"))
             .with_linkage(lambda value, context: {"type": "users", "id": str(value.id)})
+            .scope(lambda queryset, context: queryset)
+            .prefetch_to("visible_owner")
         )
 
         self.assertEqual(relationship.field, "owner")
@@ -283,6 +285,8 @@ class ResourceRegistryTests(TestCase):
         self.assertEqual(relationship.collections(), ("users",))
         self.assertTrue(relationship.is_includable({"include_owner": True}))
         self.assertEqual(relationship.linkage_value(SimpleNamespace(id=7), {}), {"type": "users", "id": "7"})
+        self.assertTrue(callable(relationship.scope_callback))
+        self.assertEqual(relationship.prefetch_to_attr, "visible_owner")
 
     def test_search_manager_resolves_filters_and_mutators_from_container(self):
         app = ExtensionApplication()
@@ -1008,6 +1012,35 @@ class ResourceRegistryTests(TestCase):
         plan = registry.build_endpoint_preload_plan("endpoint_select_demo", "show", {"method": "GET"})
 
         self.assertEqual(plan.select_related, ("owner",))
+
+    def test_relationship_scope_contributes_prefetch_where_for_included_relationship(self):
+        registry = ResourceRegistry()
+
+        def only_visible(queryset, context):
+            return queryset
+
+        class DemoResource(Resource):
+            def type(self):
+                return "relationship_scope_demo"
+
+            def relationships(self):
+                return [
+                    ResourceRelationship(
+                        "children",
+                        resolver=lambda instance, context: [],
+                        resource_type="relationship_scope_demo",
+                    )
+                    .to_many("relationship_scope_demo")
+                    .scope(only_visible)
+                    .prefetch_to("visible_children")
+                ]
+
+        registry.register_resource(DemoResource())
+
+        plan = registry.build_preload_plan("relationship_scope_demo", include=("children",))
+
+        self.assertEqual(plan.prefetch_related, ("children",))
+        self.assertEqual(plan.prefetch_where, (("children", only_visible, "visible_children"),))
 
     def test_resource_endpoint_builder_sets_methods_and_absolute_path(self):
         endpoint = (

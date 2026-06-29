@@ -1264,7 +1264,7 @@ class ResourceRegistry:
         prefetch_related: list[Any],
         seen_select: set[str],
         seen_prefetch: set[str],
-        prefetch_where: list[tuple[str, Callable[[Any, dict], Any]]] | None = None,
+        prefetch_where: list[tuple[Any, ...]] | None = None,
         annotations: list[tuple[str, Any]] | None = None,
         seen_annotations: set[str] | None = None,
         include: Tuple[str, ...] | List[str] | None = None,

@@ -39,7 +39,7 @@ class PreloadPlanner:
         resolved_context = context or {}
         select_related: list[str] = []
         prefetch_related: list[Any] = []
-        prefetch_where: list[tuple[str, Callable[[Any, dict], Any]]] = []
+        prefetch_where: list[tuple[Any, ...]] = []
         annotations: list[tuple[str, Any]] = []
         seen_select: set[str] = set()
         seen_prefetch: set[str] = set()
@@ -82,6 +82,17 @@ class PreloadPlanner:
                 seen_annotations,
                 include=include,
             )
+            scope_callback = getattr(definition, "scope_callback", None)
+            if callable(scope_callback):
+                prefetch_where.append((
+                    definition.relationship,
+                    scope_callback,
+                    str(getattr(definition, "prefetch_to_attr", "") or "").strip(),
+                ))
+                prefetch_key = self._prefetch_key(definition.relationship)
+                if prefetch_key and prefetch_key not in seen_prefetch:
+                    seen_prefetch.add(prefetch_key)
+                    prefetch_related.append(definition.relationship)
             nested_include = include_tree.get(definition.relationship) or {}
             relationship_select_paths = tuple(getattr(definition, "select_related", ()) or ())
             relationship_prefetch_paths = tuple(getattr(definition, "prefetch_related", ()) or ())
@@ -114,7 +125,10 @@ class PreloadPlanner:
                         if prefetch_key and prefetch_key not in seen_prefetch:
                             seen_prefetch.add(prefetch_key)
                             prefetch_related.append(nested_item)
-                for relation, callback in nested_plan.prefetch_where:
+                for rule in nested_plan.prefetch_where:
+                    if len(rule) < 2:
+                        continue
+                    relation, callback = rule[0], rule[1]
                     for prefix in relationship_prefix_paths:
                         prefetch_where.append((f"{prefix}__{relation}", callback))
 
@@ -212,7 +226,7 @@ class PreloadPlanner:
         prefetch_related: list[Any],
         seen_select: set[str],
         seen_prefetch: set[str],
-        prefetch_where: list[tuple[str, Callable[[Any, dict], Any]]] | None = None,
+        prefetch_where: list[tuple[Any, ...]] | None = None,
         annotations: list[tuple[str, Any]] | None = None,
         seen_annotations: set[str] | None = None,
         include: Tuple[str, ...] | List[str] | None = None,

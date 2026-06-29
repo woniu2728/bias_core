@@ -255,6 +255,8 @@ class ExtensionResourceRelationshipDefinition:
     setter: Callable[[Any, Any, dict], None] | None = None
     writable: Callable[[Any, dict], bool] | bool = False
     linkage: Callable[[Any, dict], Any] | bool = True
+    scope_callback: Callable[[Any, dict], Any] | None = None
+    prefetch_to_attr: str = ""
     plain_output: str = ""
     required_on_create: Callable[[Any, dict], bool] | bool = False
     required_on_update: Callable[[Any, dict], bool] | bool = False

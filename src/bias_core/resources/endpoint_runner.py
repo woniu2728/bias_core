@@ -222,7 +222,7 @@ class EndpointIncludesData:
     def apply_where_eager_loads(
         self,
         prefetches: list[Any],
-        prefetch_where: tuple[tuple[str, Callable[[Any, ResourceContext], Any]], ...],
+        prefetch_where: tuple[tuple[Any, ...], ...],
         results: Any,
         context: ResourceContext,
     ) -> list[Any]:
@@ -230,16 +230,24 @@ class EndpointIncludesData:
             from django.db.models import Prefetch
         except Exception:
             return prefetches
-        output = [item for item in prefetches if str(item) not in {relation for relation, _ in prefetch_where}]
+        relations = {str(rule[0]) for rule in prefetch_where if rule}
+        output = [item for item in prefetches if str(item) not in relations]
         model = getattr(self.resource_object, "model", None)
         sample = next(iter(results or ()), None)
-        for relation, callback in prefetch_where:
+        for rule in prefetch_where:
+            if len(rule) < 2:
+                continue
+            relation, callback = rule[0], rule[1]
+            to_attr = str(rule[2] or "").strip() if len(rule) > 2 else ""
             queryset = self._relation_queryset_for_model(model, relation) or self._relation_queryset(sample, relation)
             if queryset is None:
                 output.append(relation)
                 continue
             updated = callback(queryset, context)
-            output.append(Prefetch(relation, queryset=updated if updated is not None else queryset))
+            prefetch_kwargs = {"queryset": updated if updated is not None else queryset}
+            if to_attr:
+                prefetch_kwargs["to_attr"] = to_attr
+            output.append(Prefetch(relation, **prefetch_kwargs))
         return output
 
     @staticmethod
