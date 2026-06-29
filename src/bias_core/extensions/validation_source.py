@@ -144,6 +144,7 @@ RUNTIME_FACADE_EXTENSION_DEPENDENCIES = {
     "create_runtime_notification": "notifications",
     "delete_runtime_notifications": "notifications",
     "delete_runtime_discussion_reply_notifications_for_post": "notifications",
+    "delete_runtime_user_mentioned_notifications_for_post": "notifications",
     "get_runtime_notification_model": "notifications",
     "get_runtime_notification_service": "notifications",
     "notify_runtime_notification": "notifications",

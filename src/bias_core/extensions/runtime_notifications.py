@@ -66,3 +66,18 @@ def delete_runtime_discussion_reply_notifications_for_post(post_id: int) -> int:
     result = notify_runtime_notification("delete_discussion_reply_for_post", post_id)
     return int(result or 0)
 
+
+def delete_runtime_user_mentioned_notifications_for_post(
+    post_id: int,
+    *,
+    mentioned_user: Any | None = None,
+    mentioned_user_id: int | None = None,
+) -> int:
+    result = notify_runtime_notification(
+        "delete_user_mentioned_for_post",
+        post_id,
+        mentioned_user=mentioned_user,
+        mentioned_user_id=mentioned_user_id,
+    )
+    return int(result or 0)
+

@@ -110,10 +110,20 @@ def can_runtime_view_post(post: Any, user: Any = None) -> bool:
 
 
 def get_runtime_visible_post_ids(user: Any = None, *, context: dict | None = None):
+    content_posts = get_runtime_content_posts_service(None)
+    if content_posts is not None:
+        return runtime_service_method(content_posts, "get_visible_ids")(user=user, context=context or {})
     return _post_service.get_visible_ids(user=user, context=context or {})
 
 
 def get_runtime_post_action_context(post_id: int, user: Any = None, *, require_visible: bool = True) -> dict | None:
+    content_posts = get_runtime_content_posts_service(None)
+    if content_posts is not None:
+        return runtime_service_method(content_posts, "get_action_context")(
+            post_id,
+            user=user,
+            require_visible=require_visible,
+        )
     return _post_service.get_action_context(post_id, user=user, require_visible=require_visible)
 
 
