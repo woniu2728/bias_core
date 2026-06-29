@@ -5547,6 +5547,11 @@ class ResourceRegistryTests(TestCase):
     def test_resource_field_plain_and_jsonapi_visibility_helpers(self):
         plain_field = ResourceField("legacy", resolver=lambda instance, context: "plain").plain_only()
         jsonapi_field = ResourceField("wire", resolver=lambda instance, context: "jsonapi").jsonapi_only()
+        conditional_plain_field = (
+            ResourceField("adminLegacy", resolver=lambda instance, context: "plain")
+            .visible_when(lambda instance, context: bool(context.get("admin")))
+            .plain_only()
+        )
         plain_context = {"request": RequestFactory().get("/api/items/1")}
         jsonapi_context = {"request": RequestFactory().get("/api/items/1", HTTP_ACCEPT="application/vnd.api+json")}
 
@@ -5554,6 +5559,9 @@ class ResourceRegistryTests(TestCase):
         self.assertFalse(plain_field.is_visible(None, jsonapi_context))
         self.assertFalse(jsonapi_field.is_visible(None, plain_context))
         self.assertTrue(jsonapi_field.is_visible(None, jsonapi_context))
+        self.assertFalse(conditional_plain_field.is_visible(None, plain_context))
+        self.assertTrue(conditional_plain_field.is_visible(None, {**plain_context, "admin": True}))
+        self.assertFalse(conditional_plain_field.is_visible(None, {**jsonapi_context, "admin": True}))
 
     def test_apply_resource_preloads_merges_default_and_requested_includes(self):
         from bias_core.resource_api import ResourceQueryOptions, apply_resource_preloads

@@ -64,10 +64,20 @@ class ResourceField:
         return replace(self, visible=condition)
 
     def plain_only(self) -> "ResourceField":
-        return self.visible_when(lambda instance, context: not wants_jsonapi_response(context))
+        return self.visible_when(self._combine_visible(lambda instance, context: not wants_jsonapi_response(context)))
 
     def jsonapi_only(self) -> "ResourceField":
-        return self.visible_when(lambda instance, context: wants_jsonapi_response(context))
+        return self.visible_when(self._combine_visible(lambda instance, context: wants_jsonapi_response(context)))
+
+    def _combine_visible(self, condition: Callable[[Any, ResourceContext], bool] | bool) -> Callable[[Any, ResourceContext], bool]:
+        current = self.visible
+
+        def combined(instance: Any, context: ResourceContext) -> bool:
+            current_visible = current(instance, context) if callable(current) else current
+            next_visible = condition(instance, context) if callable(condition) else condition
+            return bool(current_visible) and bool(next_visible)
+
+        return combined
 
     def writable_when(self, condition: Callable[[Any, ResourceContext], bool] | bool = True) -> "ResourceField":
         return replace(self, writable=condition)
