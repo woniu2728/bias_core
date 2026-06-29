@@ -104,9 +104,13 @@ class ExtensionManager:
         extensions: dict[str, Extension] = {}
 
         try:
+            installations = self._load_installation_states()
             for manifest in loader.discover_manifests():
                 extension = Extension.from_manifest(manifest)
-                extensions[extension.id] = self._apply_installation_state(extension)
+                extensions[extension.id] = self._apply_installation_state(
+                    extension,
+                    installations.get(extension.id),
+                )
 
             self._extensions = extensions
             self._refresh_runtime_actions()
@@ -569,11 +573,12 @@ class ExtensionManager:
         force: bool = False,
     ) -> list[ExtensionAssembly]:
         self.load(force=force)
+        safe_mode = self._safe_mode_filter()
         extensions = [
             extension
             for extension in self.get_extensions()
             if extension.runtime.installed and extension.runtime.enabled
-            and is_extension_allowed_in_safe_mode(extension)
+            and safe_mode(extension)
         ]
         return [
             self._build_extension_assembly(extension)
@@ -586,11 +591,12 @@ class ExtensionManager:
         force: bool = False,
     ) -> list[Extension]:
         self.load(force=force)
+        safe_mode = self._safe_mode_filter()
         extensions = [
             extension
             for extension in self.get_extensions()
             if extension.runtime.installed and extension.runtime.enabled
-            and is_extension_allowed_in_safe_mode(extension)
+            and safe_mode(extension)
         ]
         return self.sort_extensions_for_boot(extensions)
 
@@ -919,9 +925,19 @@ class ExtensionManager:
                 )
         return list(resolved["valid"])
 
-    def _apply_installation_state(self, extension: Extension) -> Extension:
+    @staticmethod
+    def _load_installation_states() -> dict[str, ExtensionInstallation]:
+        return {
+            installation.extension_id: installation
+            for installation in ExtensionInstallation.objects.all()
+        }
+
+    def _apply_installation_state(
+        self,
+        extension: Extension,
+        installation: ExtensionInstallation | None = None,
+    ) -> Extension:
         extension.invalidate_discovery()
-        installation = ExtensionInstallation.objects.filter(extension_id=extension.id).first()
         if installation is None:
             extension = self._build_uninstalled_extension(extension)
         else:
@@ -949,6 +965,23 @@ class ExtensionManager:
                 applied_migration_files=tuple((installation.meta or {}).get("applied_migration_files") or ()),
             )
         return extension
+
+    @staticmethod
+    def _safe_mode_filter():
+        from bias_core.extensions.recovery import (
+            get_extension_safe_mode_extension_ids,
+            is_extension_safe_mode_enabled,
+        )
+
+        if not is_extension_safe_mode_enabled():
+            return lambda extension: True
+        allowed_ids = get_extension_safe_mode_extension_ids()
+
+        def allowed(extension) -> bool:
+            extension_id = str(getattr(extension, "id", "") or "").strip()
+            return bool(extension_id and extension_id in allowed_ids)
+
+        return allowed
 
     def _build_uninstalled_extension(self, extension: Extension) -> Extension:
         auto_installed = is_extension_auto_installed(extension)

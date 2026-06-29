@@ -186,6 +186,7 @@ def reset_extension_runtime_state() -> None:
     from bias_core.extensions import frontend_runtime_service
     from bias_core.extensions.locale_service import clear_extension_locale_cache
     from bias_core.extensions.manager import get_extension_manager
+    from bias_core.extensions.migrations import clear_applied_migration_cache
     from bias_core.extensions.template_loader import clear_extension_template_caches
     from bias_core.extensions.runtime_event_listeners import (
         bootstrap_extension_runtime_event_listeners,
@@ -212,6 +213,7 @@ def reset_extension_runtime_state() -> None:
     clear_extension_formatter_cache()
     clear_extension_locale_cache()
     clear_extension_template_caches()
+    clear_applied_migration_cache()
     disconnect_runtime_signal_receivers()
     invalidate_runtime_service_proxies()
     reset_extension_signal_proxy_bootstrap()

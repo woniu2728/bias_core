@@ -9,6 +9,9 @@ from django.db.migrations.recorder import MigrationRecorder
 from bias_core.extensions.paths import extension_django_migration_dir, resolve_manifest_migration_module
 
 
+_APPLIED_MIGRATIONS_CACHE: dict[str, set[tuple[str, str]]] = {}
+
+
 def has_django_extension_migrations(extension_definition) -> bool:
     return bool(resolve_django_extension_migration_dir(extension_definition))
 
@@ -45,14 +48,27 @@ def list_applied_django_extension_migration_files(extension_definition, *, datab
     app_label = resolve_django_extension_app_label(extension_definition)
     if not app_label:
         return []
-    connection = connections[database]
-    recorder = MigrationRecorder(connection)
-    applied = recorder.applied_migrations()
+    applied = _get_applied_migrations(database)
     return sorted(
         f"{migration_name}.py"
         for migration_app_label, migration_name in applied
         if migration_app_label == app_label
     )
+
+
+def clear_applied_migration_cache(database: str | None = None) -> None:
+    if database is None:
+        _APPLIED_MIGRATIONS_CACHE.clear()
+        return
+    _APPLIED_MIGRATIONS_CACHE.pop(database, None)
+
+
+def _get_applied_migrations(database: str) -> set[tuple[str, str]]:
+    if database not in _APPLIED_MIGRATIONS_CACHE:
+        connection = connections[database]
+        recorder = MigrationRecorder(connection)
+        _APPLIED_MIGRATIONS_CACHE[database] = set(recorder.applied_migrations())
+    return _APPLIED_MIGRATIONS_CACHE[database]
 
 
 def list_unapplied_django_extension_migration_files(extension_definition, *, database: str = DEFAULT_DB_ALIAS) -> list[str]:

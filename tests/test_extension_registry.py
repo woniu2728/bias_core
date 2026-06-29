@@ -1,7 +1,26 @@
 from tests.common import *
+from django.test.utils import CaptureQueriesContext
 
 @override_settings(BIAS_EXTENSION_PACKAGE_DISCOVERY=False)
 class ExtensionRegistryTests(TestCase):
+    def _write_manifest(self, extensions_dir, extension_id: str, **extra):
+        manifest_dir = Path(extensions_dir) / extension_id
+        manifest_dir.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "id": extension_id,
+            "name": extension_id,
+            "version": "1.0.0",
+            **extra,
+        }
+        (manifest_dir / "extension.json").write_text(
+            json.dumps(payload, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        return manifest_dir
+
+    def _default_extensions_dir(self):
+        return Path(settings.BIAS_EXTENSION_WORKSPACE_ROOT) / "bias" / "extensions"
+
     def test_enable_blocks_when_active_extension_declares_reverse_conflict(self):
         temp_dir = make_workspace_temp_dir()
         try:
@@ -120,6 +139,111 @@ class ExtensionRegistryTests(TestCase):
 
             self.assertEqual(context.exception.code, "extension_enable_dependencies_blocked")
             self.assertEqual(context.exception.details["active_conflicts"], {"alpha-base": ["beta-conflict"]})
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_load_applies_installation_state_in_one_query(self):
+        temp_dir = make_workspace_temp_dir()
+        try:
+            extensions_dir = Path(temp_dir) / "extensions"
+            for extension_id in ("alpha-tools", "beta-tools", "gamma-tools"):
+                self._write_manifest(extensions_dir, extension_id)
+                ExtensionInstallation.objects.create(
+                    extension_id=extension_id,
+                    version="1.0.0",
+                    source="filesystem",
+                    enabled=True,
+                    installed=True,
+                    booted=True,
+                )
+
+            registry = ExtensionRegistry(extensions_path=extensions_dir)
+
+            with CaptureQueriesContext(connection) as context:
+                registry.load(force=True)
+
+            installation_queries = [
+                query["sql"]
+                for query in context.captured_queries
+                if 'from "extension_installations"' in query["sql"].lower()
+            ]
+            self.assertEqual(len(installation_queries), 1, "\n".join(installation_queries))
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_safe_mode_filter_reads_settings_once_for_enabled_extensions(self):
+        temp_dir = make_workspace_temp_dir()
+        try:
+            extensions_dir = Path(temp_dir) / "extensions"
+            for extension_id in ("alpha-tools", "beta-tools", "gamma-tools"):
+                self._write_manifest(extensions_dir, extension_id)
+                ExtensionInstallation.objects.create(
+                    extension_id=extension_id,
+                    version="1.0.0",
+                    source="filesystem",
+                    enabled=True,
+                    installed=True,
+                    booted=True,
+                )
+            Setting.objects.update_or_create(
+                key="advanced.extension_safe_mode",
+                defaults={"value": json.dumps(True)},
+            )
+            Setting.objects.update_or_create(
+                key="advanced.extension_safe_mode_extensions",
+                defaults={"value": json.dumps(["alpha-tools"])},
+            )
+
+            registry = ExtensionRegistry(extensions_path=extensions_dir)
+            registry.load(force=True)
+
+            with CaptureQueriesContext(connection) as context:
+                enabled_ids = [extension.id for extension in registry.get_enabled_extensions()]
+
+            self.assertEqual(enabled_ids, ["alpha-tools"])
+            safe_mode_queries = [
+                query["sql"]
+                for query in context.captured_queries
+                if "advanced.extension_safe_mode" in query["sql"]
+            ]
+            self.assertLessEqual(len(safe_mode_queries), 2, "\n".join(safe_mode_queries))
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_runtime_probe_reuses_applied_migration_snapshot(self):
+        temp_dir = make_workspace_temp_dir()
+        try:
+            extensions_dir = Path(temp_dir) / "extensions"
+            for extension_id in ("alpha-tools", "beta-tools", "gamma-tools"):
+                manifest_dir = self._write_manifest(
+                    extensions_dir,
+                    extension_id,
+                    django_app_config=f"extensions.{extension_id.replace('-', '_')}.backend.apps.TestConfig",
+                    django_app_label=extension_id.replace("-", "_"),
+                )
+                migrations_dir = manifest_dir / "backend" / "django_migrations"
+                migrations_dir.mkdir(parents=True, exist_ok=True)
+                (migrations_dir / "__init__.py").write_text("", encoding="utf-8")
+                (migrations_dir / "0001_initial.py").write_text("", encoding="utf-8")
+                ExtensionInstallation.objects.create(
+                    extension_id=extension_id,
+                    version="1.0.0",
+                    source="filesystem",
+                    enabled=True,
+                    installed=True,
+                    booted=True,
+                )
+
+            registry = ExtensionRegistry(extensions_path=extensions_dir)
+            with CaptureQueriesContext(connection) as context:
+                registry.load(force=True)
+
+            migration_queries = [
+                query["sql"]
+                for query in context.captured_queries
+                if 'from "django_migrations"' in query["sql"].lower()
+            ]
+            self.assertLessEqual(len(migration_queries), 1, "\n".join(migration_queries))
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
@@ -621,7 +745,7 @@ class ExtensionRegistryTests(TestCase):
             shutil.rmtree(temp_dir, ignore_errors=True)
 
     def test_registry_exposes_filesystem_extensions_only(self):
-        registry = ExtensionRegistry(extensions_path=Path.cwd() / "extensions")
+        registry = ExtensionRegistry(extensions_path=self._default_extensions_dir())
         extensions = registry.get_extensions()
 
         extension_ids = {item.id for item in extensions}
@@ -691,6 +815,9 @@ class ExtensionRegistryTests(TestCase):
                 source="filesystem",
             )
             MigrationRecorder(connection).record_applied("migration_recorder", "0001_initial")
+            from bias_core.extensions.migrations import clear_applied_migration_cache
+
+            clear_applied_migration_cache()
 
             payload = inspect_extension_runtime(extension)
 
@@ -709,7 +836,7 @@ class ExtensionRegistryTests(TestCase):
             booted=False,
         )
 
-        registry = ExtensionRegistry(extensions_path=Path.cwd() / "extensions")
+        registry = ExtensionRegistry(extensions_path=self._default_extensions_dir())
         extension = registry.get_extension("emoji")
 
         self.assertFalse(extension.runtime.enabled)
@@ -717,7 +844,7 @@ class ExtensionRegistryTests(TestCase):
         self.assertTrue(extension.runtime.installed)
 
     def test_registry_merges_filesystem_extension_contract_capabilities(self):
-        registry = ExtensionRegistry(extensions_path=Path.cwd() / "extensions")
+        registry = ExtensionRegistry(extensions_path=self._default_extensions_dir())
         extension = registry.get_extension("emoji")
 
         self.assertEqual(extension.module_ids, ("emoji",))
@@ -843,7 +970,7 @@ class ExtensionRegistryTests(TestCase):
             "message": "当前 Bias 版本 1.0.0 不满足扩展声明的兼容范围 ^2.0.0。",
         }
 
-        registry = ExtensionRegistry(extensions_path=Path.cwd() / "extensions")
+        registry = ExtensionRegistry(extensions_path=self._default_extensions_dir())
         extension = registry.get_extension("emoji")
 
         self.assertFalse(extension.runtime.healthy)
