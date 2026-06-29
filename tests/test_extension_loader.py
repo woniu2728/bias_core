@@ -1538,6 +1538,30 @@ class ExtensionManifestLoaderTests(TestCase):
         self.assertEqual(runtime_view.discussion_list_filters[0].label, "New")
         self.assertEqual(app.forum.get_discussion_list_filter("alpha").label, "New")
 
+    def test_search_filter_token_extraction_preserves_quoted_values(self):
+        from bias_core.extensions.forum_registry_types import SearchFilterDefinition
+
+        app = ExtensionApplication()
+        app.forum.register_search_filter(
+            SearchFilterDefinition(
+                code="tag",
+                label="Tag",
+                module_id="alpha-tools",
+                target="discussion",
+                parser=lambda token: token.split(":", 1)[1] if token.startswith("tag:") else None,
+                applier=lambda queryset, value, context: queryset,
+            ),
+            extension_id="alpha-tools",
+        )
+
+        text_query, filters = app.search.extract_filter_tokens(
+            'tag:"two words" "quoted body" plain',
+            targets=("discussion",),
+        )
+
+        self.assertEqual(text_query, "quoted body plain")
+        self.assertEqual(filters["discussion"][0][1], "two words")
+
     def test_extension_application_forum_compat_registration_reuses_service_replacement(self):
         from bias_core.extensions.forum_registry_types import PermissionDefinition
 

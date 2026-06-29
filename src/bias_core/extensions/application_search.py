@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+import shlex
 from typing import TYPE_CHECKING, Any
 
 from bias_core.extensions.types import (
@@ -87,7 +88,7 @@ class ApplicationSearchService:
         filters: dict[str, list] = {}
         allowed_targets = set(targets or ())
 
-        for raw_token in (query or "").split():
+        for raw_token in self._query_tokens(query):
             matched = False
             for definition in self.get_available_filters(targets=targets):
                 if allowed_targets and definition.target not in allowed_targets:
@@ -103,6 +104,16 @@ class ApplicationSearchService:
                 text_tokens.append(raw_token)
 
         return " ".join(text_tokens).strip(), filters
+
+    @staticmethod
+    def _query_tokens(query: str) -> list[str]:
+        value = str(query or "").strip()
+        if not value:
+            return []
+        try:
+            return shlex.split(value)
+        except ValueError:
+            return value.split()
 
     def get_available_filters(self, *, targets: tuple[str, ...] | None = None):
         allowed_targets = set(targets or ())
