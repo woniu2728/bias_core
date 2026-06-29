@@ -1773,6 +1773,124 @@ class ResourceRegistryTests(TestCase):
         self.assertIn("owner__score_account", plan.select_related)
         self.assertIn("owner__badges", plan.prefetch_related)
 
+    def test_nested_default_prefetch_uses_relationship_path_not_auxiliary_prefetch_path(self):
+        registry = ResourceRegistry()
+
+        class UserResource(Resource):
+            def type(self):
+                return "nested_group_user"
+
+            def fields(self):
+                return [
+                    ResourceField(
+                        "primary_group",
+                        resolver=lambda instance, context: None,
+                        prefetch_related=("user_groups",),
+                    )
+                ]
+
+        class PostResource(Resource):
+            def type(self):
+                return "nested_group_post"
+
+            def fields(self):
+                return [
+                    ResourceRelationship(
+                        "user",
+                        resolver=lambda instance, context: getattr(instance, "user", None),
+                        resource_type="nested_group_user",
+                        select_related=("user",),
+                        prefetch_related=("user__user_groups",),
+                    )
+                ]
+
+        registry.register_resource(UserResource())
+        registry.register_resource(PostResource())
+
+        plan = registry.build_preload_plan("nested_group_post", include=("user",))
+
+        self.assertIn("user__user_groups", plan.prefetch_related)
+        self.assertNotIn("user__user_groups__user_groups", plan.prefetch_related)
+
+    def test_nested_default_select_ignores_auxiliary_prefetch_paths_when_select_path_exists(self):
+        registry = ResourceRegistry()
+
+        class UserResource(Resource):
+            def type(self):
+                return "nested_account_user"
+
+            def fields(self):
+                return [
+                    ResourceField(
+                        "points",
+                        resolver=lambda instance, context: 0,
+                        select_related=("point_account",),
+                    )
+                ]
+
+        class PostResource(Resource):
+            def type(self):
+                return "nested_account_post"
+
+            def fields(self):
+                return [
+                    ResourceRelationship(
+                        "user",
+                        resolver=lambda instance, context: getattr(instance, "user", None),
+                        resource_type="nested_account_user",
+                        select_related=("user",),
+                        prefetch_related=("user__user_groups",),
+                    )
+                ]
+
+        registry.register_resource(UserResource())
+        registry.register_resource(PostResource())
+
+        plan = registry.build_preload_plan("nested_account_post", include=("user",))
+
+        self.assertIn("user__point_account", plan.select_related)
+        self.assertIn("user__user_groups", plan.prefetch_related)
+        self.assertNotIn("user__user_groups__point_account", plan.prefetch_related)
+
+    def test_nested_select_under_prefetch_relationship_stays_in_prefetch_plan(self):
+        registry = ResourceRegistry()
+
+        class TagResource(Resource):
+            def type(self):
+                return "nested_prefetch_tag"
+
+            def fields(self):
+                return [
+                    ResourceField(
+                        "last_posted_discussion",
+                        resolver=lambda instance, context: None,
+                        select_related=("last_posted_discussion",),
+                    )
+                ]
+
+        class DiscussionResource(Resource):
+            def type(self):
+                return "nested_prefetch_discussion"
+
+            def fields(self):
+                return [
+                    ResourceRelationship(
+                        "tags",
+                        resolver=lambda instance, context: (),
+                        resource_type="nested_prefetch_tag",
+                        many=True,
+                        prefetch_related=("discussion_tags__tag",),
+                    )
+                ]
+
+        registry.register_resource(TagResource())
+        registry.register_resource(DiscussionResource())
+
+        plan = registry.build_preload_plan("nested_prefetch_discussion", include=("tags",))
+
+        self.assertNotIn("discussion_tags__tag__last_posted_discussion", plan.select_related)
+        self.assertIn("discussion_tags__tag__last_posted_discussion", plan.prefetch_related)
+
     def test_plain_serializer_applies_nested_relationship_includes(self):
         registry = ResourceRegistry()
 
@@ -1877,6 +1995,45 @@ class ResourceRegistryTests(TestCase):
 
         self.assertIn("virtual_owner", plan.select_related)
         self.assertNotIn("owner__profile", plan.select_related)
+
+    def test_virtual_relationship_without_orm_path_does_not_autogenerate_nested_select_related(self):
+        registry = ResourceRegistry()
+
+        class TagResource(Resource):
+            def type(self):
+                return "virtual_nested_tag"
+
+            def fields(self):
+                return [
+                    ResourceRelationship(
+                        "last_discussion",
+                        resolver=lambda instance, context: getattr(instance, "last_discussion", None),
+                        resource_type="virtual_nested_discussion",
+                        select_related=("last_discussion",),
+                    )
+                ]
+
+        class PostResource(Resource):
+            def type(self):
+                return "virtual_nested_post"
+
+            def fields(self):
+                return [
+                    ResourceRelationship(
+                        "mentioned_tags",
+                        resolver=lambda instance, context: (),
+                        resource_type="virtual_nested_tag",
+                        many=True,
+                    )
+                ]
+
+        registry.register_resource(TagResource())
+        registry.register_resource(PostResource())
+
+        plan = registry.build_preload_plan("virtual_nested_post", include=("mentioned_tags.last_discussion",))
+
+        self.assertEqual(plan.select_related, ())
+        self.assertNotIn("mentioned_tags__last_discussion", plan.select_related)
 
     def test_jsonapi_serializer_resolves_deferred_field_and_relationship_values(self):
         registry = ResourceRegistry()

@@ -83,26 +83,40 @@ class PreloadPlanner:
                 include=include,
             )
             nested_include = include_tree.get(definition.relationship) or {}
+            relationship_select_paths = tuple(getattr(definition, "select_related", ()) or ())
+            relationship_prefetch_paths = tuple(getattr(definition, "prefetch_related", ()) or ())
+            relationship_prefix_paths = relationship_select_paths or relationship_prefetch_paths
+            nested_prefetch_select_prefix_paths = () if relationship_select_paths else relationship_prefetch_paths
             resolver_handles_nested_preloads = getattr(definition, "preload_resolver", None) is not None
-            if definition.resource_type and not resolver_handles_nested_preloads:
+            can_prefix_nested_preloads = bool(relationship_prefix_paths)
+            if definition.resource_type and not resolver_handles_nested_preloads and can_prefix_nested_preloads:
                 nested_plan = self.build_preload_plan(
                     definition.resource_type,
                     resolved_context,
                     include=tuple(self._flatten_include_tree(nested_include)),
                 )
                 for item in nested_plan.select_related:
-                    nested_item = f"{definition.relationship}__{item}"
-                    if nested_item not in seen_select:
-                        seen_select.add(nested_item)
-                        select_related.append(nested_item)
+                    for prefix in relationship_select_paths:
+                        nested_item = f"{prefix}__{item}"
+                        if nested_item not in seen_select:
+                            seen_select.add(nested_item)
+                            select_related.append(nested_item)
+                    for prefix in nested_prefetch_select_prefix_paths:
+                        nested_item = f"{prefix}__{item}"
+                        prefetch_key = self._prefetch_key(nested_item)
+                        if prefetch_key and prefetch_key not in seen_prefetch:
+                            seen_prefetch.add(prefetch_key)
+                            prefetch_related.append(nested_item)
                 for item in nested_plan.prefetch_related:
-                    nested_item = self._prefix_prefetch(definition.relationship, item)
-                    prefetch_key = self._prefetch_key(nested_item)
-                    if prefetch_key and prefetch_key not in seen_prefetch:
-                        seen_prefetch.add(prefetch_key)
-                        prefetch_related.append(nested_item)
+                    for prefix in relationship_prefix_paths:
+                        nested_item = self._prefix_prefetch(prefix, item)
+                        prefetch_key = self._prefetch_key(nested_item)
+                        if prefetch_key and prefetch_key not in seen_prefetch:
+                            seen_prefetch.add(prefetch_key)
+                            prefetch_related.append(nested_item)
                 for relation, callback in nested_plan.prefetch_where:
-                    prefetch_where.append((f"{definition.relationship}__{relation}", callback))
+                    for prefix in relationship_prefix_paths:
+                        prefetch_where.append((f"{prefix}__{relation}", callback))
 
         return ResourcePreloadPlan(
             select_related=tuple(select_related),
