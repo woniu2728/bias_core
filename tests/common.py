@@ -219,7 +219,11 @@ def resolve_test_username(instance, context):
 
 
 def make_workspace_temp_dir() -> Path:
-    return Path(tempfile.mkdtemp(prefix=f"bias-test-{uuid.uuid4().hex}-"))
+    temp_root = Path(__file__).resolve().parents[1] / ".tmp-tests"
+    temp_root.mkdir(parents=True, exist_ok=True)
+    temp_dir = temp_root / f"bias-test-{uuid.uuid4().hex}"
+    temp_dir.mkdir(parents=True, exist_ok=False)
+    return temp_dir
 
 
 TEST_EXTENSION_ID = "alpha-tools"

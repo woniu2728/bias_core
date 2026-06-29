@@ -24,13 +24,14 @@ INSTALLED_APPS = [
 
 try:
     from bias_core.conf import (
-        discover_extension_migration_modules,
-        discover_installed_extension_django_apps,
+        discover_extension_django_configuration,
     )
 
-    INSTALLED_APPS.extend(discover_installed_extension_django_apps())
-    MIGRATION_MODULES = discover_extension_migration_modules(BASE_DIR)
+    EXTENSION_DJANGO_CONFIGURATION = discover_extension_django_configuration(BASE_DIR)
+    INSTALLED_APPS.extend(EXTENSION_DJANGO_CONFIGURATION["installed_apps"])
+    MIGRATION_MODULES = EXTENSION_DJANGO_CONFIGURATION["migration_modules"]
 except Exception:
+    EXTENSION_DJANGO_CONFIGURATION = {}
     MIGRATION_MODULES = {}
 
 MIDDLEWARE = CORE_REQUIRED_MIDDLEWARE
@@ -67,10 +68,7 @@ TIME_ZONE = "Asia/Shanghai"
 USE_I18N = True
 USE_TZ = True
 
-AUTH_USER_MODEL = "users.User" if any(
-    app == "bias_ext_users.backend.apps.UsersExtensionConfig"
-    for app in INSTALLED_APPS
-) else "auth.User"
+AUTH_USER_MODEL = str(EXTENSION_DJANGO_CONFIGURATION.get("auth_user_model") or "auth.User")
 
 from types import SimpleNamespace
 ALLOWED_HOSTS = ["*"]

@@ -6,24 +6,37 @@ from pathlib import Path
 from typing import Any
 
 
+def discover_extension_django_configuration(base_dir=None) -> dict[str, Any]:
+    records = discover_extension_django_app_records(base_dir)
+    migration_modules = {
+        item["app_label"]: item["migration_module"]
+        for item in records
+        if item.get("migration_module")
+    }
+    return {
+        "installed_apps": list(dict.fromkeys(item["app_config"] for item in records)),
+        "migration_modules": migration_modules,
+        "auth_user_model": _select_auth_user_model(records),
+    }
+
+
+def discover_extension_django_app_records(base_dir=None) -> list[dict[str, str]]:
+    records: list[dict[str, str]] = []
+    records.extend(_discover_workspace_extension_django_app_records(base_dir))
+    records.extend(_discover_distribution_extension_django_app_records())
+    return _dedupe_django_app_records(records)
+
+
 def discover_installed_extension_django_apps(base_dir=None):
-    discovered = []
-    discovered.extend(item["app_config"] for item in _discover_workspace_extension_django_app_records(base_dir))
-    discovered.extend(item["app_config"] for item in _discover_distribution_extension_django_app_records())
-    return list(dict.fromkeys(discovered))
+    return discover_extension_django_configuration(base_dir)["installed_apps"]
 
 
 def discover_extension_migration_modules(base_dir=None):
-    modules = {}
-    for item in _discover_workspace_extension_django_app_records(base_dir):
-        migration_module = item.get("migration_module") or ""
-        if migration_module:
-            modules[item["app_label"]] = migration_module
-    for item in _discover_distribution_extension_django_app_records():
-        migration_module = item.get("migration_module") or ""
-        if migration_module and item["app_label"] not in modules:
-            modules[item["app_label"]] = migration_module
-    return modules
+    return discover_extension_django_configuration(base_dir)["migration_modules"]
+
+
+def discover_auth_user_model(base_dir=None, default: str = "auth.User") -> str:
+    return _select_auth_user_model(discover_extension_django_app_records(base_dir), default=default)
 
 
 def _discover_workspace_extension_django_app_records(base_dir=None) -> list[dict[str, str]]:
@@ -33,31 +46,10 @@ def _discover_workspace_extension_django_app_records(base_dir=None) -> list[dict
             payload = json.loads(manifest_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             continue
-        extension_id = str(payload.get("id") or manifest_path.parent.name).strip()
-        django_payload = payload.get("django") if isinstance(payload.get("django"), dict) else {}
-        app_config = str(payload.get("django_app_config") or django_payload.get("app_config") or "").strip()
-        if not app_config:
-            continue
         _ensure_workspace_package_import_path(manifest_path.parent)
-        app_label = str(
-            payload.get("django_app_label")
-            or django_payload.get("app_label")
-            or extension_id.replace("-", "_")
-        ).strip()
-        migration_module = str(
-            payload.get("django_migration_module")
-            or django_payload.get("migration_module")
-            or ""
-        ).strip()
-        if not migration_module:
-            module_prefix = app_config.rsplit(".apps.", 1)[0]
-            if module_prefix != app_config:
-                migration_module = f"{module_prefix}.django_migrations"
-        records.append({
-            "app_config": app_config,
-            "app_label": app_label,
-            "migration_module": migration_module,
-        })
+        record = _build_extension_django_app_record(payload, manifest_path)
+        if record is not None:
+            records.append(record)
     return records
 
 
@@ -119,11 +111,44 @@ def _build_extension_django_app_record(payload: dict[str, Any], manifest_path: P
         module_prefix = app_config.rsplit(".apps.", 1)[0]
         if module_prefix != app_config:
             migration_module = f"{module_prefix}.django_migrations"
-    return {
+    auth_user_model = str(
+        payload.get("auth_user_model")
+        or django_payload.get("auth_user_model")
+        or ""
+    ).strip()
+    if not auth_user_model and app_label == "users" and app_config.endswith(".UsersExtensionConfig"):
+        auth_user_model = "users.User"
+    record = {
         "app_config": app_config,
         "app_label": app_label,
         "migration_module": migration_module,
     }
+    if auth_user_model:
+        record["auth_user_model"] = auth_user_model
+    return record
+
+
+def _dedupe_django_app_records(records: list[dict[str, str]]) -> list[dict[str, str]]:
+    deduped: list[dict[str, str]] = []
+    seen_app_configs: set[str] = set()
+    for record in records:
+        app_config = record.get("app_config") or ""
+        if not app_config or app_config in seen_app_configs:
+            continue
+        seen_app_configs.add(app_config)
+        deduped.append(record)
+    return deduped
+
+
+def _select_auth_user_model(records: list[dict[str, str]], default: str = "auth.User") -> str:
+    candidates = list(dict.fromkeys(
+        str(item.get("auth_user_model") or "").strip()
+        for item in records
+        if str(item.get("auth_user_model") or "").strip()
+    ))
+    if len(candidates) > 1:
+        raise RuntimeError(f"多个扩展声明了不同的 AUTH_USER_MODEL: {', '.join(candidates)}")
+    return candidates[0] if candidates else default
 
 
 def _iter_extension_manifest_paths(base_dir=None):

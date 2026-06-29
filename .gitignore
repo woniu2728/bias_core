@@ -10,3 +10,4 @@ media/
 staticfiles/
 logs/
 .env
+.tmp-tests/

@@ -2345,6 +2345,8 @@ class ExtensionManagementCommandTests(TestCase):
 
     def test_extension_django_app_discovery_reads_packaged_distribution_manifests(self):
         from bias_core.conf.extension_discovery import (
+            discover_auth_user_model,
+            discover_extension_django_configuration,
             discover_extension_migration_modules,
             discover_installed_extension_django_apps,
         )
@@ -2361,6 +2363,7 @@ class ExtensionManagementCommandTests(TestCase):
                     "app_config": "bias_ext_users.backend.apps.UsersExtensionConfig",
                     "app_label": "users",
                     "migration_module": "bias_ext_users.backend.django_migrations",
+                    "auth_user_model": "users.User",
                 },
             }, ensure_ascii=False), encoding="utf-8")
 
@@ -2377,6 +2380,14 @@ class ExtensionManagementCommandTests(TestCase):
                 self.assertEqual(
                     discover_extension_migration_modules(temp_dir / "empty")["users"],
                     "bias_ext_users.backend.django_migrations",
+                )
+                self.assertEqual(
+                    discover_auth_user_model(temp_dir / "empty"),
+                    "users.User",
+                )
+                self.assertEqual(
+                    discover_extension_django_configuration(temp_dir / "empty")["auth_user_model"],
+                    "users.User",
                 )
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
