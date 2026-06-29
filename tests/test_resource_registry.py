@@ -160,6 +160,15 @@ class ResourceRegistryTests(TestCase):
 
         self.assertEqual(result.title, "hello")
 
+    def test_resource_field_supports_create_and_update_only_writable_helpers(self):
+        create_only = ResourceField("title", resolver=lambda instance, context: instance.title).writable_on_create_field()
+        update_only = ResourceField("state", resolver=lambda instance, context: instance.state).writable_on_update_field()
+
+        self.assertTrue(create_only.is_writable({"creating": True}))
+        self.assertFalse(create_only.is_writable({"creating": False}))
+        self.assertFalse(update_only.is_writable({"creating": True}))
+        self.assertTrue(update_only.is_writable({"creating": False}))
+
     def test_serializes_registered_resource_fields(self):
         registry = ResourceRegistry()
 

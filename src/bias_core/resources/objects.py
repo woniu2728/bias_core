@@ -64,6 +64,12 @@ class ResourceField:
     def writable_when(self, condition: Callable[[Any, ResourceContext], bool] | bool = True) -> "ResourceField":
         return replace(self, writable=condition)
 
+    def writable_on_create_field(self) -> "ResourceField":
+        return self.writable_when(lambda instance, context: bool(context.get("creating")))
+
+    def writable_on_update_field(self) -> "ResourceField":
+        return self.writable_when(lambda instance, context: not bool(context.get("creating")))
+
     def required_on_create_field(self, required: Callable[[Any, ResourceContext], bool] | bool = True) -> "ResourceField":
         return replace(self, required_on_create=required)
 
