@@ -5596,6 +5596,52 @@ class ResourceRegistryTests(TestCase):
 
         self.assertEqual(payload, {"title": "hello", "owner": {"username": "neo"}})
 
+    def test_plain_relationship_serialization_isolates_child_context(self):
+        registry = ResourceRegistry()
+
+        class Node:
+            def __init__(self, id, name, children=()):
+                self.id = id
+                self.name = name
+                self.children = list(children)
+
+        class NodeResource(Resource):
+            def type(self):
+                return "depth_node"
+
+            def fields(self):
+                return [ResourceField("name", resolver=lambda instance, context: instance.name)]
+
+            def relationships(self):
+                return [
+                    ResourceRelationship(
+                        "children",
+                        resolver=lambda instance, context: instance.children if context.get("plain_children_depth", 0) > 0 else [],
+                        resource_type="depth_node",
+                        many=True,
+                    )
+                ]
+
+        registry.register_resource(NodeResource())
+        first = Node(2, "first", [Node(4, "first-child")])
+        second = Node(3, "second", [Node(5, "second-child")])
+        root = Node(1, "root", [first, second])
+
+        payload = registry.serialize(
+            "depth_node",
+            root,
+            {"plain_children_depth": 1},
+            include=("children",),
+        )
+
+        self.assertEqual(
+            payload["children"],
+            [
+                {"name": "first"},
+                {"name": "second"},
+            ],
+        )
+
     def test_resource_field_plain_and_jsonapi_visibility_helpers(self):
         plain_field = ResourceField("legacy", resolver=lambda instance, context: "plain").plain_only()
         jsonapi_field = ResourceField("wire", resolver=lambda instance, context: "jsonapi").jsonapi_only()
