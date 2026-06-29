@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from bias_core.resource_context import ResourceContext, ensure_resource_context
+from bias_core.resource_objects import RESOURCE_LINKAGE_UNRESOLVED
 
 ResourceSerializationContext = ResourceContext
 
@@ -110,6 +111,11 @@ class ResourceSerializer:
                 continue
             if not self.field_is_visible(definition, context):
                 continue
+            direct_linkage = self.direct_relationship_linkage(definition, context, include_tree)
+            if direct_linkage is not RESOURCE_LINKAGE_UNRESOLVED:
+                if direct_linkage is not _JSONAPI_SKIP:
+                    relationship_payload[definition.relationship] = {"data": direct_linkage}
+                continue
             value = self.field_value(definition, context)
             self.set_relationship(
                 relationship_payload,
@@ -121,6 +127,20 @@ class ResourceSerializer:
         if relationship_payload:
             output["relationships"] = relationship_payload
         return output
+
+    def direct_relationship_linkage(self, definition: Any, context: ResourceContext, include_tree: dict) -> Any:
+        if definition.many or definition.relationship in (include_tree or {}):
+            return RESOURCE_LINKAGE_UNRESOLVED
+        if getattr(definition, "linkage", True) is False:
+            return _JSONAPI_SKIP
+        field_object = getattr(definition, "field_object", None)
+        direct_linkage_value = getattr(field_object, "direct_linkage_value", None)
+        if not callable(direct_linkage_value):
+            return RESOURCE_LINKAGE_UNRESOLVED
+        value = direct_linkage_value(context.get("model"), context)
+        if value is RESOURCE_LINKAGE_UNRESOLVED:
+            return value
+        return self.relationship_linkage(definition, value, context)
 
     def _fields_for(self, resource: str, context: ResourceContext) -> list[Any]:
         sparse = context.sparse_fields(resource)

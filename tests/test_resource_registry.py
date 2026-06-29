@@ -3066,6 +3066,46 @@ class ResourceRegistryTests(TestCase):
         self.assertEqual(primary[0]["relationships"]["owner"]["data"], {"type": "owned_serializer_users", "id": "7"})
         self.assertEqual(included[0]["attributes"]["username"], "neo")
 
+    def test_jsonapi_relationship_can_emit_foreign_key_linkage_without_resolving_relation(self):
+        registry = ResourceRegistry()
+        calls = []
+
+        class UserResource(Resource):
+            def type(self):
+                return "fk_linkage_users"
+
+            def fields(self):
+                return [ResourceField("username", resolver=lambda instance, context: instance.username)]
+
+        class DiscussionResource(Resource):
+            def type(self):
+                return "fk_linkage_discussions"
+
+            def relationships(self):
+                def resolve_owner(instance, context):
+                    calls.append("owner")
+                    return SimpleNamespace(id=instance.owner_id, username="neo")
+
+                return [
+                    ResourceRelationship("owner", resolver=resolve_owner, resource_type="fk_linkage_users")
+                    .to_one("fk_linkage_users")
+                    .with_foreign_key_linkage("owner_id")
+                ]
+
+        registry.register_resource(UserResource())
+        registry.register_resource(DiscussionResource())
+        discussion = SimpleNamespace(id=1, owner_id=7)
+
+        payload = registry.serialize_jsonapi_document("fk_linkage_discussions", discussion)
+
+        self.assertEqual(payload["data"]["relationships"]["owner"]["data"], {"type": "fk_linkage_users", "id": "7"})
+        self.assertEqual(calls, [])
+
+        included_payload = registry.serialize_jsonapi_document("fk_linkage_discussions", discussion, include=("owner",))
+
+        self.assertEqual(calls, ["owner"])
+        self.assertEqual(included_payload["included"][0]["attributes"]["username"], "neo")
+
     def test_plain_serializer_can_emit_relationship_linkage(self):
         registry = ResourceRegistry()
 

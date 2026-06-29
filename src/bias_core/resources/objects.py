@@ -8,6 +8,7 @@ from bias_core.resource_api import wants_jsonapi_response
 
 
 ResourceContext = dict[str, Any]
+RESOURCE_LINKAGE_UNRESOLVED = object()
 
 
 @dataclass(frozen=True)
@@ -356,6 +357,7 @@ class ResourceRelationship(ResourceField):
     linkage: Callable[[Any, ResourceContext], Any] | bool = True
     plain_output: str = ""
     relationship_setter: Callable[[Any, Any, ResourceContext], None] | None = None
+    direct_linkage: Callable[[Any, ResourceContext], Any] | None = None
 
     @property
     def relationship(self) -> str:
@@ -389,6 +391,27 @@ class ResourceRelationship(ResourceField):
     def with_linkage(self, linkage: Callable[[Any, ResourceContext], Any] | bool) -> "ResourceRelationship":
         return replace(self, linkage=linkage)
 
+    def with_foreign_key_linkage(
+        self,
+        foreign_key: str,
+        *,
+        condition: Callable[[Any, ResourceContext], bool] | bool = True,
+    ) -> "ResourceRelationship":
+        normalized = str(foreign_key or "").strip()
+
+        def resolve(instance: Any, context: ResourceContext) -> Any:
+            if not normalized:
+                return RESOURCE_LINKAGE_UNRESOLVED
+            applies = condition(instance, context) if callable(condition) else condition
+            if not applies:
+                return RESOURCE_LINKAGE_UNRESOLVED
+            value = getattr(instance, normalized, None)
+            if value in (None, ""):
+                return None
+            return {"id": str(value)}
+
+        return replace(self, direct_linkage=resolve)
+
     def set_relationship_with(self, setter: Callable[[Any, Any, ResourceContext], None]) -> "ResourceRelationship":
         return replace(self, relationship_setter=setter, writable=True)
 
@@ -405,6 +428,11 @@ class ResourceRelationship(ResourceField):
         if self.linkage is False:
             return None
         return value
+
+    def direct_linkage_value(self, instance: Any, context: ResourceContext) -> Any:
+        if self.direct_linkage is None:
+            return RESOURCE_LINKAGE_UNRESOLVED
+        return self.direct_linkage(instance, context)
 
 
 @dataclass(frozen=True)
