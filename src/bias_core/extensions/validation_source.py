@@ -326,6 +326,12 @@ def validate_cross_extension_imports(
                 known_extension_ids=known_extension_ids,
                 capability_providers=capability_providers,
             )
+            validate_runtime_facade_import_phase(
+                collector,
+                manifest,
+                source,
+                relative_path,
+            )
         validate_event_contract_paths(
             collector,
             manifest,
@@ -421,6 +427,37 @@ def validate_runtime_facade_extension_dependencies(
             extension_id=manifest.id,
             field=relative_path,
         )
+
+
+def validate_runtime_facade_import_phase(
+    collector: ExtensionValidationCollector,
+    manifest: ExtensionManifest,
+    source: str,
+    relative_path: str,
+) -> None:
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return
+
+    imported_names = sorted({
+        imported_name
+        for imported_name in iter_top_level_runtime_facade_imports(tree)
+        if imported_name != "*"
+    })
+    if not imported_names:
+        return
+
+    names_text = ", ".join(imported_names[:8])
+    if len(imported_names) > 8:
+        names_text = f"{names_text}, ..."
+    collector.add_warning(
+        "runtime_facade_top_level_import",
+        f"扩展源码在模块顶层导入 runtime facade: {names_text}。"
+        "建议改为函数内延迟导入，使扩展能力在 resolver/extender 执行时解析，减少未启用扩展或启动排序变化造成的加载期耦合。",
+        extension_id=manifest.id,
+        field=relative_path,
+    )
 
 
 def validate_runtime_facade_dependency_graph(
@@ -640,6 +677,19 @@ def iter_runtime_facade_extension_references(tree: ast.AST):
             required_extension_id = RUNTIME_FACADE_EXTENSION_DEPENDENCIES.get(imported_name)
             if required_extension_id:
                 yield imported_name, required_extension_id
+
+
+def iter_top_level_runtime_facade_imports(tree: ast.AST):
+    for node in getattr(tree, "body", ()):
+        if not isinstance(node, ast.ImportFrom):
+            continue
+        if getattr(node, "level", 0):
+            continue
+        module = str(node.module or "").strip()
+        if module != "bias_core.extensions.runtime":
+            continue
+        for alias in node.names:
+            yield str(alias.name or "").strip()
 
 
 def iter_event_contract_values(tree: ast.AST):

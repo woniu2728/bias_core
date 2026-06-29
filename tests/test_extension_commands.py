@@ -1253,6 +1253,98 @@ class ExtensionManagementCommandTests(TestCase):
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
+    def test_inspect_extension_imports_command_warns_on_top_level_runtime_facade_imports(self):
+        temp_dir = make_workspace_temp_dir()
+        try:
+            users_dir = Path(temp_dir) / "extensions" / "users"
+            users_dir.mkdir(parents=True, exist_ok=False)
+            (users_dir / "extension.json").write_text(json.dumps({
+                "id": "users",
+                "name": "Users",
+                "version": "1.0.0",
+                "dependencies": ["core"],
+            }, ensure_ascii=False), encoding="utf-8")
+            manifest_dir = Path(temp_dir) / "extensions" / "alpha-tools"
+            backend_dir = manifest_dir / "backend"
+            backend_dir.mkdir(parents=True, exist_ok=False)
+            (manifest_dir / "extension.json").write_text(json.dumps({
+                "id": "alpha-tools",
+                "name": "Alpha Tools",
+                "version": "1.0.0",
+                "dependencies": ["core", "users"],
+                "backend_entry": "extensions.alpha_tools.backend.ext",
+            }, ensure_ascii=False), encoding="utf-8")
+            (backend_dir / "ext.py").write_text(
+                "from bias_core.extensions.runtime import get_runtime_user_by_id\n"
+                "\n"
+                "def extend():\n"
+                "    return []\n",
+                encoding="utf-8",
+            )
+
+            stdout = StringIO()
+            call_command(
+                "inspect_extension_imports",
+                "--extensions-path",
+                str(Path(temp_dir) / "extensions"),
+                "--extension-id",
+                "alpha-tools",
+                "--check-runtime-facades",
+                stdout=stdout,
+            )
+
+            output = stdout.getvalue()
+            self.assertIn("runtime_facade_top_level_import", output)
+            self.assertIn("get_runtime_user_by_id", output)
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_inspect_extension_imports_command_allows_lazy_runtime_facade_imports_without_warning(self):
+        temp_dir = make_workspace_temp_dir()
+        try:
+            users_dir = Path(temp_dir) / "extensions" / "users"
+            users_dir.mkdir(parents=True, exist_ok=False)
+            (users_dir / "extension.json").write_text(json.dumps({
+                "id": "users",
+                "name": "Users",
+                "version": "1.0.0",
+                "dependencies": ["core"],
+            }, ensure_ascii=False), encoding="utf-8")
+            manifest_dir = Path(temp_dir) / "extensions" / "alpha-tools"
+            backend_dir = manifest_dir / "backend"
+            backend_dir.mkdir(parents=True, exist_ok=False)
+            (manifest_dir / "extension.json").write_text(json.dumps({
+                "id": "alpha-tools",
+                "name": "Alpha Tools",
+                "version": "1.0.0",
+                "dependencies": ["core", "users"],
+                "backend_entry": "extensions.alpha_tools.backend.ext",
+            }, ensure_ascii=False), encoding="utf-8")
+            (backend_dir / "ext.py").write_text(
+                "def resolve_user(user_id):\n"
+                "    from bias_core.extensions.runtime import get_runtime_user_by_id\n"
+                "    return get_runtime_user_by_id(user_id)\n"
+                "\n"
+                "def extend():\n"
+                "    return []\n",
+                encoding="utf-8",
+            )
+
+            stdout = StringIO()
+            call_command(
+                "inspect_extension_imports",
+                "--extensions-path",
+                str(Path(temp_dir) / "extensions"),
+                "--extension-id",
+                "alpha-tools",
+                "--check-runtime-facades",
+                stdout=stdout,
+            )
+
+            self.assertNotIn("runtime_facade_top_level_import", stdout.getvalue())
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
     def test_inspect_extension_imports_command_resolves_runtime_facade_capability_provider(self):
         temp_dir = make_workspace_temp_dir()
         try:
