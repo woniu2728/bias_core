@@ -5402,6 +5402,20 @@ class ResourceRegistryTests(TestCase):
                 },
             )
 
+        response = registry.dispatch_resource_endpoint(
+            endpoint,
+            {
+                "resource": "strict_item",
+                "endpoint": "update",
+                "method": "PATCH",
+                "object_id": "1",
+                "payload": {"data": {"attributes": {"title": "new"}}},
+                "query": {},
+            },
+        )
+
+        self.assertEqual(response["data"]["attributes"]["title"], "new")
+
     def test_database_resource_crud_can_opt_in_to_legacy_flat_payload(self):
         registry = ResourceRegistry()
 
