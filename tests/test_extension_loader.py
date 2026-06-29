@@ -5306,6 +5306,34 @@ class ExtensionManifestLoaderTests(TestCase):
 
         self.assertEqual([item.id for item in ordered], ["content", "flags", "tags"])
 
+    def test_extension_dependency_sort_prefers_real_manifest_id_over_provided_capability(self):
+        content = Extension.from_manifest(ExtensionManifest(
+            id="content",
+            name="Content Foundation",
+            version="1.0.0",
+            provides=("posts",),
+            source="filesystem",
+        ))
+        posts = Extension.from_manifest(ExtensionManifest(
+            id="posts",
+            name="Posts",
+            version="1.0.0",
+            dependencies=("content",),
+            source="filesystem",
+        ))
+        flags = Extension.from_manifest(ExtensionManifest(
+            id="flags",
+            name="Flags",
+            version="1.0.0",
+            dependencies=("posts",),
+            source="filesystem",
+        ))
+        manager = ExtensionRegistry()
+
+        ordered = manager.sort_extensions_for_boot([flags, content, posts])
+
+        self.assertEqual([item.id for item in ordered], ["content", "posts", "flags"])
+
     def test_extension_dependency_sort_detects_optional_dependency_cycles(self):
         discussions = Extension.from_manifest(ExtensionManifest(
             id="discussions",

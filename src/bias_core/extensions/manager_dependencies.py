@@ -93,6 +93,10 @@ def resolve_extension_order(extensions: list[Extension], *, satisfied_dependency
 def _build_capability_provider_map(extensions: list[Extension]) -> dict[str, str]:
     providers: dict[str, str] = {}
     for extension in sorted(extensions, key=lambda item: item.id):
+        normalized_id = str(extension.id or "").strip()
+        if normalized_id:
+            providers[normalized_id] = normalized_id
+    for extension in sorted(extensions, key=lambda item: item.id):
         for capability in extension.manifest.provides:
             normalized = str(capability or "").strip()
             if normalized and normalized not in providers:
