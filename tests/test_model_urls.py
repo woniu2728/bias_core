@@ -29,6 +29,7 @@ class IdSlugDriver:
             1: SimpleNamespace(id=1, slug="alpha"),
             2: SimpleNamespace(id=2, slug="beta"),
         }
+        self.seen_batches = []
 
     def to_slug(self, instance, *, context=None):
         return f"{instance.id}-{instance.slug}"
@@ -38,6 +39,7 @@ class IdSlugDriver:
         return self.instances.get(tag_id)
 
     def from_slugs(self, slugs, *, context=None):
+        self.seen_batches.append(tuple(slugs))
         return {
             slug: self.from_slug(slug)
             for slug in slugs
@@ -64,6 +66,19 @@ class PlainSlugDriver:
             for slug in slugs
             if self.from_slug(slug) is not None
         }
+
+
+class SingleSlugOnlyDriver:
+    def __init__(self):
+        self.instances = {
+            "alpha": SimpleNamespace(id=1, slug="alpha"),
+            "beta": SimpleNamespace(id=2, slug="beta"),
+        }
+        self.calls = []
+
+    def from_slug(self, slug, *, context=None):
+        self.calls.append(str(slug or "").strip())
+        return self.instances.get(str(slug or "").strip())
 
 
 class ModelUrlServiceTests(TestCase):
@@ -112,6 +127,36 @@ class ModelUrlServiceTests(TestCase):
         self.assertEqual(set(resolved), {"1-renamed", "2-beta"})
         self.assertEqual(resolved["1-renamed"].slug, "alpha")
         self.assertEqual(resolved["2-beta"].slug, "beta")
+
+    def test_resolve_slugs_deduplicates_inputs_before_batch_driver(self):
+        resolved = self.service.resolve_slugs(
+            InMemoryModel,
+            ["1-renamed", "2-beta", "1-renamed", "", "2-beta"],
+            identifier="id_with_slug",
+        )
+
+        self.assertEqual(set(resolved), {"1-renamed", "2-beta"})
+        self.assertEqual(self.driver.seen_batches, [("1-renamed", "2-beta")])
+
+    def test_resolve_slugs_deduplicates_single_slug_driver_fallback(self):
+        driver = SingleSlugOnlyDriver()
+        self.service.register_slug_driver(
+            "tags",
+            ExtensionModelSlugDriverDefinition(
+                model=InMemoryModel,
+                identifier="single_only",
+                driver=driver,
+            ),
+        )
+
+        resolved = self.service.resolve_slugs(
+            InMemoryModel,
+            ["alpha", "beta", "alpha", "missing", "beta"],
+            identifier="single_only",
+        )
+
+        self.assertEqual(set(resolved), {"alpha", "beta"})
+        self.assertEqual(driver.calls, ["alpha", "beta", "missing"])
 
     def test_active_slug_driver_defaults_to_default_driver(self):
         instance = SimpleNamespace(id=1, slug="alpha")

@@ -551,21 +551,33 @@ class ApplicationModelUrlService:
         ]
         if not normalized_slugs:
             return {}
+        unique_slugs = tuple(dict.fromkeys(normalized_slugs))
 
         resolved_context = self._driver_context(model, definition, self.resolve_slug_driver_identifier(model, identifier), context)
         driver = resolve_container_value(definition.driver, self._host)
         if hasattr(driver, "from_slugs"):
-            resolved = self._invoke_driver_method(driver.from_slugs, normalized_slugs, resolved_context)
+            resolved = self._invoke_driver_method(driver.from_slugs, unique_slugs, resolved_context)
             return dict(resolved or {})
         if hasattr(driver, "fromSlugs"):
-            resolved = self._invoke_driver_method(driver.fromSlugs, normalized_slugs, resolved_context)
+            resolved = self._invoke_driver_method(driver.fromSlugs, unique_slugs, resolved_context)
             return dict(resolved or {})
 
-        return {
-            slug: instance
-            for slug in normalized_slugs
-            if (instance := self.resolve_slug(model, slug, identifier=identifier, context=context)) is not None
-        }
+        resolved = {}
+        manager = getattr(model, "objects", None)
+        for slug in unique_slugs:
+            instance = None
+            if hasattr(driver, "from_slug"):
+                instance = self._invoke_driver_method(driver.from_slug, slug, resolved_context)
+            elif hasattr(driver, "fromSlug"):
+                instance = self._invoke_driver_method(driver.fromSlug, slug, resolved_context)
+            elif manager is not None:
+                try:
+                    instance = manager.get(**{definition.field: unquote(slug)})
+                except getattr(model, "DoesNotExist", Exception):
+                    instance = None
+            if instance is not None:
+                resolved[slug] = instance
+        return resolved
 
     @staticmethod
     def _driver_context(
