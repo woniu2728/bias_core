@@ -68,6 +68,7 @@ from bias_core.extensions.admin_manifest import (
     manifest_sequence as _manifest_sequence,
 )
 from bias_core.extensions.bootstrap import get_extension_host
+from bias_core.extensions.exceptions import ExtensionNotFoundError
 from bias_core.extensions.frontend_compiler import inspect_extension_frontend_output_manifest
 from bias_core.extensions.frontend_serialization import serialize_frontend_values
 from bias_core.extensions.manager_dependencies import build_optional_dependency_status_payload
@@ -97,6 +98,7 @@ def _serialize_admin_extension(
     operations_pages = _resolve_extension_operations_pages(extension, runtime_view)
     frontend_admin_entry = _resolve_extension_frontend_admin_entry(extension, runtime_view)
     frontend_forum_entry = _resolve_extension_frontend_forum_entry(extension, runtime_view)
+    frontend_boot = _build_extension_frontend_boot_payload(extension)
     frontend_outputs = _resolve_extension_frontend_outputs(extension.id, frontend_output_manifest=frontend_output_manifest)
     frontend_routes = _build_extension_frontend_routes(runtime_view)
     settings_page = next(iter(settings_pages), "")
@@ -214,6 +216,7 @@ def _serialize_admin_extension(
         "django_app_label": _manifest_attr(extension, "django_app_label") or normalize_extension_django_app_label(extension.id),
         "frontend_admin_entry": frontend_admin_entry,
         "frontend_forum_entry": frontend_forum_entry,
+        "frontend_boot": frontend_boot,
         "frontend_outputs": frontend_outputs,
         "frontend_routes": frontend_routes,
         "settings_pages": list(settings_pages),
@@ -365,7 +368,72 @@ def _serialize_admin_extension(
 def _build_lifecycle_plan_for_extension_view(extension) -> dict:
     if getattr(extension, "source", "") == "core-module":
         return build_core_module_lifecycle_plan(extension.id)
-    return ExtensionService.build_extension_lifecycle_plan(extension.id)
+    try:
+        return ExtensionService.build_extension_lifecycle_plan(extension.id)
+    except ExtensionNotFoundError:
+        return _build_readonly_lifecycle_plan_for_extension_view(extension)
+
+def _build_readonly_lifecycle_plan_for_extension_view(extension) -> dict:
+    installed = bool(getattr(getattr(extension, "runtime", None), "installed", False))
+    enabled = bool(getattr(getattr(extension, "runtime", None), "enabled", False))
+    protected = is_extension_protected(extension)
+    protected_reason = get_extension_protected_reason(extension) if protected else "扩展不在当前扩展管理器中，不能执行生命周期操作。"
+    blocked_action = {
+        "can_execute": False,
+        "blockers": ["unmanaged_runtime_extension"],
+    }
+    blocked_transaction = {
+        "can_execute": False,
+        "available": False,
+        "order": [],
+        "blockers": ["unmanaged_runtime_extension"],
+    }
+    return {
+        "schema": 1,
+        "extension_id": extension.id,
+        "install": {
+            "action": "install",
+            "already_active": installed,
+            "not_installed": not installed,
+            "required_dependencies": [],
+            "enabled_dependencies": [],
+            "disabled_dependencies": [],
+            "missing_dependencies": [],
+            "active_conflicts": [],
+            "dependency_transaction": dict(blocked_transaction),
+            **blocked_action,
+        },
+        "enable": {
+            "action": "enable",
+            "already_active": enabled,
+            "not_installed": not installed,
+            "required_dependencies": [],
+            "enabled_dependencies": [],
+            "disabled_dependencies": [],
+            "missing_dependencies": [],
+            "active_conflicts": [],
+            "dependency_transaction": dict(blocked_transaction),
+            **blocked_action,
+        },
+        "disable": {
+            "action": "disable",
+            "protected": protected,
+            "protected_reason": protected_reason,
+            "core_extension": False,
+            "blocking_dependents": [],
+            "dependent_transaction": dict(blocked_transaction),
+            **blocked_action,
+        },
+        "uninstall": {
+            "action": "uninstall",
+            "protected": protected,
+            "protected_reason": protected_reason,
+            "core_extension": False,
+            "blocking_dependents": [],
+            "dependent_transaction": dict(blocked_transaction),
+            **blocked_action,
+        },
+    }
 
 def _serialize_admin_extension_summary(extension, *, frontend_output_manifest: dict | None = None):
     runtime_view = _resolve_extension_runtime_record(extension)
@@ -373,6 +441,7 @@ def _serialize_admin_extension_summary(extension, *, frontend_output_manifest: d
     permissions_pages = _resolve_extension_permissions_pages(extension, runtime_view)
     operations_pages = _resolve_extension_operations_pages(extension, runtime_view)
     frontend_admin_entry = _resolve_extension_frontend_admin_entry(extension, runtime_view)
+    frontend_boot = _build_extension_frontend_boot_payload(extension)
     frontend_outputs = _resolve_extension_frontend_outputs(extension.id, frontend_output_manifest=frontend_output_manifest)
     frontend_routes = _build_extension_frontend_routes(runtime_view)
 
@@ -384,6 +453,7 @@ def _serialize_admin_extension_summary(extension, *, frontend_output_manifest: d
         "icon": _manifest_attr(extension, "icon", "fas fa-puzzle-piece"),
         "category": _manifest_attr(extension, "category", "feature"),
         "frontend_admin_entry": frontend_admin_entry,
+        "frontend_boot": frontend_boot,
         "frontend_outputs": frontend_outputs,
         "frontend_routes": frontend_routes,
         "installed": extension.runtime.installed,
@@ -453,6 +523,16 @@ def _serialize_admin_extensions_payload(extensions, *, summary: bool = False):
             "package_lock": ExtensionService.inspect_extension_packages(),
         },
         "extensions": payload,
+    }
+
+def _build_extension_frontend_boot_payload(extension) -> dict[str, bool]:
+    extra = dict(getattr(getattr(extension, "manifest", None), "extra", {}) or {})
+    payload = extra.get("frontend_boot")
+    if not isinstance(payload, dict):
+        payload = {}
+    return {
+        "admin": bool(payload.get("admin", False)),
+        "forum": bool(payload.get("forum", False)),
     }
 
 def _serialize_admin_extension_action_payload(extension):
