@@ -775,6 +775,13 @@ class ResourceRegistry:
         if not isinstance(payload, dict):
             raise BadJsonApiRequest("request body must be an object")
         data = payload.get("data")
+        if not isinstance(data, dict) and self._resource_accepts_legacy_payload(resource_object, context, payload):
+            data = {
+                "type": resource,
+                "attributes": dict(payload),
+            }
+            payload = {"data": data}
+            context["payload"] = payload
         if not isinstance(data, dict):
             raise BadJsonApiRequest("data must be an object", pointer="/data")
         data_type = data.get("type")
@@ -801,6 +808,15 @@ class ResourceRegistry:
                 data = mutated
         self._run_validation_factory(resource_object, context, data)
         return data
+
+    @staticmethod
+    def _resource_accepts_legacy_payload(resource_object: Resource | None, context: dict, payload: dict) -> bool:
+        if resource_object is None:
+            return False
+        accepts = getattr(resource_object, "accepts_legacy_payload", None)
+        if callable(accepts):
+            return bool(accepts(context))
+        return bool(getattr(resource_object, "accept_legacy_payload", False))
 
     def _run_validation_factory(self, resource_object: Resource | None, context: dict, data: dict) -> None:
         self._resource_validator._run_validation_factory(resource_object, context, data)

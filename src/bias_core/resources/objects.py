@@ -745,6 +745,9 @@ class Resource:
     def validation_factory(self):
         return None
 
+    def accepts_legacy_payload(self, context: ResourceContext) -> bool:
+        return False
+
     def mutate_data_before_validation(self, context: ResourceContext, data: dict) -> dict:
         return data
 
