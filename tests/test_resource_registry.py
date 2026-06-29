@@ -4016,6 +4016,26 @@ class ResourceRegistryTests(TestCase):
         self.assertTrue(validator.fails())
         self.assertEqual(validator.messages()["title"], ["Title length must be at least 3"])
 
+    def test_resource_field_hex_color_rule_matches_flarum_schema(self):
+        field = ResourceField("color", resolver=lambda instance, context: instance.color).string().nullable_field().hex_color()
+
+        self.assertIn("hex_color", [entry["rule"] for entry in field.validation_rules])
+        field.validate("#abc", {})
+        field.validate("#123abc", {})
+        field.validate(None, {})
+        with self.assertRaisesMessage(ValueError, "color must be a valid hex color"):
+            field.validate("red", {})
+
+    def test_default_validator_factory_interprets_hex_color_rule(self):
+        from bias_core.resource_validation import ResourceValidatorFactory
+
+        valid = ResourceValidatorFactory().make({"color": "#4d698e"}, {"color": ("hex_color",)})
+        invalid = ResourceValidatorFactory().make({"color": "red"}, {"color": ("hex_color",)})
+
+        self.assertFalse(valid.fails())
+        self.assertTrue(invalid.fails())
+        self.assertEqual(invalid.messages()["color"], ["color must be a valid hex color"])
+
     def test_can_select_only_specific_resource_fields(self):
         registry = ResourceRegistry()
 

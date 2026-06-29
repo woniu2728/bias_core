@@ -127,6 +127,11 @@ class ResourceValidatorFactory:
             return custom or f"{label} must be an object"
         if name == "email" and (not isinstance(value, str) or "@" not in value):
             return custom or f"{label} must be a valid email"
+        if name == "hex_color":
+            import re
+
+            if not isinstance(value, str) or re.fullmatch(r"#[0-9a-fA-F]{3}([0-9a-fA-F]{3})?", value) is None:
+                return custom or f"{label} must be a valid hex color"
         if name == "size" and value is not None:
             try:
                 actual = len(value) if hasattr(value, "__len__") and not isinstance(value, (int, float)) else value

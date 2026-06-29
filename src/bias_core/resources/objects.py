@@ -202,6 +202,9 @@ class ResourceField:
     def email(self) -> "ResourceField":
         return self.rule("email")
 
+    def hex_color(self) -> "ResourceField":
+        return self.rule("hex_color")
+
     def set_with(self, setter: Callable[[Any, Any, ResourceContext], None]) -> "ResourceField":
         return replace(self, setter=setter)
 
@@ -338,6 +341,10 @@ class ResourceField:
         if name == "regex":
             if not isinstance(value, str) or re.search(str(argument or ""), value) is None:
                 raise ValueError(f"{self.name} format is invalid")
+            return
+        if name == "hex_color":
+            if not isinstance(value, str) or re.fullmatch(r"#[0-9a-fA-F]{3}([0-9a-fA-F]{3})?", value) is None:
+                raise ValueError(f"{self.name} must be a valid hex color")
 
 
 @dataclass(frozen=True)
