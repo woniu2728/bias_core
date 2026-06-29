@@ -113,6 +113,7 @@ def endpoint_to_definition(resource: str, endpoint: ResourceEndpoint) -> Resourc
         action_callback=endpoint.action_callback,
         before_serialization_callback=endpoint.before_serialization_callback,
         response_callback=endpoint.response_callback,
+        response_callback_only=endpoint.response_callback_only,
     )
 
 

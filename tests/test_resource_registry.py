@@ -5207,6 +5207,75 @@ class ResourceRegistryTests(TestCase):
         self.assertEqual(response["data"]["attributes"]["title"], "new")
         self.assertEqual(Item.objects.item.title, "new")
 
+    def test_resource_endpoint_can_delegate_response_entirely_to_callback(self):
+        registry = ResourceRegistry()
+        serialize_calls = []
+
+        class Item:
+            objects = None
+
+            def __init__(self, id=1, title="first"):
+                self.id = id
+                self.title = title
+
+        class QuerySet(list):
+            def all(self):
+                return self
+
+            def filter(self, **kwargs):
+                return self
+
+            def order_by(self, *args):
+                return self
+
+            def count(self):
+                return len(self)
+
+        class Manager:
+            def all(self):
+                return QuerySet([Item()])
+
+        Item.objects = Manager()
+
+        class ItemResource(DatabaseResource):
+            model = Item
+
+            def type(self):
+                return "callback_only_item"
+
+            def fields(self):
+                return [
+                    ResourceField(
+                        "title",
+                        resolver=lambda instance, context: serialize_calls.append(instance.id) or instance.title,
+                    )
+                ]
+
+            def endpoints(self):
+                return [
+                    ResourceEndpoint(
+                        name="index",
+                        kind="index",
+                        response_callback=lambda context, response: {"count": len(response)},
+                        response_callback_only=True,
+                    )
+                ]
+
+        registry.register_resource(ItemResource())
+        response = registry.dispatch_resource_endpoint(
+            registry.get_dispatch_endpoint("callback_only_item", "index", "GET"),
+            {
+                "resource": "callback_only_item",
+                "endpoint": "index",
+                "method": "GET",
+                "payload": {},
+                "query": {},
+            },
+        )
+
+        self.assertEqual(response, {"count": 1})
+        self.assertEqual(serialize_calls, [])
+
     def test_jsonapi_validation_error_carries_source_pointer(self):
         registry = ResourceRegistry()
 

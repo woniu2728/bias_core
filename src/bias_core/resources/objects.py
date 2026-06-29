@@ -452,6 +452,7 @@ class ResourceEndpoint:
     action_callback: Callable[[ResourceContext], Any] | None = None
     before_serialization_callback: Callable[[ResourceContext, Any], Any] | None = None
     response_callback: Callable[[ResourceContext, Any], Any] | None = None
+    response_callback_only: bool = False
 
     @property
     def endpoint(self) -> str:

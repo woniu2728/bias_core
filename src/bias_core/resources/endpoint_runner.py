@@ -100,7 +100,10 @@ class ResourceEndpointRunner:
                 result = updated
                 resolved_context = resolved_context.with_result(result)
         if pipeline.response is not None:
-            response = pipeline.response(resolved_context, result)
+            if getattr(definition, "response_callback_only", False) and callable(getattr(definition, "response_callback", None)):
+                response = result
+            else:
+                response = pipeline.response(resolved_context, result)
         else:
             response = result
         if isinstance(response, dict):
