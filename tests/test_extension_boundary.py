@@ -224,7 +224,6 @@ class ExtensionPublicApiBoundaryTests(TestCase):
         forbidden = (
             "from bias_core.extensions.runtime_access",
             "from bias_core.extensions import runtime_access",
-            "from bias_core.extensions.forum",
             "from bias_core.extensions.types",
             "from bias_core.forum_registry_types",
             "from bias_core.resource_registry",

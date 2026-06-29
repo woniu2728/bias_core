@@ -118,6 +118,7 @@ _SUBMODULES = {
     "event_bus",
     "formatter_service",
     "frontend_runtime_service",
+    "forum",
     "locale_service",
     "manifest",
     "platform",

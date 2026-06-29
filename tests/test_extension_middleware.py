@@ -2346,7 +2346,7 @@ class ExtensionMiddlewareIntegrationTests(TestCase):
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
-    def test_validate_extension_manifests_rejects_internal_forum_facade_imports(self):
+    def test_validate_extension_manifests_allows_public_forum_facade_imports(self):
         temp_dir = make_workspace_temp_dir()
         try:
             manifest_dir = Path(temp_dir) / "extensions" / "alpha-tools"
@@ -2375,8 +2375,7 @@ class ExtensionMiddlewareIntegrationTests(TestCase):
                 public_sdk_only=True,
             )
 
-            self.assertFalse(result.ok)
-            self.assertTrue(any(item.code == "forbidden_core_internal_import" for item in result.issues))
+            self.assertFalse(any(item.code == "forbidden_core_internal_import" for item in result.issues))
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
