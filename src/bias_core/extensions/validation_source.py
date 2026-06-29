@@ -18,12 +18,12 @@ from bias_core.extensions.validation_types import ExtensionValidationCollector
 
 
 RUNTIME_FACADE_EXTENSION_DEPENDENCIES = {
-    "apply_runtime_counted_discussion_filter": "discussions",
-    "approve_runtime_discussion": "discussions",
+    "apply_runtime_counted_discussion_filter": "content",
+    "approve_runtime_discussion": "content",
     "clamp_runtime_discussion_read_states": "discussions",
-    "count_runtime_discussion_pending_approvals": "discussions",
-    "create_runtime_discussion": "discussions",
-    "delete_runtime_discussion": "discussions",
+    "count_runtime_discussion_pending_approvals": "content",
+    "create_runtime_discussion": "content",
+    "delete_runtime_discussion": "content",
     "follow_runtime_discussion": "discussions",
     "get_runtime_discussion_approval_approved": "discussions",
     "get_runtime_discussion_model": "discussions",
@@ -34,51 +34,51 @@ RUNTIME_FACADE_EXTENSION_DEPENDENCIES = {
     "get_runtime_visible_discussion_ids": "discussions",
     "has_runtime_discussion_visibility": "discussions",
     "is_runtime_discussion_not_found": "discussions",
-    "list_runtime_discussion_approval_queue_items": "discussions",
+    "list_runtime_discussion_approval_queue_items": "content",
     "list_runtime_discussions": "discussions",
-    "list_runtime_pending_discussion_first_post_ids": "discussions",
+    "list_runtime_pending_discussion_first_post_ids": "content",
     "lock_runtime_discussion_for_post_number": "discussions",
     "mark_runtime_discussion_read": "discussions",
-    "process_runtime_discussion_approval_item": "discussions",
+    "process_runtime_discussion_approval_item": "content",
     "refresh_runtime_discussion_approved_stats": "discussions",
-    "reject_runtime_discussion": "discussions",
+    "reject_runtime_discussion": "content",
     "require_runtime_discussion_service": "discussions",
-    "set_runtime_discussion_hidden_state": "discussions",
+    "set_runtime_discussion_hidden_state": "content",
     "set_runtime_discussion_subscription_state": "discussions",
-    "update_runtime_discussion": "discussions",
+    "update_runtime_discussion": "content",
     "validate_runtime_replyable_discussion": "discussions",
     "approve_runtime_first_post": "content",
-    "approve_runtime_post": "posts",
-    "can_runtime_view_post": "posts",
-    "count_runtime_post_pending_approvals": "posts",
+    "approve_runtime_post": "content",
+    "can_runtime_view_post": "content",
+    "count_runtime_post_pending_approvals": "content",
     "create_runtime_first_post": "content",
     "create_runtime_post": "content",
-    "create_runtime_post_event": "posts",
+    "create_runtime_post_event": "content",
     "delete_runtime_discussion_posts": "content",
-    "delete_runtime_post": "posts",
+    "delete_runtime_post": "content",
     "get_runtime_content_posts_service": "content",
     "get_runtime_approved_discussion_post_stats": "content",
     "get_runtime_approved_reply_counts_by_author": "content",
     "get_runtime_discussion_post_number": "content",
     "get_runtime_discussion_posts_service": "content",
     "get_runtime_first_post": "content",
-    "get_runtime_post_action_context": "posts",
+    "get_runtime_post_action_context": "content",
     "get_runtime_post_approval_approved": "posts",
     "get_runtime_post_approval_pending": "posts",
     "get_runtime_post_approval_rejected": "posts",
-    "get_runtime_post_by_id": "posts",
-    "get_runtime_post_model": "posts",
-    "get_runtime_post_model_or_none": "posts",
+    "get_runtime_post_by_id": "content",
+    "get_runtime_post_model": "content",
+    "get_runtime_post_model_or_none": "content",
     "get_runtime_post_notification_context": "posts",
     "get_runtime_post_number": "posts",
     "get_runtime_post_reply_notification_context": "posts",
     "get_runtime_post_service": "posts",
-    "get_runtime_visible_post_ids": "posts",
+    "get_runtime_visible_post_ids": "content",
     "is_runtime_post_not_found": "posts",
-    "list_runtime_post_approval_queue_items": "posts",
-    "process_runtime_post_approval_item": "posts",
+    "list_runtime_post_approval_queue_items": "content",
+    "process_runtime_post_approval_item": "content",
     "reject_runtime_first_post": "content",
-    "reject_runtime_post": "posts",
+    "reject_runtime_post": "content",
     "require_runtime_post_service": "posts",
     "resubmit_runtime_first_post": "content",
     "resolve_runtime_discussion_post_content_html": "content",
@@ -86,9 +86,9 @@ RUNTIME_FACADE_EXTENSION_DEPENDENCIES = {
     "serialize_runtime_post": "posts",
     "serialize_runtime_post_by_id": "posts",
     "serialize_runtime_realtime_post_by_id": "realtime",
-    "set_runtime_post_hidden_state": "posts",
+    "set_runtime_post_hidden_state": "content",
     "update_runtime_first_post_content": "content",
-    "update_runtime_post": "posts",
+    "update_runtime_post": "content",
     "apply_runtime_user_comment_count_deltas": "users",
     "apply_runtime_user_group_processors": "users",
     "ensure_runtime_admin_user": "users",
@@ -176,6 +176,25 @@ RUNTIME_FACADE_EXTENSION_DEPENDENCIES = {
     "create_runtime_timeline_from_builder": "discussions",
     "get_runtime_discussion_lifecycle_service": "discussions",
     "get_runtime_timeline_service": "discussions",
+}
+
+
+EVENT_ALIAS_PROVIDER_OVERRIDES = {
+    "discussions.discussion.approved": "content",
+    "discussions.discussion.created": "content",
+    "discussions.discussion.hidden": "content",
+    "discussions.discussion.locked": "content",
+    "discussions.discussion.rejected": "content",
+    "discussions.discussion.renamed": "content",
+    "discussions.discussion.resubmitted": "content",
+    "discussions.discussion.sticky_changed": "content",
+    "discussions.discussion.user_read": "content",
+    "posts.post.approved": "content",
+    "posts.post.created": "content",
+    "posts.post.deleted": "content",
+    "posts.post.hidden": "content",
+    "posts.post.rejected": "content",
+    "posts.post.resubmitted": "content",
 }
 
 
@@ -296,6 +315,7 @@ def validate_cross_extension_imports(
             source,
             relative_path,
             known_extension_ids=known_extension_ids,
+            capability_providers=capability_providers,
         )
         if check_runtime_facade_dependencies:
             validate_runtime_facade_extension_dependencies(
@@ -532,6 +552,7 @@ def validate_public_contract_extension_dependencies(
     relative_path: str,
     *,
     known_extension_ids: set[str],
+    capability_providers: dict[str, str] | None = None,
 ) -> None:
     try:
         tree = ast.parse(source)
@@ -540,9 +561,13 @@ def validate_public_contract_extension_dependencies(
 
     declared_dependency_ids = set(manifest.dependencies) | set(manifest.optional_dependencies)
     for extension_id, kind, value in iter_public_contract_extension_references(tree):
+        required_provider_id = resolve_capability_provider_id(
+            extension_id,
+            capability_providers=capability_providers,
+        )
         if not _is_missing_extension_dependency(
             manifest,
-            extension_id,
+            required_provider_id,
             known_extension_ids=known_extension_ids,
             declared_dependency_ids=declared_dependency_ids,
         ):
@@ -596,7 +621,7 @@ def iter_public_contract_extension_references(tree: ast.AST):
                     yield extension_id, "RuntimeModel", value
             event_alias = _event_alias_from_event_contract_call(node)
             if event_alias:
-                extension_id = _extension_id_from_event_alias(event_alias)
+                extension_id = EVENT_ALIAS_PROVIDER_OVERRIDES.get(event_alias) or _extension_id_from_event_alias(event_alias)
                 if extension_id:
                     yield extension_id, "event alias", event_alias
 

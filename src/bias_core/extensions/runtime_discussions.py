@@ -13,6 +13,12 @@ _discussion = RuntimeServiceProxy("discussions.service")
 _content_discussion = RuntimeServiceProxy("content.discussions")
 
 
+def _user_counted_post_types() -> tuple[str, ...]:
+    from bias_core.extensions.platform import get_forum_registry
+
+    return tuple(get_forum_registry().get_user_counted_post_type_codes() or ())
+
+
 def get_runtime_content_discussion_service(default: Any = None):
     return get_extension_host_service("content.discussions", default)
 
@@ -71,22 +77,48 @@ def is_runtime_discussion_not_found(exc: Exception) -> bool:
 
 
 def approve_runtime_discussion(discussion: Any, admin_user: Any, note: str = ""):
+    content_discussions = get_runtime_content_discussion_service(None)
+    if content_discussions is not None:
+        return runtime_service_method(content_discussions, "approve")(
+            discussion.id,
+            admin_user,
+            note=note,
+            user_counted_post_types=_user_counted_post_types(),
+        )
     return _discussion.approve(discussion, admin_user, note=note)
 
 
 def reject_runtime_discussion(discussion: Any, admin_user: Any, note: str = ""):
+    content_discussions = get_runtime_content_discussion_service(None)
+    if content_discussions is not None:
+        return runtime_service_method(content_discussions, "reject")(
+            discussion.id,
+            admin_user,
+            note=note,
+            user_counted_post_types=_user_counted_post_types(),
+        )
     return _discussion.reject(discussion, admin_user, note=note)
 
 
 def list_runtime_discussion_approval_queue_items() -> list[dict]:
+    content_discussions = get_runtime_content_discussion_service(None)
+    if content_discussions is not None:
+        return list(runtime_service_method(content_discussions, "list_approval_queue")() or [])
     return list(_discussion.list_approval_queue() or [])
 
 
 def count_runtime_discussion_pending_approvals() -> int:
+    content_discussions = get_runtime_content_discussion_service(None)
+    if content_discussions is not None:
+        return int(runtime_service_method(content_discussions, "count_pending_approvals")() or 0)
     return int(_discussion.count_pending_approvals() or 0)
 
 
 def list_runtime_pending_discussion_first_post_ids() -> list[int]:
+    content_discussions = get_runtime_content_discussion_service(None)
+    if content_discussions is not None:
+        raw_ids = runtime_service_method(content_discussions, "pending_first_post_ids")() or []
+        return [int(item) for item in raw_ids if item is not None]
     return [
         int(item)
         for item in (_discussion.pending_first_post_ids() or [])
@@ -95,22 +127,56 @@ def list_runtime_pending_discussion_first_post_ids() -> list[int]:
 
 
 def process_runtime_discussion_approval_item(*, content_id: int, action: str, actor: Any, note: str = "") -> dict:
+    content_discussions = get_runtime_content_discussion_service(None)
+    if content_discussions is not None:
+        return dict(runtime_service_method(content_discussions, "process_approval")(
+            content_id=content_id,
+            action=action,
+            actor=actor,
+            note=note,
+        ) or {})
     return dict(_discussion.process_approval(content_id=content_id, action=action, actor=actor, note=note) or {})
 
 
 def create_runtime_discussion(*, title: str, content: str, user: Any, extension_payload: dict | None = None):
+    content_discussions = get_runtime_content_discussion_service(None)
+    if content_discussions is not None:
+        return runtime_service_method(content_discussions, "create")(
+            title=title,
+            content=content,
+            user=user,
+            extension_payload=extension_payload,
+        )
     return _discussion.create(title=title, content=content, user=user, extension_payload=extension_payload)
 
 
 def update_runtime_discussion(discussion_id: int, user: Any, **kwargs):
+    content_discussions = get_runtime_content_discussion_service(None)
+    if content_discussions is not None:
+        return runtime_service_method(content_discussions, "update")(discussion_id, user, **kwargs)
     return _discussion.update(discussion_id, user, **kwargs)
 
 
 def delete_runtime_discussion(discussion_id: int, user: Any) -> bool:
+    content_discussions = get_runtime_content_discussion_service(None)
+    if content_discussions is not None:
+        return bool(runtime_service_method(content_discussions, "delete")(
+            discussion_id,
+            user,
+            user_counted_post_types=_user_counted_post_types(),
+        ))
     return bool(_discussion.delete(discussion_id, user))
 
 
 def set_runtime_discussion_hidden_state(discussion: Any, user: Any, hidden: bool):
+    content_discussions = get_runtime_content_discussion_service(None)
+    if content_discussions is not None:
+        return runtime_service_method(content_discussions, "set_hidden_state")(
+            discussion,
+            user,
+            hidden,
+            user_counted_post_types=_user_counted_post_types(),
+        )
     return _discussion.set_hidden_state(discussion, user, hidden)
 
 

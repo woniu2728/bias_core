@@ -15,6 +15,24 @@ _discussion_posts_service = RuntimeServiceProxy("discussion.posts")
 _realtime_post_payload_service = RuntimeServiceProxy("realtime.post_payload")
 
 
+def _default_post_type() -> str:
+    from bias_core.extensions.platform import get_forum_registry
+
+    return str(get_forum_registry().get_default_post_type_code() or "comment")
+
+
+def _discussion_counted_post_types() -> tuple[str, ...]:
+    from bias_core.extensions.platform import get_forum_registry
+
+    return tuple(get_forum_registry().get_discussion_counted_post_type_codes() or ())
+
+
+def _user_counted_post_types() -> tuple[str, ...]:
+    from bias_core.extensions.platform import get_forum_registry
+
+    return tuple(get_forum_registry().get_user_counted_post_type_codes() or ())
+
+
 def get_runtime_content_posts_service(default: Any = None):
     return get_extension_host_service("content.posts", default)
 
@@ -128,22 +146,54 @@ def get_runtime_post_action_context(post_id: int, user: Any = None, *, require_v
 
 
 def approve_runtime_post(post: Any, admin_user: Any, note: str = ""):
+    content_posts = get_runtime_content_posts_service(None)
+    if content_posts is not None:
+        return runtime_service_method(content_posts, "approve")(
+            post.id,
+            admin_user,
+            note=note,
+            discussion_counted_post_types=_discussion_counted_post_types(),
+            user_counted_post_types=_user_counted_post_types(),
+        )
     return _post_service.approve(post, admin_user, note=note)
 
 
 def reject_runtime_post(post: Any, admin_user: Any, note: str = ""):
+    content_posts = get_runtime_content_posts_service(None)
+    if content_posts is not None:
+        return runtime_service_method(content_posts, "reject")(
+            post.id,
+            admin_user,
+            note=note,
+            discussion_counted_post_types=_discussion_counted_post_types(),
+            user_counted_post_types=_user_counted_post_types(),
+        )
     return _post_service.reject(post, admin_user, note=note)
 
 
 def list_runtime_post_approval_queue_items() -> list[dict]:
+    content_posts = get_runtime_content_posts_service(None)
+    if content_posts is not None:
+        return list(runtime_service_method(content_posts, "list_approval_queue")() or [])
     return list(_post_service.list_approval_queue() or [])
 
 
 def count_runtime_post_pending_approvals() -> int:
+    content_posts = get_runtime_content_posts_service(None)
+    if content_posts is not None:
+        return int(runtime_service_method(content_posts, "count_pending_approvals")() or 0)
     return int(_post_service.count_pending_approvals() or 0)
 
 
 def process_runtime_post_approval_item(*, content_id: int, action: str, actor: Any, note: str = "") -> dict:
+    content_posts = get_runtime_content_posts_service(None)
+    if content_posts is not None:
+        return dict(runtime_service_method(content_posts, "process_approval")(
+            content_id=content_id,
+            action=action,
+            actor=actor,
+            note=note,
+        ) or {})
     return dict(_post_service.process_approval(content_id=content_id, action=action, actor=actor, note=note) or {})
 
 
@@ -182,6 +232,9 @@ def create_runtime_post(*, discussion_id: int, content: str, user: Any, reply_to
             content=content,
             user=user,
             reply_to_post_id=reply_to_post_id,
+            default_post_type=_default_post_type(),
+            discussion_counted_post_types=_discussion_counted_post_types(),
+            user_counted_post_types=_user_counted_post_types(),
         )
     return _post_service.create(
         discussion_id=discussion_id,
@@ -192,14 +245,34 @@ def create_runtime_post(*, discussion_id: int, content: str, user: Any, reply_to
 
 
 def update_runtime_post(post_id: int, user: Any, content: str):
+    content_posts = get_runtime_content_posts_service(None)
+    if content_posts is not None:
+        return runtime_service_method(content_posts, "update")(post_id, user, content)
     return _post_service.update(post_id, user, content)
 
 
 def delete_runtime_post(post_id: int, user: Any) -> bool:
+    content_posts = get_runtime_content_posts_service(None)
+    if content_posts is not None:
+        return bool(runtime_service_method(content_posts, "delete")(
+            post_id,
+            user,
+            discussion_counted_post_types=_discussion_counted_post_types(),
+            user_counted_post_types=_user_counted_post_types(),
+        ))
     return bool(_post_service.delete(post_id, user))
 
 
 def set_runtime_post_hidden_state(post: Any, user: Any, hidden: bool):
+    content_posts = get_runtime_content_posts_service(None)
+    if content_posts is not None:
+        return runtime_service_method(content_posts, "set_hidden_state")(
+            post,
+            user,
+            hidden,
+            discussion_counted_post_types=_discussion_counted_post_types(),
+            user_counted_post_types=_user_counted_post_types(),
+        )
     return _post_service.set_hidden_state(post, user, hidden)
 
 
@@ -299,6 +372,9 @@ def serialize_runtime_realtime_post_by_id(post_id: int, user: Any = None, **kwar
 
 
 def create_runtime_post_event(**kwargs):
+    content_posts = get_runtime_content_posts_service(None)
+    if content_posts is not None:
+        return runtime_service_method(content_posts, "create_event_post")(**kwargs)
     return _post_service.create_event_post(**kwargs)
 
 

@@ -37,7 +37,7 @@ def get_runtime_post_event_data_service():
 
 
 def get_runtime_timeline_service():
-    return require_extension_host_service("discussions.timeline")
+    return get_extension_host_service("discussions.timeline")
 
 
 def create_runtime_timeline_from_builder(
@@ -47,7 +47,10 @@ def create_runtime_timeline_from_builder(
     extra: dict | None = None,
     update_discussion_last_post: bool | None = None,
 ):
-    return runtime_service_method(get_runtime_timeline_service(), "create_from_builder")(
+    service = get_runtime_timeline_service()
+    if service is None:
+        return None
+    return runtime_service_method(service, "create_from_builder")(
         event,
         builder,
         extra=dict(extra or {}),
