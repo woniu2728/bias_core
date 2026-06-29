@@ -1774,6 +1774,7 @@ class ExtensionManifestLoaderTests(TestCase):
 
     def test_discussion_runtime_queries_prefer_content_foundation(self):
         from bias_core.extensions.runtime_discussions import (
+            apply_runtime_counted_discussion_filter,
             get_runtime_discussion_reply_notification_context,
             get_runtime_visible_discussion_ids,
             mark_runtime_discussion_read,
@@ -1783,11 +1784,17 @@ class ExtensionManifestLoaderTests(TestCase):
         content_calls = []
         legacy_calls = []
         content_discussion_service = {
+            "apply_counted_filter": lambda queryset, **kwargs: content_calls.append(
+                ("counted", queryset, kwargs)
+            ) or "content-counted",
             "get_visible_ids": lambda **kwargs: content_calls.append(("visible", kwargs)) or "content-visible",
             "mark_read": lambda **kwargs: content_calls.append(("mark_read", kwargs)) or True,
             "reply_notification_context": lambda *args: content_calls.append(("reply", args)) or {"source": "content"},
         }
         discussion_service = {
+            "apply_counted_filter": lambda queryset, **kwargs: legacy_calls.append(
+                ("counted", queryset, kwargs)
+            ) or "legacy-counted",
             "get_visible_ids": lambda **kwargs: legacy_calls.append(("visible", kwargs)) or "legacy-visible",
             "mark_read": lambda **kwargs: legacy_calls.append(("mark_read", kwargs)) or False,
             "reply_notification_context": lambda *args: legacy_calls.append(("reply", args)) or {"source": "legacy"},
@@ -1797,6 +1804,10 @@ class ExtensionManifestLoaderTests(TestCase):
 
         actor = object()
         with patch("bias_core.extensions.bootstrap.get_extension_host", return_value=app):
+            self.assertEqual(
+                apply_runtime_counted_discussion_filter("queryset", prefix="discussion"),
+                "content-counted",
+            )
             self.assertEqual(get_runtime_visible_discussion_ids(user=actor), "content-visible")
             self.assertTrue(mark_runtime_discussion_read(
                 discussion_id=1,
@@ -1810,6 +1821,7 @@ class ExtensionManifestLoaderTests(TestCase):
             )
 
         self.assertEqual(content_calls, [
+            ("counted", "queryset", {"prefix": "discussion"}),
             ("visible", {"user": actor, "ability": "view", "context": {}}),
             (
                 "mark_read",

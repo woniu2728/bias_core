@@ -230,6 +230,9 @@ def lock_runtime_discussion_for_post_number(discussion_id: int):
 
 
 def apply_runtime_counted_discussion_filter(queryset, *, prefix: str = ""):
+    content_discussions = get_runtime_content_discussion_service(None)
+    if content_discussions is not None:
+        return runtime_service_method(content_discussions, "apply_counted_filter")(queryset, prefix=prefix)
     return _discussion.apply_counted_filter(queryset, prefix=prefix)
 
 
