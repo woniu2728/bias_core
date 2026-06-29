@@ -594,6 +594,80 @@ class ResourceRegistryTests(TestCase):
         with self.assertRaises(ValueError):
             registry.apply_resource_payload("demo", target, {}, creating=True)
 
+    def test_resource_payload_supports_conditional_required_fields_and_relationships(self):
+        registry = ResourceRegistry()
+
+        class Target:
+            title = ""
+            owner = None
+
+        class DemoResource(Resource):
+            def type(self):
+                return "demo"
+
+            def fields(self):
+                return [
+                    ResourceField(
+                        "title",
+                        resolver=lambda instance, context: instance.title,
+                        writable=True,
+                        required_on_create=lambda instance, context: context.get("require_title") is True,
+                        setter=lambda instance, value, context: setattr(instance, "title", value),
+                    ),
+                    ResourceRelationship(
+                        "owner",
+                        resolver=lambda instance, context: instance.owner,
+                        writable=True,
+                        required_on_create=lambda instance, context: context.get("require_owner") is True,
+                        setter=lambda instance, value, context: setattr(instance, "owner", value),
+                    ),
+                ]
+
+        registry.register_resource(DemoResource())
+
+        registry.apply_resource_payload(
+            "demo",
+            Target(),
+            {},
+            {"require_title": False, "require_owner": False},
+            creating=True,
+        )
+
+        with self.assertRaises(ValueError):
+            registry.apply_resource_payload(
+                "demo",
+                Target(),
+                {},
+                {"require_title": True, "require_owner": False},
+                creating=True,
+            )
+
+        with self.assertRaises(ValueError):
+            registry.apply_resource_payload(
+                "demo",
+                Target(),
+                {"title": "ok"},
+                {"require_title": True, "require_owner": True},
+                creating=True,
+            )
+
+        registry.validate_required_resource_payload(
+            "demo",
+            Target(),
+            {},
+            {"require_title": False, "require_owner": False},
+            creating=True,
+        )
+
+        with self.assertRaises(ValueError):
+            registry.validate_required_resource_payload(
+                "demo",
+                Target(),
+                {},
+                {"require_title": False, "require_owner": True},
+                creating=True,
+            )
+
     def test_resource_relationship_includable_controls_include_and_preload(self):
         registry = ResourceRegistry()
 

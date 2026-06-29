@@ -19,8 +19,8 @@ class ResourceField:
     preload_resolver: Callable[[ResourceContext], tuple[tuple[str, ...], tuple[Any, ...]]] | None = None
     visible: Callable[[Any, ResourceContext], bool] | bool = True
     writable: Callable[[Any, ResourceContext], bool] | bool = False
-    required_on_create: bool = False
-    required_on_update: bool = False
+    required_on_create: Callable[[Any, ResourceContext], bool] | bool = False
+    required_on_update: Callable[[Any, ResourceContext], bool] | bool = False
     nullable: bool = False
     value_type: str = ""
     validation_rules: Tuple[Any, ...] = ()
@@ -64,11 +64,11 @@ class ResourceField:
     def writable_when(self, condition: Callable[[Any, ResourceContext], bool] | bool = True) -> "ResourceField":
         return replace(self, writable=condition)
 
-    def required_on_create_field(self, required: bool = True) -> "ResourceField":
-        return replace(self, required_on_create=bool(required))
+    def required_on_create_field(self, required: Callable[[Any, ResourceContext], bool] | bool = True) -> "ResourceField":
+        return replace(self, required_on_create=required)
 
-    def required_on_update_field(self, required: bool = True) -> "ResourceField":
-        return replace(self, required_on_update=bool(required))
+    def required_on_update_field(self, required: Callable[[Any, ResourceContext], bool] | bool = True) -> "ResourceField":
+        return replace(self, required_on_update=required)
 
     def nullable_field(self, nullable: bool = True) -> "ResourceField":
         return replace(self, nullable=bool(nullable))

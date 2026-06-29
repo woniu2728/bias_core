@@ -734,6 +734,23 @@ class ResourceRegistry:
     ) -> Any:
         return self._endpoint_context.apply_resource_payload(resource, instance, payload, context, creating=creating)
 
+    def validate_required_resource_payload(
+        self,
+        resource: str,
+        instance: Any,
+        payload: dict,
+        context: dict | None = None,
+        *,
+        creating: bool = False,
+    ) -> None:
+        self._endpoint_context.validate_required_resource_payload(
+            resource,
+            instance,
+            payload,
+            context,
+            creating=creating,
+        )
+
     def _run_extension_validators(self, resource: str, instance: Any, payload: dict, context: dict) -> None:
         self._endpoint_context._run_extension_validators(resource, instance, payload, context)
 

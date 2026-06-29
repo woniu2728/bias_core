@@ -25,8 +25,8 @@ class ResourceFieldDefinition:
     annotate_resolver: ResourceAnnotateResolver | None = None
     visible: Callable[[Any, dict], bool] | bool = True
     writable: Callable[[Any, dict], bool] | bool = False
-    required_on_create: bool = False
-    required_on_update: bool = False
+    required_on_create: Callable[[Any, dict], bool] | bool = False
+    required_on_update: Callable[[Any, dict], bool] | bool = False
     nullable: bool = False
     value_type: str = ""
     validation_rules: Tuple[Any, ...] = ()
@@ -63,8 +63,8 @@ class ResourceRelationshipDefinition:
     writable: Callable[[Any, dict], bool] | bool = False
     linkage: Callable[[Any, dict], Any] | bool = True
     plain_output: str = ""
-    required_on_create: bool = False
-    required_on_update: bool = False
+    required_on_create: Callable[[Any, dict], bool] | bool = False
+    required_on_update: Callable[[Any, dict], bool] | bool = False
     nullable: bool = False
     value_type: str = ""
     validation_rules: Tuple[Any, ...] = ()

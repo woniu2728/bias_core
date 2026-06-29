@@ -25,7 +25,57 @@ class EndpointContextResolver:
         self._run_extension_validators(resource, instance, inp, ctx)
         fields = {d.field: d for d in self._store.get_effective_fields(resource, ctx)}
         rels = {d.relationship: d for d in self._store.get_effective_relationships(resource, ctx)}
-        missing = [d.field for d in fields.values() if ((creating and d.required_on_create) or (not creating and d.required_on_update)) and d.field not in inp]
+        self.validate_required_resource_payload(
+            resource,
+            instance,
+            inp,
+            context,
+            creating=creating,
+            fields=fields,
+            relationships=rels,
+        )
+        for fn, v in inp.items():
+            d = fields.get(fn)
+            if not d:
+                continue
+            if not self._store._is_field_writable(d, instance, ctx):
+                raise JsonApiForbidden(f"字段不可写: {fn}", pointer=f"/data/attributes/{fn}")
+            v = EndpointContextResolver._deserialize_value(d, v, ctx)
+            EndpointContextResolver._validate_field(d, v, ctx)
+            self._store._set_resource_value(d, instance, v, ctx)
+        rp = EndpointContextResolver._extract_relationship_payload(context)
+        for rn, v in rp.items():
+            d = rels.get(rn)
+            if not d:
+                continue
+            if not self._store._is_field_writable(d, instance, ctx):
+                raise JsonApiForbidden(f"关系不可写: {rn}", pointer=f"/data/relationships/{rn}")
+            v = EndpointContextResolver._deserialize_value(d, v, ctx)
+            EndpointContextResolver._validate_field(d, v, ctx)
+            self._store._set_resource_value(d, instance, v, ctx)
+        return instance
+
+    def validate_required_resource_payload(
+        self,
+        resource,
+        instance,
+        payload,
+        context=None,
+        *,
+        creating=False,
+        fields=None,
+        relationships=None,
+    ) -> None:
+        ctx = context if isinstance(context, dict) else {}
+        ctx["creating"] = bool(creating)
+        inp = dict(payload or {})
+        fields = fields if fields is not None else {d.field: d for d in self._store.get_effective_fields(resource, ctx)}
+        rels = relationships if relationships is not None else {d.relationship: d for d in self._store.get_effective_relationships(resource, ctx)}
+        missing = [
+            d.field
+            for d in fields.values()
+            if self._is_required(d, instance, ctx, creating=creating) and d.field not in inp
+        ]
         if missing:
             raise JsonApiValidationError(f"缺少必填字段: {', '.join(missing)}", pointer=f"/data/attributes/{missing[0]}")
         for fn, v in inp.items():
@@ -38,19 +88,13 @@ class EndpointContextResolver:
             EndpointContextResolver._validate_field(d, v, ctx)
             self._store._set_resource_value(d, instance, v, ctx)
         rp = EndpointContextResolver._extract_relationship_payload(context)
-        mr = [d.relationship for d in rels.values() if ((creating and d.required_on_create) or (not creating and d.required_on_update)) and d.relationship not in rp]
+        mr = [
+            d.relationship
+            for d in rels.values()
+            if self._is_required(d, instance, ctx, creating=creating) and d.relationship not in rp
+        ]
         if mr:
             raise JsonApiValidationError(f"缺少必填关系: {', '.join(mr)}", pointer=f"/data/relationships/{mr[0]}")
-        for rn, v in rp.items():
-            d = rels.get(rn)
-            if not d:
-                continue
-            if not self._store._is_field_writable(d, instance, ctx):
-                raise JsonApiForbidden(f"关系不可写: {rn}", pointer=f"/data/relationships/{rn}")
-            v = EndpointContextResolver._deserialize_value(d, v, ctx)
-            EndpointContextResolver._validate_field(d, v, ctx)
-            self._store._set_resource_value(d, instance, v, ctx)
-        return instance
 
     def _run_extension_validators(self, resource, instance, payload, context):
         try:
@@ -78,6 +122,13 @@ class EndpointContextResolver:
                         raise
                     except ValueError as exc:
                         raise JsonApiValidationError(str(exc), pointer="/data/attributes") from exc
+
+    @staticmethod
+    def _is_required(definition, instance, context: dict, *, creating: bool) -> bool:
+        requirement = getattr(definition, "required_on_create" if creating else "required_on_update", False)
+        if callable(requirement):
+            return bool(requirement(instance, context))
+        return bool(requirement)
 
     def _parse_jsonapi_data(self, context, resource, creating=False, instance=None, resource_object=None):
         p = context.get("payload") or {}
