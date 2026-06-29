@@ -1237,6 +1237,45 @@ class ExtensionManagementCommandTests(TestCase):
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
+    def test_inspect_extension_imports_command_resolves_runtime_facade_capability_provider(self):
+        temp_dir = make_workspace_temp_dir()
+        try:
+            content_dir = Path(temp_dir) / "extensions" / "content"
+            content_dir.mkdir(parents=True, exist_ok=False)
+            (content_dir / "extension.json").write_text(json.dumps({
+                "id": "content",
+                "name": "Content Foundation",
+                "version": "1.0.0",
+                "dependencies": ["core"],
+                "provides": ["discussions", "posts"],
+            }, ensure_ascii=False), encoding="utf-8")
+            manifest_dir = Path(temp_dir) / "extensions" / "alpha-tools"
+            backend_dir = manifest_dir / "backend"
+            backend_dir.mkdir(parents=True, exist_ok=False)
+            (manifest_dir / "extension.json").write_text(json.dumps({
+                "id": "alpha-tools",
+                "name": "Alpha Tools",
+                "version": "1.0.0",
+                "dependencies": ["core", "content"],
+                "backend_entry": "extensions.alpha_tools.backend.ext",
+            }, ensure_ascii=False), encoding="utf-8")
+            (backend_dir / "ext.py").write_text(
+                "from bias_core.extensions.runtime import get_runtime_post_by_id\n"
+                "\n"
+                "def extend():\n"
+                "    return []\n",
+                encoding="utf-8",
+            )
+
+            call_command_quietly(
+                "inspect_extension_imports",
+                "--extensions-path",
+                str(Path(temp_dir) / "extensions"),
+                "--check-runtime-facades",
+            )
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
     def test_inspect_extension_imports_command_reports_runtime_facade_dependency_cycles(self):
         temp_dir = make_workspace_temp_dir()
         try:

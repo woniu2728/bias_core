@@ -10,6 +10,7 @@ from django.core.management.base import CommandParser
 from bias_core.extensions.exceptions import ExtensionManifestError
 from bias_core.extensions.manifest import ExtensionManifestLoader
 from bias_core.extensions.validation_source import (
+    build_capability_provider_map,
     validate_cross_extension_imports,
     validate_runtime_facade_dependency_graph,
 )
@@ -88,7 +89,8 @@ class Command(BaseCommand):
 
         collector = ExtensionValidationCollector()
         collector.manifests.extend(manifests)
-        known_extension_ids = set(get_core_module_ids()) | {manifest.id for manifest in manifests}
+        capability_providers = build_capability_provider_map(manifests)
+        known_extension_ids = set(get_core_module_ids()) | {manifest.id for manifest in manifests} | set(capability_providers)
         for manifest in manifests:
             validate_cross_extension_imports(
                 collector,
@@ -98,6 +100,7 @@ class Command(BaseCommand):
                 public_sdk_only=not internal,
                 include_tests=include_tests,
                 check_runtime_facade_dependencies=check_runtime_facades,
+                capability_providers=capability_providers,
             )
         if check_runtime_facades:
             validate_runtime_facade_dependency_graph(
@@ -106,6 +109,7 @@ class Command(BaseCommand):
                 extensions_path,
                 known_extension_ids=known_extension_ids,
                 include_tests=include_tests,
+                capability_providers=capability_providers,
             )
         result = collector.build()
 

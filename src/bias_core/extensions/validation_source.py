@@ -268,6 +268,7 @@ def validate_cross_extension_imports(
     public_sdk_only: bool = False,
     include_tests: bool = False,
     check_runtime_facade_dependencies: bool = False,
+    capability_providers: dict[str, str] | None = None,
 ) -> None:
     extension_dir = extension_root_path(manifest, base_path)
     if not extension_dir.exists():
@@ -303,6 +304,7 @@ def validate_cross_extension_imports(
                 source,
                 relative_path,
                 known_extension_ids=known_extension_ids,
+                capability_providers=capability_providers,
             )
         validate_event_contract_paths(
             collector,
@@ -371,6 +373,7 @@ def validate_runtime_facade_extension_dependencies(
     relative_path: str,
     *,
     known_extension_ids: set[str],
+    capability_providers: dict[str, str] | None = None,
 ) -> None:
     try:
         tree = ast.parse(source)
@@ -379,9 +382,13 @@ def validate_runtime_facade_extension_dependencies(
 
     declared_dependency_ids = set(manifest.dependencies) | set(manifest.optional_dependencies)
     for imported_name, required_extension_id in iter_runtime_facade_extension_references(tree):
+        required_provider_id = resolve_capability_provider_id(
+            required_extension_id,
+            capability_providers=capability_providers,
+        )
         if not _is_missing_extension_dependency(
             manifest,
-            required_extension_id,
+            required_provider_id,
             known_extension_ids=known_extension_ids,
             declared_dependency_ids=declared_dependency_ids,
         ):
@@ -403,6 +410,7 @@ def validate_runtime_facade_dependency_graph(
     *,
     known_extension_ids: set[str],
     include_tests: bool = False,
+    capability_providers: dict[str, str] | None = None,
 ) -> None:
     manifest_ids = {manifest.id for manifest in manifests}
     graph: dict[str, set[str]] = {manifest.id: set() for manifest in manifests}
@@ -427,15 +435,19 @@ def validate_runtime_facade_dependency_graph(
                 continue
             relative_path = file_path.relative_to(base_path.parent).as_posix()
             for imported_name, required_extension_id in iter_runtime_facade_extension_references(tree):
+                required_provider_id = resolve_capability_provider_id(
+                    required_extension_id,
+                    capability_providers=capability_providers,
+                )
                 if (
-                    not required_extension_id
-                    or required_extension_id == manifest.id
-                    or required_extension_id not in known_extension_ids
-                    or required_extension_id not in manifest_ids
+                    not required_provider_id
+                    or required_provider_id == manifest.id
+                    or required_provider_id not in known_extension_ids
+                    or required_provider_id not in manifest_ids
                 ):
                     continue
-                graph[manifest.id].add(required_extension_id)
-                runtime_edges.setdefault((manifest.id, required_extension_id), []).append(
+                graph[manifest.id].add(required_provider_id)
+                runtime_edges.setdefault((manifest.id, required_provider_id), []).append(
                     (relative_path, imported_name)
                 )
 
@@ -679,6 +691,32 @@ def _is_missing_extension_dependency(
         and normalized in known_extension_ids
         and normalized not in declared_dependency_ids
     )
+
+
+def build_capability_provider_map(manifests: list[ExtensionManifest]) -> dict[str, str]:
+    providers: dict[str, str] = {}
+    manifest_ids = {manifest.id for manifest in manifests}
+    for manifest_id in sorted(manifest_ids):
+        providers[manifest_id] = manifest_id
+    for manifest in sorted(manifests, key=lambda item: item.id):
+        for capability in manifest.provides:
+            normalized = str(capability or "").strip()
+            if normalized and normalized not in providers:
+                providers[normalized] = manifest.id
+    return providers
+
+
+def resolve_capability_provider_id(
+    extension_id: str,
+    *,
+    capability_providers: dict[str, str] | None,
+) -> str:
+    normalized = str(extension_id or "").strip()
+    if not normalized:
+        return ""
+    if not capability_providers:
+        return normalized
+    return str(capability_providers.get(normalized) or normalized).strip()
 
 
 def _find_dependency_cycles(graph: dict[str, set[str]]) -> list[tuple[str, ...]]:
