@@ -90,6 +90,7 @@ class ResourceEndpointDefinition:
     auth_required: bool = False
     permission: str = ""
     default_include: Tuple[str, ...] = ()
+    select_related: Tuple[Any, ...] = ()
     eager_load: Tuple[Any, ...] = ()
     eager_load_when_included_rules: Tuple[tuple[str, Tuple[Any, ...]], ...] = ()
     eager_load_where_rules: Tuple[tuple[str, Callable[[Any, dict], Any]], ...] = ()

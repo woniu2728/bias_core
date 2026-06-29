@@ -95,6 +95,7 @@ def endpoint_to_definition(resource: str, endpoint: ResourceEndpoint) -> Resourc
         auth_required=endpoint.auth_required,
         permission=endpoint.permission,
         default_include=endpoint.default_include,
+        select_related=endpoint.select_related,
         eager_load=endpoint.eager_load,
         eager_load_when_included_rules=endpoint.eager_load_when_included_rules,
         eager_load_where_rules=endpoint.eager_load_where_rules,

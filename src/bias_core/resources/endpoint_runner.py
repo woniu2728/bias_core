@@ -25,7 +25,12 @@ class ResourceEndpointRunner:
         self.registry = registry
 
     def run(self, definition: Any, context: dict):
-        resolved_context = ensure_resource_context(context).with_resource(definition.resource)
+        resolved_context = (
+            ensure_resource_context(context)
+            .with_resource(definition.resource)
+            .with_value("registry", self.registry)
+            .with_api(self.registry)
+        )
         if definition.handler is not None:
             include = self.registry._resolve_endpoint_include(definition, resolved_context)
             resolved_context = (
@@ -186,7 +191,16 @@ class EndpointAuthorization:
 
 class EndpointIncludesData:
     def apply_query_preloads(self, queryset: Any, context: ResourceContext, include: Any) -> Any:
-        return self.registry.apply_preload_plan(queryset, self.definition.resource, context, include=include)
+        method = context.get("method") or (getattr(self.definition, "methods", ("GET",)) or ("GET",))[0]
+        endpoint_context = context.with_value("method", method).with_value("include", include)
+        plan = self.registry.build_endpoint_definition_preload_plan(self.definition, endpoint_context)
+        if plan.select_related:
+            queryset = queryset.select_related(*plan.select_related)
+        if plan.prefetch_related:
+            queryset = queryset.prefetch_related(*plan.prefetch_related)
+        if plan.annotations:
+            queryset = queryset.annotate(**dict(plan.annotations))
+        return queryset
 
     def before_serialize_includes(self, context: ResourceContext, results: Any) -> Any:
         method = context.get("method") or (getattr(self.definition, "methods", ("GET",)) or ("GET",))[0]

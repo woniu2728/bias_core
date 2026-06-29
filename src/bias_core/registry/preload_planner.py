@@ -228,6 +228,11 @@ class PreloadPlanner:
                 seen_prefetch.add(prefetch_key)
                 prefetch_related.append(item)
 
+        for item in getattr(definition, "select_related", ()) or ():
+            if item and item not in seen_select:
+                seen_select.add(item)
+                select_related.append(item)
+
         preload_resolver = getattr(definition, "preload_resolver", None)
         if preload_resolver is not None:
             extra_select, extra_prefetch = preload_resolver(context)

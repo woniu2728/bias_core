@@ -1635,6 +1635,7 @@ class ResourceRegistry:
             auth_required=getattr(value, "auth_required", False),
             permission=getattr(value, "permission", ""),
             default_include=getattr(value, "default_include", ()),
+            select_related=getattr(value, "select_related", ()),
             eager_load=getattr(value, "eager_load", ()),
             eager_load_when_included_rules=getattr(value, "eager_load_when_included_rules", ()),
             eager_load_where_rules=getattr(value, "eager_load_where_rules", ()),

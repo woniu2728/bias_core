@@ -492,6 +492,7 @@ class ResourceEndpoint:
     description: str = ""
     auth_required: bool = False
     default_include: Tuple[str, ...] = ()
+    select_related: Tuple[Any, ...] = ()
     eager_load: Tuple[Any, ...] = ()
     eager_load_when_included_rules: Tuple[tuple[str, Tuple[Any, ...]], ...] = ()
     eager_load_where_rules: Tuple[tuple[str, Callable[[Any, ResourceContext], Any]], ...] = ()
@@ -575,6 +576,9 @@ class ResourceEndpoint:
                 seen.add(normalized)
                 output.append(normalized)
         return replace(self, default_include=tuple(output))
+
+    def select_related_with(self, *items: Any) -> "ResourceEndpoint":
+        return replace(self, select_related=tuple([*self.select_related, *items]))
 
     def eager_load_with(self, *items: Any) -> "ResourceEndpoint":
         return replace(self, eager_load=tuple([*self.eager_load, *items]))

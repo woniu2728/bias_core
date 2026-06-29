@@ -991,11 +991,30 @@ class ResourceRegistryTests(TestCase):
         self.assertIn("comments", plan.prefetch_related)
         self.assertEqual(plan.prefetch_where, (("comments", visible_comments),))
 
+    def test_resource_endpoint_select_related_contributes_to_preload_plan(self):
+        registry = ResourceRegistry()
+
+        class DemoResource(Resource):
+            def type(self):
+                return "endpoint_select_demo"
+
+            def endpoints(self):
+                return [
+                    ResourceEndpoint.show().select_related_with("owner"),
+                ]
+
+        registry.register_resource(DemoResource())
+
+        plan = registry.build_endpoint_preload_plan("endpoint_select_demo", "show", {"method": "GET"})
+
+        self.assertEqual(plan.select_related, ("owner",))
+
     def test_resource_endpoint_builder_sets_methods_and_absolute_path(self):
         endpoint = (
             ResourceEndpoint.update("rename")
             .with_methods("patch", ("post", ""))
             .at("/items/{object_id}/rename", absolute=True)
+            .select_related_with("owner")
             .for_module("demo")
         )
 
@@ -1003,6 +1022,7 @@ class ResourceRegistryTests(TestCase):
         self.assertEqual(endpoint.methods, ("PATCH", "POST"))
         self.assertEqual(endpoint.path, "/items/{object_id}/rename")
         self.assertTrue(endpoint.absolute_path)
+        self.assertEqual(endpoint.select_related, ("owner",))
         self.assertEqual(endpoint.module_id, "demo")
 
     def test_endpoint_where_eager_load_builds_prefetch_before_serialization(self):
@@ -3416,6 +3436,51 @@ class ResourceRegistryTests(TestCase):
 
         self.assertEqual(serialization_context["preload_plan"].select_related, ("owner",))
 
+    def test_database_resource_endpoint_applies_endpoint_select_related_during_query(self):
+        from bias_core.resource_endpoint_runner import DatabaseResourceEndpoint
+
+        registry = ResourceRegistry()
+        seen = {}
+
+        class Item:
+            objects = None
+
+        class QuerySet(list):
+            def select_related(self, *fields):
+                seen["select_related"] = fields
+                return self
+
+            def prefetch_related(self, *fields):
+                return self
+
+        class Manager:
+            def all(self):
+                return QuerySet([Item()])
+
+        Item.objects = Manager()
+
+        class ItemResource(DatabaseResource):
+            model = Item
+
+            def type(self):
+                return "endpoint_select_query_items"
+
+        resource = ItemResource()
+        registry.register_resource(resource)
+        definition = ResourceEndpointDefinition(
+            resource="endpoint_select_query_items",
+            endpoint="index",
+            module_id="test",
+            kind="index",
+            methods=("GET",),
+            select_related=("owner",),
+        )
+
+        pipeline = DatabaseResourceEndpoint(registry, resource, definition).index_pipeline()
+        pipeline.query(ResourceContext({"resource": "endpoint_select_query_items", "method": "GET", "query": {}}))
+
+        self.assertEqual(seen["select_related"], ("owner",))
+
     def test_database_resource_endpoint_listing_params_are_extracted_by_concern(self):
         from bias_core.resource_endpoint_runner import DatabaseResourceEndpoint
 
@@ -5492,6 +5557,38 @@ class ResourceRegistryTests(TestCase):
 
         self.assertEqual(response, {"count": 1})
         self.assertEqual(serialize_calls, [])
+
+    def test_database_resource_endpoint_context_exposes_registry_to_resource_methods(self):
+        registry = ResourceRegistry()
+        seen = {}
+
+        class Item:
+            def __init__(self, id=1):
+                self.id = id
+
+        class ItemResource(DatabaseResource):
+            model = Item
+
+            def type(self):
+                return "registry_context_item"
+
+            def endpoints(self):
+                return [ResourceEndpoint.show()]
+
+            def find(self, object_id, context):
+                seen["registry"] = context.registry
+                seen["api"] = context.api
+                return Item(object_id)
+
+        registry.register_resource(ItemResource())
+
+        registry.dispatch_resource_endpoint(
+            registry.get_dispatch_endpoint("registry_context_item", "show", "GET"),
+            {"resource": "registry_context_item", "endpoint": "show", "method": "GET", "object_id": "1", "query": {}},
+        )
+
+        self.assertIs(seen["registry"], registry)
+        self.assertIs(seen["api"], registry)
 
     def test_database_resource_endpoint_plain_response_callback_runs_only_for_plain_requests(self):
         registry = ResourceRegistry()
