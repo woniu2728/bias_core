@@ -23,8 +23,16 @@ class EndpointContextResolver:
         ctx["creating"] = bool(creating)
         inp = dict(payload or {})
         self._run_extension_validators(resource, instance, inp, ctx)
-        fields = {d.field: d for d in self._store.get_effective_fields(resource, ctx)}
-        rels = {d.relationship: d for d in self._store.get_effective_relationships(resource, ctx)}
+        fields = {
+            d.field: d
+            for d in self._store.get_effective_fields(resource, ctx)
+            if self._store._is_field_visible(d, instance, ctx)
+        }
+        rels = {
+            d.relationship: d
+            for d in self._store.get_effective_relationships(resource, ctx)
+            if self._store._is_relationship_visible(d, instance, ctx)
+        }
         self.validate_required_resource_payload(
             resource,
             instance,
@@ -69,8 +77,16 @@ class EndpointContextResolver:
         ctx = context if isinstance(context, dict) else {}
         ctx["creating"] = bool(creating)
         inp = dict(payload or {})
-        fields = fields if fields is not None else {d.field: d for d in self._store.get_effective_fields(resource, ctx)}
-        rels = relationships if relationships is not None else {d.relationship: d for d in self._store.get_effective_relationships(resource, ctx)}
+        fields = fields if fields is not None else {
+            d.field: d
+            for d in self._store.get_effective_fields(resource, ctx)
+            if self._store._is_field_visible(d, instance, ctx)
+        }
+        rels = relationships if relationships is not None else {
+            d.relationship: d
+            for d in self._store.get_effective_relationships(resource, ctx)
+            if self._store._is_relationship_visible(d, instance, ctx)
+        }
         missing = [
             d.field
             for d in fields.values()

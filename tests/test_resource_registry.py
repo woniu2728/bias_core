@@ -603,6 +603,42 @@ class ResourceRegistryTests(TestCase):
         with self.assertRaises(ValueError):
             registry.apply_resource_payload("demo", target, {}, creating=True)
 
+    def test_resource_payload_ignores_fields_hidden_from_current_context(self):
+        registry = ResourceRegistry()
+
+        class Target:
+            title = "hello"
+            legacy = "plain"
+
+        class DemoResource(Resource):
+            def type(self):
+                return "demo"
+
+            def fields(self):
+                return [
+                    ResourceField(
+                        "title",
+                        resolver=lambda instance, context: instance.title,
+                        writable=True,
+                        setter=lambda instance, value, context: setattr(instance, "title", value),
+                    ),
+                    ResourceField(
+                        "legacy",
+                        resolver=lambda instance, context: instance.legacy,
+                        writable=True,
+                        setter=lambda instance, value, context: setattr(instance, "legacy", value),
+                    ).plain_only(),
+                ]
+
+        registry.register_resource(DemoResource())
+        target = Target()
+        context = {"request": RequestFactory().patch("/api/demo/1", HTTP_ACCEPT="application/vnd.api+json")}
+
+        registry.apply_resource_payload("demo", target, {"title": "updated", "legacy": "wire"}, context)
+
+        self.assertEqual(target.title, "updated")
+        self.assertEqual(target.legacy, "plain")
+
     def test_resource_payload_supports_conditional_required_fields_and_relationships(self):
         registry = ResourceRegistry()
 
