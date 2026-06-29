@@ -1914,6 +1914,66 @@ class ResourceRegistryTests(TestCase):
         self.assertEqual(payload["data"]["relationships"]["owner"]["data"], {"type": "linked_users", "id": "7"})
         self.assertEqual(payload["included"][0]["links"]["self"], "/api/linked_users/7")
 
+    def test_jsonapi_document_uses_resource_wire_type_for_output_links_and_linkage(self):
+        registry = ResourceRegistry()
+
+        class UserModel:
+            def __init__(self, id, username):
+                self.id = id
+                self.username = username
+
+        class DiscussionModel:
+            def __init__(self, id, owner):
+                self.id = id
+                self.owner = owner
+
+        class UserResource(DatabaseResource):
+            model = UserModel
+
+            def type(self):
+                return "wire_user"
+
+            def jsonapi_types(self):
+                return ("wire_user", "wire-users")
+
+            def jsonapi_type(self):
+                return "wire-users"
+
+            def fields(self):
+                return [ResourceField("username", resolver=lambda instance, context: instance.username)]
+
+        class DiscussionResource(Resource):
+            def type(self):
+                return "wire_discussion"
+
+            def jsonapi_type(self):
+                return "wire-discussions"
+
+            def relationships(self):
+                return [
+                    ResourceRelationship(
+                        "owner",
+                        resolver=lambda instance, context: instance.owner,
+                        resource_type="wire_user",
+                    ),
+                ]
+
+        registry.register_resource(UserResource())
+        registry.register_resource(DiscussionResource())
+
+        payload = registry.serialize_jsonapi_document(
+            "wire_discussion",
+            DiscussionModel(4, UserModel(7, "neo")),
+            {"api_base_path": "/api"},
+            include=("owner",),
+        )
+
+        self.assertEqual(payload["data"]["type"], "wire-discussions")
+        self.assertEqual(payload["data"]["links"]["self"], "/api/wire-discussions/4")
+        self.assertEqual(payload["data"]["relationships"]["owner"]["data"], {"type": "wire-users", "id": "7"})
+        self.assertEqual(payload["included"][0]["type"], "wire-users")
+        self.assertEqual(payload["included"][0]["links"]["self"], "/api/wire-users/7")
+
     def test_nested_include_contributes_nested_preload_plan(self):
         registry = ResourceRegistry()
 

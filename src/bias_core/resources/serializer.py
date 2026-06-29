@@ -77,10 +77,11 @@ class ResourceSerializer:
         context = self.context.with_resource(resource).with_model(instance)
         resource_object = self.registry.get_resource_object(resource)
         resource_id = self.resource_identifier(resource, instance, context, resource_object)
-        output = {"type": resource}
+        wire_type = self.resource_jsonapi_type(resource, context, resource_object)
+        output = {"type": wire_type}
         if resource_id is not None:
             output["id"] = resource_id
-            output["links"] = {"self": self.resource_self_link(resource, resource_id, context)}
+            output["links"] = {"self": self.resource_self_link(wire_type, resource_id, context)}
 
         attributes = {}
         resource_definition = self.registry.get_resource(resource)
@@ -215,7 +216,7 @@ class ResourceSerializer:
             related_id = self.resource_identifier(related_resource, item, context, related_object)
             if related_id is None:
                 continue
-            key = (related_resource, related_id)
+            key = (self.resource_jsonapi_type(related_resource, context, related_object), related_id)
             if key not in self.included:
                 self.included[key] = (
                     key,
@@ -251,13 +252,14 @@ class ResourceSerializer:
         resource_type = str(resource or "").strip()
         if not resource_type:
             return None
+        wire_type = self.resource_jsonapi_type(resource_type, context, self.registry.get_resource_object(resource_type))
         if isinstance(value, dict) and "id" in value:
-            return {"type": resource_type, "id": str(value["id"])}
+            return {"type": wire_type, "id": str(value["id"])}
         resource_object = self.registry.get_resource_object(resource_type)
         identifier = self.resource_identifier(resource_type, value, context, resource_object)
         if identifier is None:
             return None
-        return {"type": resource_type, "id": identifier}
+        return {"type": wire_type, "id": identifier}
 
     def related_resource_type(self, definition: Any, value: Any, context: ResourceContext) -> str:
         resource_type = str(definition.resource_type or "").strip()
@@ -287,6 +289,16 @@ class ResourceSerializer:
     def resource_self_link(resource: str, resource_id: str, context: dict) -> str:
         base_path = str(context.get("api_base_path") or context.get("base_path") or "/api").rstrip("/")
         return f"{base_path}/{resource}/{resource_id}"
+
+    def resource_jsonapi_type(self, resource: str, context: ResourceContext, resource_object: Any | None = None) -> str:
+        if resource_object is None:
+            resource_object = self.registry.get_resource_object(resource)
+        jsonapi_type = getattr(resource_object, "jsonapi_type", None)
+        if callable(jsonapi_type):
+            value = str(jsonapi_type() or "").strip()
+            if value:
+                return value
+        return str(resource or "").strip()
 
     @staticmethod
     def resource_identifier(resource: str, instance: Any, context: dict, resource_object: Any | None = None) -> str | None:
