@@ -188,6 +188,16 @@ class ExtensionPublicApiBoundaryTests(TestCase):
             self.assertIn(name, platform.__all__)
             self.assertTrue(callable(getattr(platform, name)))
 
+    def test_platform_sdk_exports_jsonapi_response_helpers(self):
+        from bias_core.extensions import platform
+
+        self.assertIn("JSONAPI_CONTENT_TYPE", platform.__all__)
+        self.assertIn("jsonapi_response", platform.__all__)
+        self.assertIn("wants_jsonapi_response", platform.__all__)
+        self.assertEqual(platform.JSONAPI_CONTENT_TYPE, "application/vnd.api+json")
+        self.assertTrue(callable(platform.jsonapi_response))
+        self.assertTrue(callable(platform.wants_jsonapi_response))
+
     def test_builtin_extension_admin_code_uses_platform_staff_guard(self):
         violations = []
         forbidden = (

@@ -4582,6 +4582,31 @@ class ResourceRegistryTests(TestCase):
             },
         )
 
+    def test_dispatch_resource_endpoint_uses_jsonapi_content_type_when_requested(self):
+        registry = ResourceRegistry()
+        registry.register_endpoint(
+            ResourceEndpointDefinition(
+                resource="discussion",
+                endpoint="feature",
+                module_id="extension",
+                handler=lambda context: (201, {"data": {"type": "discussions", "id": "1"}}),
+                methods=("POST",),
+            )
+        )
+        request = RequestFactory().post(
+            "/api/resources/discussion/feature",
+            data=json.dumps({"data": {"type": "discussions"}}),
+            content_type="application/json",
+            HTTP_ACCEPT="application/vnd.api+json",
+        )
+
+        with patch("bias_core.resource_dispatcher.get_runtime_resource_registry", return_value=registry):
+            response = dispatch_resource_endpoint(request, resource="discussion", endpoint="feature")
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response["Content-Type"], "application/vnd.api+json")
+        self.assertEqual(json.loads(response.content)["data"]["type"], "discussions")
+
     def test_dispatch_resource_endpoint_requires_auth_when_declared(self):
         registry = ResourceRegistry()
         registry.register_endpoint(

@@ -3,6 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable
 
+from django.http import JsonResponse
+
+
+JSONAPI_CONTENT_TYPE = "application/vnd.api+json"
+
 
 @dataclass(frozen=True)
 class ResourceQueryOptions:
@@ -40,6 +45,23 @@ def merge_resource_includes(*include_groups: Iterable[str]) -> tuple[str, ...]:
             seen.add(normalized)
             ordered.append(normalized)
     return tuple(ordered)
+
+
+def wants_jsonapi_response(request_or_context) -> bool:
+    request = request_or_context
+    if isinstance(request_or_context, dict):
+        request = request_or_context.get("request")
+    accept = str(getattr(request, "META", {}).get("HTTP_ACCEPT", "") or "")
+    return JSONAPI_CONTENT_TYPE in accept.lower()
+
+
+def jsonapi_response(payload, *, status: int = 200) -> JsonResponse:
+    return JsonResponse(
+        payload,
+        status=status,
+        content_type=JSONAPI_CONTENT_TYPE,
+        safe=isinstance(payload, dict),
+    )
 
 
 def apply_resource_preloads(

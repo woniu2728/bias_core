@@ -22,6 +22,7 @@ _EXPORT_MODULES = {
     "JsonApiErrorItem": "bias_core.resource_errors",
     "JsonApiForbidden": "bias_core.resource_errors",
     "JsonApiValidationError": "bias_core.resource_errors",
+    "JSONAPI_CONTENT_TYPE": "bias_core.resource_api",
     "MarkdownService": "bias_core.markdown_service",
     "OnlineUserService": "bias_core.online_service",
     "PaginationService": "bias_core.services.pagination",
@@ -69,6 +70,7 @@ _EXPORT_MODULES = {
     "is_jwt_blacklisted": "bias_core.jwt_auth",
     "iter_realtime_included_enrichers": "bias_core.forum_runtime",
     "jsonapi_error_response": "bias_core.resource_errors",
+    "jsonapi_response": "bias_core.resource_api",
     "log_admin_action": "bias_core.audit",
     "merge_resource_includes": "bias_core.resource_api",
     "parse_csv_param": "bias_core.resource_api",
@@ -85,6 +87,7 @@ _EXPORT_MODULES = {
     "set_access_token_cookie": "bias_core.jwt_auth",
     "set_refresh_token_cookie": "bias_core.jwt_auth",
     "sqlite_write_retry": "bias_core.db",
+    "wants_jsonapi_response": "bias_core.resource_api",
 }
 
 _LAZY_CALLABLE_EXPORTS = {
@@ -126,6 +129,7 @@ _LAZY_CALLABLE_EXPORTS = {
     "is_jwt_blacklisted",
     "iter_realtime_included_enrichers",
     "jsonapi_error_response",
+    "jsonapi_response",
     "log_admin_action",
     "merge_resource_includes",
     "parse_csv_param",
@@ -142,6 +146,7 @@ _LAZY_CALLABLE_EXPORTS = {
     "set_access_token_cookie",
     "set_refresh_token_cookie",
     "sqlite_write_retry",
+    "wants_jsonapi_response",
 }
 
 __all__ = sorted(

@@ -12,7 +12,7 @@ from bias_core.api_errors import api_error
 from bias_core.jwt_auth import resolve_authenticated_user
 from bias_core.extensions.runtime import get_runtime_resource_registry
 from bias_core.forum_permissions import has_forum_permission
-from bias_core.resource_api import parse_resource_query_options
+from bias_core.resource_api import jsonapi_response, parse_resource_query_options, wants_jsonapi_response
 from bias_core.resource_errors import JsonApiError, jsonapi_error_response
 
 
@@ -101,7 +101,7 @@ def dispatch_resource_endpoint(
     except ValueError as exc:
         return _resource_error_response(request, str(exc), status=400)
 
-    return _to_response(result)
+    return _to_response(result, request=request)
 
 
 def _parse_request_payload(request):
@@ -141,7 +141,7 @@ def _params_to_dict(params) -> dict[str, Any]:
     return output
 
 
-def _to_response(result):
+def _to_response(result, request=None):
     if isinstance(result, HttpResponse):
         return result
     if result is None:
@@ -150,14 +150,18 @@ def _to_response(result):
         status, payload = result
         if payload is None:
             return HttpResponse(status=status)
+        if wants_jsonapi_response(request):
+            return jsonapi_response(payload, status=status)
         return JsonResponse(payload, status=status, safe=isinstance(payload, dict))
+    if wants_jsonapi_response(request):
+        return jsonapi_response(result)
     if isinstance(result, list):
         return JsonResponse(result, safe=False)
     return JsonResponse(result, safe=isinstance(result, dict))
 
 
 def _resource_error_response(request, error: JsonApiError | str, *, status: int | None = None):
-    if _wants_jsonapi_response(request):
+    if wants_jsonapi_response(request):
         return jsonapi_error_response(error, status=status)
     if isinstance(error, JsonApiError):
         detail = error.detail
@@ -168,11 +172,6 @@ def _resource_error_response(request, error: JsonApiError | str, *, status: int 
         response_status = int(status or 400)
         field_errors = {}
     return api_error(detail, status=response_status, field_errors=field_errors)
-
-
-def _wants_jsonapi_response(request) -> bool:
-    accept = str(getattr(request, "META", {}).get("HTTP_ACCEPT", "") or "")
-    return "application/vnd.api+json" in accept.lower()
 
 
 def _jsonapi_field_errors(error: JsonApiError) -> dict[str, Any]:
