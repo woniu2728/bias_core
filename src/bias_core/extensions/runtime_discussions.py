@@ -223,6 +223,9 @@ def validate_runtime_replyable_discussion(discussion_id: int, user: Any, *, disc
 
 
 def lock_runtime_discussion_for_post_number(discussion_id: int):
+    content_discussions = get_runtime_content_discussion_service(None)
+    if content_discussions is not None:
+        return runtime_service_method(content_discussions, "lock_for_post_number")(discussion_id)
     return _discussion.lock_for_post_number(discussion_id)
 
 
@@ -235,6 +238,12 @@ def refresh_runtime_discussion_approved_stats(
     *,
     discussion_counted_post_types,
 ) -> Any:
+    content_discussions = get_runtime_content_discussion_service(None)
+    if content_discussions is not None:
+        return runtime_service_method(content_discussions, "refresh_approved_stats")(
+            discussion,
+            discussion_counted_post_types=discussion_counted_post_types,
+        )
     return _discussion.refresh_approved_stats(discussion, discussion_counted_post_types=discussion_counted_post_types)
 
 
