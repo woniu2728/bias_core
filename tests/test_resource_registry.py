@@ -5199,6 +5199,51 @@ class ResourceRegistryTests(TestCase):
         self.assertEqual(calls[2], ("mutator", "needle"))
         self.assertEqual(calls[3], ("search", ["open"]))
 
+    def test_search_filter_context_exposes_state_actor_and_fulltext_flag_like_upstream(self):
+        class Item:
+            pass
+
+        actor = SimpleNamespace(username="actor")
+        seen = {}
+
+        def fulltext(state, query, context):
+            seen["fulltext_state"] = context["search_state"] is state
+            seen["fulltext_actor"] = context["actor"]
+            seen["fulltext_flag"] = state.is_fulltext_search()
+            return state
+
+        def filter_handler(state, value, context):
+            seen["filter_state"] = context["search_state"] is state
+            seen["filter_actor"] = context["actor"]
+            seen["state_actor"] = state.get_actor()
+            seen["active_count"] = len(state.get_active_filters())
+            return state
+
+        manager = ResourceSearchManager()
+        manager.register_searcher(Item, lambda queryset, criteria, context: list(queryset))
+        manager.set_driver_fulltext("database", Item, fulltext)
+        manager.register_driver_filter(
+            "database",
+            Item,
+            ResourceSearchFilter("state", filter_handler),
+        )
+
+        result = manager.query(
+            Item,
+            ["open"],
+            ResourceSearchCriteria(user=actor, filters={"q": "needle", "state": "open"}, resource="items"),
+            {},
+        )
+
+        self.assertEqual(result.results, ["open"])
+        self.assertTrue(seen["fulltext_state"])
+        self.assertTrue(seen["filter_state"])
+        self.assertIs(seen["fulltext_actor"], actor)
+        self.assertIs(seen["filter_actor"], actor)
+        self.assertIs(seen["state_actor"], actor)
+        self.assertTrue(seen["fulltext_flag"])
+        self.assertEqual(seen["active_count"], 2)
+
     def test_search_manager_prefers_default_driver_until_fulltext_like_upstream(self):
         class Item:
             pass

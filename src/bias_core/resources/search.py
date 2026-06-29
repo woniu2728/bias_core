@@ -19,6 +19,19 @@ class ResourceSearchState:
     context: dict
     active_filters: list[Any] = field(default_factory=list)
 
+    @property
+    def actor(self) -> Any:
+        return self.get_actor()
+
+    def get_actor(self) -> Any:
+        return self.criteria.user if self.criteria.user is not None else self.context.get("user")
+
+    def is_fulltext_search(self) -> bool:
+        return bool(getattr(self.criteria, "is_fulltext", False))
+
+    def get_active_filters(self) -> tuple[Any, ...]:
+        return tuple(self.active_filters)
+
     def add_active_filter(self, definition: Any) -> None:
         self.active_filters.append(definition)
 
@@ -49,7 +62,17 @@ class ResourceSearchFilter:
 
     def apply(self, state: ResourceSearchState, value: Any, negate: bool = False):
         state.add_active_filter(self)
-        result = self.handler(state, value, {**state.context, "filter": self.name, "negate": negate})
+        result = self.handler(
+            state,
+            value,
+            {
+                **state.context,
+                "filter": self.name,
+                "negate": negate,
+                "search_state": state,
+                "actor": state.get_actor(),
+            },
+        )
         if isinstance(result, ResourceSearchState):
             return result
         if result is not None:
@@ -63,7 +86,16 @@ class ResourceFulltextFilter:
 
     def search(self, state: ResourceSearchState, query: str):
         state.add_active_filter(self)
-        result = self.handler(state, query, {**state.context, "filter": "q"})
+        result = self.handler(
+            state,
+            query,
+            {
+                **state.context,
+                "filter": "q",
+                "search_state": state,
+                "actor": state.get_actor(),
+            },
+        )
         if isinstance(result, ResourceSearchState):
             return result
         if result is not None:
