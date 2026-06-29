@@ -40,6 +40,10 @@ def resolve_event_type(event_type: Any):
     return event_type if isinstance(event_type, type) else None
 
 
+def resolve_extension_event_type(event_type: Any):
+    return resolve_event_type(event_type)
+
+
 def _resolve_legacy_extension_event_type(event_type: str):
     raw = str(event_type or "").strip()
     prefix = "extensions."

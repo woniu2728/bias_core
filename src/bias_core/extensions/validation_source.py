@@ -52,7 +52,7 @@ RUNTIME_FACADE_EXTENSION_DEPENDENCIES = {
     "can_runtime_view_post": "posts",
     "count_runtime_post_pending_approvals": "posts",
     "create_runtime_first_post": "content",
-    "create_runtime_post": "posts",
+    "create_runtime_post": "content",
     "create_runtime_post_event": "posts",
     "delete_runtime_discussion_posts": "content",
     "delete_runtime_post": "posts",

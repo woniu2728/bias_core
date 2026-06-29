@@ -1669,6 +1669,7 @@ class ExtensionManifestLoaderTests(TestCase):
     def test_discussion_post_runtime_facades_prefer_content_foundation(self):
         from bias_core.extensions.runtime_posts import (
             create_runtime_first_post,
+            create_runtime_post,
             get_runtime_discussion_posts_service,
         )
 
@@ -1677,18 +1678,37 @@ class ExtensionManifestLoaderTests(TestCase):
         legacy_calls = []
         content_service = {
             "create_first_post": lambda **kwargs: content_calls.append(kwargs) or "content",
+            "create": lambda **kwargs: content_calls.append({"create": kwargs}) or "content-post",
         }
         legacy_service = {
             "create_first_post": lambda **kwargs: legacy_calls.append(kwargs) or "legacy",
         }
+        post_service = {
+            "create": lambda **kwargs: legacy_calls.append({"create": kwargs}) or "legacy-post",
+        }
         app.instance("content.posts", content_service)
         app.instance("discussion.posts", legacy_service)
+        app.instance("posts.service", post_service)
 
         with patch("bias_core.extensions.bootstrap.get_extension_host", return_value=app):
             self.assertIs(get_runtime_discussion_posts_service(), content_service)
             self.assertEqual(create_runtime_first_post(discussion_id=1), "content")
+            self.assertEqual(
+                create_runtime_post(discussion_id=2, content="Reply", user="actor", reply_to_post_id=3),
+                "content-post",
+            )
 
-        self.assertEqual(content_calls, [{"discussion_id": 1}])
+        self.assertEqual(content_calls, [
+            {"discussion_id": 1},
+            {
+                "create": {
+                    "discussion_id": 2,
+                    "content": "Reply",
+                    "user": "actor",
+                    "reply_to_post_id": 3,
+                },
+            },
+        ])
         self.assertEqual(legacy_calls, [])
 
     def test_view_extender_registers_template_namespaces(self):

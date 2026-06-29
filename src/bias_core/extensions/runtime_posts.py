@@ -127,6 +127,14 @@ def get_runtime_post_approval_rejected() -> str:
 
 
 def create_runtime_post(*, discussion_id: int, content: str, user: Any, reply_to_post_id: int | None = None):
+    content_posts = get_runtime_content_posts_service(None)
+    if content_posts is not None:
+        return runtime_service_method(content_posts, "create")(
+            discussion_id=discussion_id,
+            content=content,
+            user=user,
+            reply_to_post_id=reply_to_post_id,
+        )
     return _post_service.create(
         discussion_id=discussion_id,
         content=content,
