@@ -513,6 +513,28 @@ class ResourceEndpoint:
     def authenticated(self) -> "ResourceEndpoint":
         return replace(self, auth_required=True)
 
+    def with_methods(self, *methods: str | Iterable[str]) -> "ResourceEndpoint":
+        output: list[str] = []
+        for method in methods:
+            if isinstance(method, str):
+                candidates = (method,)
+            else:
+                candidates = tuple(method or ())
+            for candidate in candidates:
+                normalized = str(candidate or "").strip().upper()
+                if normalized:
+                    output.append(normalized)
+        return replace(self, methods=tuple(output or self.methods))
+
+    def at(self, path: str, *, absolute: bool | None = None) -> "ResourceEndpoint":
+        endpoint = replace(self, path=str(path or "").strip())
+        if absolute is not None:
+            endpoint = endpoint.absolute(absolute)
+        return endpoint
+
+    def absolute(self, enabled: bool = True) -> "ResourceEndpoint":
+        return replace(self, absolute_path=bool(enabled))
+
     def for_module(self, module_id: str) -> "ResourceEndpoint":
         return replace(self, module_id=str(module_id or "").strip() or self.module_id)
 

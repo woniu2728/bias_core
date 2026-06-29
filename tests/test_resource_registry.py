@@ -991,6 +991,20 @@ class ResourceRegistryTests(TestCase):
         self.assertIn("comments", plan.prefetch_related)
         self.assertEqual(plan.prefetch_where, (("comments", visible_comments),))
 
+    def test_resource_endpoint_builder_sets_methods_and_absolute_path(self):
+        endpoint = (
+            ResourceEndpoint.update("rename")
+            .with_methods("patch", ("post", ""))
+            .at("/items/{object_id}/rename", absolute=True)
+            .for_module("demo")
+        )
+
+        self.assertEqual(endpoint.endpoint, "rename")
+        self.assertEqual(endpoint.methods, ("PATCH", "POST"))
+        self.assertEqual(endpoint.path, "/items/{object_id}/rename")
+        self.assertTrue(endpoint.absolute_path)
+        self.assertEqual(endpoint.module_id, "demo")
+
     def test_endpoint_where_eager_load_builds_prefetch_before_serialization(self):
         from bias_core.resource_endpoint_runner import DatabaseResourceEndpoint
         from django.db.models import Prefetch
