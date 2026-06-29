@@ -38,6 +38,11 @@ class Command(BaseCommand):
             help="同时审计扩展测试代码；测试只能依赖 bias_core.extensions.testing 等公开 facade。",
         )
         parser.add_argument(
+            "--check-runtime-facades",
+            action="store_true",
+            help="审计 bias_core.extensions.runtime facade 访问是否已在 manifest 依赖中显式声明。",
+        )
+        parser.add_argument(
             "--require-extensions",
             action="store_true",
             help="要求至少发现一个扩展；CI/发布校验可用它避免空目录误报通过",
@@ -54,6 +59,7 @@ class Command(BaseCommand):
         extension_id = str(options.get("extension_id") or "").strip()
         internal = bool(options.get("internal"))
         include_tests = bool(options.get("include_tests"))
+        check_runtime_facades = bool(options.get("check_runtime_facades"))
         require_extensions = bool(options.get("require_extensions"))
         output_format = str(options.get("format") or "text").strip() or "text"
 
@@ -88,6 +94,7 @@ class Command(BaseCommand):
                 known_extension_ids=known_extension_ids,
                 public_sdk_only=not internal,
                 include_tests=include_tests,
+                check_runtime_facade_dependencies=check_runtime_facades,
             )
         result = collector.build()
 
@@ -95,6 +102,7 @@ class Command(BaseCommand):
             "extensions_path": str(extensions_path),
             "internal": internal,
             "include_tests": include_tests,
+            "check_runtime_facades": check_runtime_facades,
             "summary": {
                 "manifest_count": len(result.manifests),
                 "error_count": result.error_count,

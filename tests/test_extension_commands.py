@@ -1144,7 +1144,7 @@ class ExtensionManagementCommandTests(TestCase):
             }, ensure_ascii=False), encoding="utf-8")
             (backend_dir / "ext.py").write_text(
                 "from bias_core.extensions import FrontendExtender, runtime_action\n"
-                "from bias_core.extensions.runtime import get_runtime_user_by_id\n"
+                "from bias_core.extensions.runtime import get_runtime_resource_registry\n"
                 "from bias_core.extensions.platform import api_error, get_forum_registry\n"
                 "from bias_core.extensions.contracts import PermissionDefinition\n"
                 "\n"
@@ -1154,6 +1154,86 @@ class ExtensionManagementCommandTests(TestCase):
             )
 
             call_command_quietly("validate_extensions", "--extensions-path", str(Path(temp_dir) / "extensions"))
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_inspect_extension_imports_command_can_reject_undeclared_runtime_facade_dependencies(self):
+        temp_dir = make_workspace_temp_dir()
+        try:
+            users_dir = Path(temp_dir) / "extensions" / "users"
+            users_dir.mkdir(parents=True, exist_ok=False)
+            (users_dir / "extension.json").write_text(json.dumps({
+                "id": "users",
+                "name": "Users",
+                "version": "1.0.0",
+                "dependencies": ["core"],
+            }, ensure_ascii=False), encoding="utf-8")
+            manifest_dir = Path(temp_dir) / "extensions" / "alpha-tools"
+            backend_dir = manifest_dir / "backend"
+            backend_dir.mkdir(parents=True, exist_ok=False)
+            (manifest_dir / "extension.json").write_text(json.dumps({
+                "id": "alpha-tools",
+                "name": "Alpha Tools",
+                "version": "1.0.0",
+                "dependencies": ["core"],
+                "backend_entry": "extensions.alpha_tools.backend.ext",
+            }, ensure_ascii=False), encoding="utf-8")
+            (backend_dir / "ext.py").write_text(
+                "from bias_core.extensions.runtime import get_runtime_user_by_id\n"
+                "\n"
+                "def extend():\n"
+                "    return []\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesMessage(CommandError, "扩展 import 边界审计失败"):
+                stdout = StringIO()
+                call_command(
+                    "inspect_extension_imports",
+                    "--extensions-path",
+                    str(Path(temp_dir) / "extensions"),
+                    "--check-runtime-facades",
+                    stdout=stdout,
+                )
+            self.assertIn("undeclared_runtime_facade_dependency", stdout.getvalue())
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_inspect_extension_imports_command_allows_declared_runtime_facade_dependencies(self):
+        temp_dir = make_workspace_temp_dir()
+        try:
+            users_dir = Path(temp_dir) / "extensions" / "users"
+            users_dir.mkdir(parents=True, exist_ok=False)
+            (users_dir / "extension.json").write_text(json.dumps({
+                "id": "users",
+                "name": "Users",
+                "version": "1.0.0",
+                "dependencies": ["core"],
+            }, ensure_ascii=False), encoding="utf-8")
+            manifest_dir = Path(temp_dir) / "extensions" / "alpha-tools"
+            backend_dir = manifest_dir / "backend"
+            backend_dir.mkdir(parents=True, exist_ok=False)
+            (manifest_dir / "extension.json").write_text(json.dumps({
+                "id": "alpha-tools",
+                "name": "Alpha Tools",
+                "version": "1.0.0",
+                "dependencies": ["core", "users"],
+                "backend_entry": "extensions.alpha_tools.backend.ext",
+            }, ensure_ascii=False), encoding="utf-8")
+            (backend_dir / "ext.py").write_text(
+                "from bias_core.extensions.runtime import get_runtime_user_by_id\n"
+                "\n"
+                "def extend():\n"
+                "    return []\n",
+                encoding="utf-8",
+            )
+
+            call_command_quietly(
+                "inspect_extension_imports",
+                "--extensions-path",
+                str(Path(temp_dir) / "extensions"),
+                "--check-runtime-facades",
+            )
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
