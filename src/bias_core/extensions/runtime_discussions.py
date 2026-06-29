@@ -24,13 +24,16 @@ def get_runtime_content_discussion_service(default: Any = None):
 
 
 def get_runtime_discussion_service(default: Any = None):
+    service = get_runtime_content_discussion_service(None)
+    if service is not None:
+        return service
     return get_extension_host_service("discussions.service", default)
 
 
 def require_runtime_discussion_service():
-    content_discussions = get_runtime_content_discussion_service(None)
-    if content_discussions is not None:
-        return content_discussions
+    service = get_runtime_discussion_service(None)
+    if service is not None:
+        return service
     return require_extension_host_service("discussions.service")
 
 

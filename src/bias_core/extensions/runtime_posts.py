@@ -38,13 +38,16 @@ def get_runtime_content_posts_service(default: Any = None):
 
 
 def get_runtime_post_service(default: Any = None):
+    service = get_runtime_content_posts_service(None)
+    if service is not None:
+        return service
     return get_extension_host_service("posts.service", default)
 
 
 def require_runtime_post_service():
-    content_posts = get_runtime_content_posts_service(None)
-    if content_posts is not None:
-        return content_posts
+    service = get_runtime_post_service(None)
+    if service is not None:
+        return service
     return require_extension_host_service("posts.service")
 
 
