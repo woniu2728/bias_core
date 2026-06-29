@@ -46,6 +46,9 @@ def _peek_host_service(host: Any, key: str) -> Any:
         return instances[normalized]
 
     make = getattr(host, "make", None)
+    has = getattr(host, "has", None)
+    if callable(make) and callable(has) and has(normalized):
+        return make(normalized, None)
     if callable(make):
         singletons = getattr(host, "_singletons", {})
         bindings = getattr(host, "_bindings", {})

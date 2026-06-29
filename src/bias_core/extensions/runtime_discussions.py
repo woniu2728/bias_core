@@ -181,6 +181,11 @@ def set_runtime_discussion_hidden_state(discussion: Any, user: Any, hidden: bool
 
 
 def list_runtime_discussions(**kwargs):
+    content_discussions = get_runtime_content_discussion_service(None)
+    if content_discussions is not None:
+        list_method = runtime_service_method(content_discussions, "list")
+        if callable(list_method):
+            return list_method(**kwargs)
     return _discussion.list(**kwargs)
 
 

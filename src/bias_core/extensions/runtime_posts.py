@@ -379,10 +379,16 @@ def create_runtime_post_event(**kwargs):
 
 
 def get_runtime_post_reply_notification_context(reply_to_post_id: int, post_id: int, from_user: Any):
+    content_posts = get_runtime_content_posts_service(None)
+    if content_posts is not None:
+        return runtime_service_method(content_posts, "reply_notification_context")(reply_to_post_id, post_id, from_user)
     return _post_service.reply_notification_context(reply_to_post_id, post_id, from_user)
 
 
 def get_runtime_post_notification_context(post_id: int):
+    content_posts = get_runtime_content_posts_service(None)
+    if content_posts is not None:
+        return runtime_service_method(content_posts, "notification_context")(post_id)
     return _post_service.notification_context(post_id)
 
 

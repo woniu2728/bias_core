@@ -218,11 +218,11 @@ class FrontendExtender:
         extension_id = extension.extension_id
 
         def apply(frontend, host: "ExtensionHost"):
-            frontend.set_extension(
+            frontend.register_entries(
                 extension_id,
-                admin_entry=self.admin_entry or None,
-                forum_entry=self.forum_entry or None,
-                common_entry=self.common_entry or None,
+                admin_entry=self.admin_entry,
+                forum_entry=self.forum_entry,
+                common_entry=self.common_entry,
                 css=self.css_files,
                 js_directories=self.js_directories,
                 preloads=self.preloads,
