@@ -1,4 +1,5 @@
 from tests.common import *
+import ast
 import importlib
 import os
 import subprocess
@@ -52,6 +53,17 @@ def relative_to_known_root(path: Path) -> str:
         return str(path.relative_to(settings.BASE_DIR))
     except ValueError:
         return str(path)
+
+
+def iter_python_imports(path: Path):
+    source = path.read_text(encoding="utf-8")
+    tree = ast.parse(source, filename=str(path))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                yield node.lineno, alias.name
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            yield node.lineno, node.module
 
 class ExtensionPublicApiBoundaryTests(TestCase):
     def test_extension_public_package_import_is_lightweight_without_django_settings(self):
@@ -390,6 +402,21 @@ class ExtensionPublicApiBoundaryTests(TestCase):
                 violations.append(str(path.relative_to(settings.BASE_DIR)))
 
         self.assertEqual(violations, [])
+
+    def test_core_source_does_not_import_extension_backend_implementations(self):
+        violations = []
+        core_root = core_source_root()
+
+        for path in core_root.glob("**/*.py"):
+            for line_number, module_name in iter_python_imports(path):
+                if module_name.startswith("bias_ext_") or module_name.startswith("extensions."):
+                    violations.append(f"{path.relative_to(settings.BASE_DIR)}:{line_number}: {module_name}")
+
+        self.assertEqual(
+            violations,
+            [],
+            "core must depend on extension runtime services and manifests, not extension backend implementations",
+        )
 
     def test_extension_serialization_does_not_import_admin_private_serializers(self):
         source = (core_source_root() / "extension_serialization.py").read_text(encoding="utf-8")
