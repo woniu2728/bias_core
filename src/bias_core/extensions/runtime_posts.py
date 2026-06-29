@@ -360,14 +360,23 @@ def is_runtime_post_not_found(exc: Exception) -> bool:
 
 
 def serialize_runtime_post(post: Any, user: Any = None, **kwargs) -> dict:
+    content_posts = get_runtime_content_posts_service(None)
+    if content_posts is not None:
+        return runtime_service_method(content_posts, "serialize")(post, user=user, **kwargs)
     return _post_service.serialize(post, user=user, **kwargs)
 
 
 def serialize_runtime_post_by_id(post_id: int, user: Any = None, **kwargs) -> dict | None:
+    content_posts = get_runtime_content_posts_service(None)
+    if content_posts is not None:
+        return runtime_service_method(content_posts, "serialize_by_id")(post_id, user=user, **kwargs)
     return _post_service.serialize_by_id(post_id, user=user, **kwargs)
 
 
 def serialize_runtime_realtime_post_by_id(post_id: int, user: Any = None, **kwargs) -> dict | None:
+    content_posts = get_runtime_content_posts_service(None)
+    if content_posts is not None:
+        return runtime_service_method(content_posts, "serialize_by_id")(post_id, user=user, **kwargs)
     return _realtime_post_payload_service.serialize_by_id(post_id, user=user, **kwargs)
 
 
@@ -393,6 +402,9 @@ def get_runtime_post_notification_context(post_id: int):
 
 
 def get_runtime_post_number(post_id: int):
+    content_posts = get_runtime_content_posts_service(None)
+    if content_posts is not None:
+        return runtime_service_method(content_posts, "get_post_number")(post_id)
     return _post_service.get_number(post_id)
 
 

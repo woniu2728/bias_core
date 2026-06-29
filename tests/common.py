@@ -172,9 +172,9 @@ class RuntimeModelProxy:
         return getattr(self.model, name)
 
 
-Discussion = RuntimeModelProxy("discussions", "Discussion")
-DiscussionUser = RuntimeModelProxy("discussions", "DiscussionUser")
-Post = RuntimeModelProxy("posts", "Post")
+Discussion = RuntimeModelProxy("content", "Discussion")
+DiscussionUser = RuntimeModelProxy("content", "DiscussionUser")
+Post = RuntimeModelProxy("content", "Post")
 Group = RuntimeModelProxy("users", "Group")
 Permission = RuntimeModelProxy("users", "Permission")
 User = RuntimeModelProxy("users", "User")

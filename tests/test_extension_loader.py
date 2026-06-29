@@ -1672,6 +1672,11 @@ class ExtensionManifestLoaderTests(TestCase):
             create_runtime_post,
             get_runtime_discussion_posts_service,
             get_runtime_post_model,
+            get_runtime_post_number,
+            resolve_runtime_post_content_html,
+            serialize_runtime_post,
+            serialize_runtime_post_by_id,
+            serialize_runtime_realtime_post_by_id,
         )
         from bias_core.extensions.runtime_discussions import (
             get_runtime_discussion_model,
@@ -1691,6 +1696,12 @@ class ExtensionManifestLoaderTests(TestCase):
             "model": content_post_model,
             "create_first_post": lambda **kwargs: content_calls.append(kwargs) or "content",
             "create": lambda **kwargs: content_calls.append({"create": kwargs}) or "content-post",
+            "get_post_number": lambda post_id: content_calls.append({"number": post_id}) or 7,
+            "resolve_content_html": lambda post: content_calls.append({"html": post}) or "<p>content</p>",
+            "serialize": lambda post, **kwargs: content_calls.append({"serialize": post, **kwargs}) or {"id": 10},
+            "serialize_by_id": lambda post_id, **kwargs: content_calls.append(
+                {"serialize_by_id": post_id, **kwargs}
+            ) or {"id": post_id},
         }
         content_discussion_service = {
             "model": content_discussion_model,
@@ -1702,6 +1713,12 @@ class ExtensionManifestLoaderTests(TestCase):
         post_service = {
             "model": legacy_post_model,
             "create": lambda **kwargs: legacy_calls.append({"create": kwargs}) or "legacy-post",
+            "get_number": lambda post_id: legacy_calls.append({"number": post_id}) or 3,
+            "resolve_content_html": lambda post: legacy_calls.append({"html": post}) or "<p>legacy</p>",
+            "serialize": lambda post, **kwargs: legacy_calls.append({"serialize": post, **kwargs}) or {"id": 20},
+            "serialize_by_id": lambda post_id, **kwargs: legacy_calls.append(
+                {"serialize_by_id": post_id, **kwargs}
+            ) or {"id": post_id},
         }
         discussion_service = {
             "model": legacy_discussion_model,
@@ -1711,6 +1728,11 @@ class ExtensionManifestLoaderTests(TestCase):
         app.instance("content.discussions", content_discussion_service)
         app.instance("discussion.posts", legacy_service)
         app.instance("posts.service", post_service)
+        app.instance("realtime.post_payload", {
+            "serialize_by_id": lambda post_id, **kwargs: legacy_calls.append(
+                {"realtime_serialize_by_id": post_id, **kwargs}
+            ) or {"id": post_id},
+        })
         app.instance("discussions.service", discussion_service)
 
         with patch("bias_core.extensions.bootstrap.get_extension_host", return_value=app):
@@ -1723,6 +1745,11 @@ class ExtensionManifestLoaderTests(TestCase):
                 create_runtime_post(discussion_id=2, content="Reply", user="actor", reply_to_post_id=3),
                 "content-post",
             )
+            self.assertEqual(get_runtime_post_number(5), 7)
+            self.assertEqual(resolve_runtime_post_content_html("post"), "<p>content</p>")
+            self.assertEqual(serialize_runtime_post("post", user="reader"), {"id": 10})
+            self.assertEqual(serialize_runtime_post_by_id(11, user="reader"), {"id": 11})
+            self.assertEqual(serialize_runtime_realtime_post_by_id(12, user="reader"), {"id": 12})
 
         self.assertEqual(content_calls, [
             {"discussion_id": 1},
@@ -1732,8 +1759,16 @@ class ExtensionManifestLoaderTests(TestCase):
                     "content": "Reply",
                     "user": "actor",
                     "reply_to_post_id": 3,
+                    "default_post_type": "comment",
+                    "discussion_counted_post_types": ("comment",),
+                    "user_counted_post_types": ("comment",),
                 },
             },
+            {"number": 5},
+            {"html": "post"},
+            {"serialize": "post", "user": "reader"},
+            {"serialize_by_id": 11, "user": "reader"},
+            {"serialize_by_id": 12, "user": "reader"},
         ])
         self.assertEqual(legacy_calls, [])
 
