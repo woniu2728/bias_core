@@ -1216,6 +1216,40 @@ class ExtensionManagementCommandTests(TestCase):
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
+    def test_inspect_extension_imports_command_rejects_runtime_facade_wildcard_imports(self):
+        temp_dir = make_workspace_temp_dir()
+        try:
+            manifest_dir = Path(temp_dir) / "extensions" / "alpha-tools"
+            backend_dir = manifest_dir / "backend"
+            backend_dir.mkdir(parents=True, exist_ok=False)
+            (manifest_dir / "extension.json").write_text(json.dumps({
+                "id": "alpha-tools",
+                "name": "Alpha Tools",
+                "version": "1.0.0",
+                "dependencies": ["core"],
+                "backend_entry": "extensions.alpha_tools.backend.ext",
+            }, ensure_ascii=False), encoding="utf-8")
+            (backend_dir / "ext.py").write_text(
+                "from bias_core.extensions.runtime import *\n"
+                "\n"
+                "def extend():\n"
+                "    return []\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesMessage(CommandError, "扩展 import 边界审计失败"):
+                stdout = StringIO()
+                call_command(
+                    "inspect_extension_imports",
+                    "--extensions-path",
+                    str(Path(temp_dir) / "extensions"),
+                    "--check-runtime-facades",
+                    stdout=stdout,
+                )
+            self.assertIn("forbidden_runtime_facade_wildcard_import", stdout.getvalue())
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
     def test_inspect_extension_imports_command_allows_declared_runtime_facade_dependencies(self):
         temp_dir = make_workspace_temp_dir()
         try:

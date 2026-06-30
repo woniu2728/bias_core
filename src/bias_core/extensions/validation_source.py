@@ -244,6 +244,15 @@ def validate_runtime_facade_extension_dependencies(
     except SyntaxError:
         return
 
+    if any(iter_runtime_facade_wildcard_imports(tree)):
+        collector.add_error(
+            "forbidden_runtime_facade_wildcard_import",
+            "扩展源码不能通过 from bias_core.extensions.runtime import * 通配导入 runtime facade。"
+            "请显式导入需要的 facade，使 import 审计能够推断扩展依赖和启动顺序。",
+            extension_id=manifest.id,
+            field=relative_path,
+        )
+
     declared_dependency_ids = set(manifest.dependencies) | set(manifest.optional_dependencies)
     for imported_name, required_extension_id in iter_runtime_facade_extension_references(tree):
         required_provider_id = resolve_capability_provider_id(
@@ -515,6 +524,20 @@ def iter_runtime_facade_extension_references(tree: ast.AST):
             required_extension_id = RUNTIME_FACADE_EXTENSION_DEPENDENCIES.get(imported_name)
             if required_extension_id:
                 yield imported_name, required_extension_id
+
+
+def iter_runtime_facade_wildcard_imports(tree: ast.AST):
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ImportFrom):
+            continue
+        if getattr(node, "level", 0):
+            continue
+        module = str(node.module or "").strip()
+        if module != "bias_core.extensions.runtime":
+            continue
+        for alias in node.names:
+            if str(alias.name or "").strip() == "*":
+                yield node
 
 
 def iter_top_level_runtime_facade_imports(tree: ast.AST):
