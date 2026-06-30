@@ -93,7 +93,7 @@ def dispatch_resource_endpoint(
     except LookupError as exc:
         return _resource_error_response(request, str(exc) or "资源不存在", status=404)
     except JsonApiError as exc:
-        return _resource_error_response(request, exc)
+        return _resource_error_response(request, exc, payload=context.payload)
     except PermissionDenied as exc:
         return _resource_error_response(request, str(exc) or "无权限", status=403)
     except PermissionError as exc:
@@ -160,8 +160,8 @@ def _to_response(result, request=None):
     return JsonResponse(result, safe=isinstance(result, dict))
 
 
-def _resource_error_response(request, error: JsonApiError | str, *, status: int | None = None):
-    if wants_jsonapi_response(request):
+def _resource_error_response(request, error: JsonApiError | str, *, status: int | None = None, payload: Any = None):
+    if wants_jsonapi_response(request) or _is_jsonapi_error_payload(error, payload):
         return jsonapi_error_response(error, status=status)
     if isinstance(error, JsonApiError):
         detail = error.detail
@@ -172,6 +172,12 @@ def _resource_error_response(request, error: JsonApiError | str, *, status: int 
         response_status = int(status or 400)
         field_errors = {}
     return api_error(detail, status=response_status, field_errors=field_errors)
+
+
+def _is_jsonapi_error_payload(error: JsonApiError | str, payload: Any) -> bool:
+    if not isinstance(error, JsonApiError):
+        return False
+    return isinstance(payload, dict) and isinstance(payload.get("data"), dict)
 
 
 def _jsonapi_field_errors(error: JsonApiError) -> dict[str, Any]:
