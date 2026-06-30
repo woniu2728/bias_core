@@ -11,6 +11,7 @@ class RuntimeServiceContract:
     required_methods: tuple[str, ...] = ()
     required_values: tuple[str, ...] = ()
     optional_methods: tuple[str, ...] = ()
+    callable_service: bool = False
 
 
 RUNTIME_SERVICE_CONTRACTS = {
@@ -284,6 +285,8 @@ def inspect_runtime_service_contracts(host: Any, *, provider_extension: str | No
         if service is None:
             issues.append(_issue(contract, "missing_service", contract.service_key))
             continue
+        if contract.callable_service and not callable(service):
+            issues.append(_issue(contract, "service_not_callable", contract.service_key))
         for name in contract.required_values:
             if _service_value(service, name, _MISSING) is _MISSING:
                 issues.append(_issue(contract, "missing_value", name))
@@ -301,6 +304,7 @@ def snapshot_runtime_service_contracts(*, host: Any | None = None) -> list[dict]
             "required_methods": sorted(contract.required_methods),
             "required_values": sorted(contract.required_values),
             "optional_methods": sorted(contract.optional_methods),
+            "callable_service": bool(contract.callable_service),
         }
         for contract in get_runtime_service_contracts(host=host)
     ]
@@ -362,6 +366,7 @@ def _normalize_runtime_service_contract(
         required_methods=_normalize_contract_names(getattr(contract, "required_methods", ()) or ()),
         required_values=_normalize_contract_names(getattr(contract, "required_values", ()) or ()),
         optional_methods=_normalize_contract_names(getattr(contract, "optional_methods", ()) or ()),
+        callable_service=bool(getattr(contract, "callable_service", False)),
     )
 
 

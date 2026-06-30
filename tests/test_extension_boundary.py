@@ -355,6 +355,41 @@ class ExtensionPublicApiBoundaryTests(TestCase):
         self.assertEqual(users_contract["provider_extension"], "users")
         self.assertEqual(users_contract["required_methods"], ["custom"])
 
+    def test_runtime_service_contracts_detect_non_callable_service(self):
+        from bias_core.extensions.runtime_service_contracts import (
+            RuntimeServiceContract,
+            inspect_runtime_service_contracts,
+        )
+
+        class View:
+            extension_id = "realtime"
+            runtime_service_contracts = (
+                RuntimeServiceContract(
+                    service_key="realtime.discussion_broadcaster",
+                    provider_extension="",
+                    callable_service=True,
+                ),
+            )
+
+        class Host:
+            def get_runtime_views(self):
+                return [View()]
+
+            def make(self, key, default=None):
+                if key == "realtime.discussion_broadcaster":
+                    return object()
+                return default
+
+            def get_service_provider_keys(self, *, extension_id=None):
+                return ["realtime.discussion_broadcaster"] if extension_id == "realtime" else []
+
+        self.assertIn({
+            "code": "service_not_callable",
+            "service_key": "realtime.discussion_broadcaster",
+            "provider_extension": "realtime",
+            "member": "realtime.discussion_broadcaster",
+        }, inspect_runtime_service_contracts(Host(), provider_extension="realtime"))
+
     def test_platform_sdk_exports_auth_and_cookie_helpers(self):
         from bias_core.extensions import platform
 
