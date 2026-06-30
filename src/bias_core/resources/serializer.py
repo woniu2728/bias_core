@@ -75,7 +75,12 @@ class ResourceSerializer:
         return data
 
     def _build_resource(self, resource: str, instance: Any, *, only=None, include_tree=None) -> dict:
-        context = self.context.with_resource(resource).with_model(instance)
+        context = (
+            self.context
+            .with_resource(resource)
+            .with_model(instance)
+            .with_value("include_tree", include_tree or {})
+        )
         resource_object = self.registry.get_resource_object(resource)
         resource_id = self.resource_identifier(resource, instance, context, resource_object)
         wire_type = self.resource_jsonapi_type(resource, context, resource_object)

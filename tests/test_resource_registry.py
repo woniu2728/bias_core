@@ -3063,6 +3063,51 @@ class ResourceRegistryTests(TestCase):
         self.assertEqual(len(payload["included"]), 1)
         self.assertEqual(payload["included"][0]["type"], "serializer_users")
 
+    def test_jsonapi_serializer_exposes_current_include_tree_to_nested_resources(self):
+        registry = ResourceRegistry()
+        seen_include_trees = []
+
+        class TreeItemResource(Resource):
+            def type(self):
+                return "serializer_tree_items"
+
+            def fields(self):
+                return [ResourceField("title", resolver=lambda instance, context: instance.title)]
+
+            def relationships(self):
+                return [
+                    ResourceRelationship(
+                        "parent",
+                        resolver=lambda instance, context: instance.parent,
+                        resource_type="serializer_tree_items",
+                    ),
+                    ResourceRelationship(
+                        "children",
+                        resolver=self.resolve_children,
+                        resource_type="serializer_tree_items",
+                        many=True,
+                    ),
+                ]
+
+            def resolve_children(self, instance, context):
+                seen_include_trees.append(dict(context.get("include_tree") or {}))
+                return instance.children
+
+        parent = SimpleNamespace(id=1, title="parent", parent=None, children=[])
+        child = SimpleNamespace(id=2, title="child", parent=parent, children=[])
+        sibling = SimpleNamespace(id=3, title="sibling", parent=parent, children=[])
+        parent.children = [child, sibling]
+        registry.register_resource(TreeItemResource())
+
+        payload = registry.serialize_jsonapi_document(
+            "serializer_tree_items",
+            child,
+            include=("parent.children",),
+        )
+
+        self.assertEqual({item["id"] for item in payload["included"]}, {"1", "3"})
+        self.assertIn({"children": {}}, seen_include_trees)
+
     def test_resource_serializer_exposes_bias_style_primary_and_included_api(self):
         registry = ResourceRegistry()
 
