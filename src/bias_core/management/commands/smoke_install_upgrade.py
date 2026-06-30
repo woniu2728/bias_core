@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import uuid
 from pathlib import Path
 
 from django.conf import settings
@@ -25,6 +26,25 @@ class Command(BaseCommand):
         parser.add_argument("--admin-username", default="smoke-admin", help="冒烟管理员用户名")
         parser.add_argument("--admin-email", default="smoke-admin@example.com", help="冒烟管理员邮箱")
         parser.add_argument("--admin-password", default="smoke-admin-password", help="冒烟管理员密码")
+        parser.add_argument("--database", choices=("sqlite", "postgres"), default="sqlite", help="冒烟数据库类型")
+        parser.add_argument("--db-name", help="PostgreSQL 数据库名；--postgres-create-db 未指定时必填或使用 DB_NAME")
+        parser.add_argument("--db-user", help="PostgreSQL 用户名，默认使用 DB_USER")
+        parser.add_argument("--db-password", help="PostgreSQL 密码，默认使用 DB_PASSWORD")
+        parser.add_argument("--db-host", help="PostgreSQL 主机，默认使用 DB_HOST 或 localhost")
+        parser.add_argument("--db-port", help="PostgreSQL 端口，默认使用 DB_PORT 或 5432")
+        parser.add_argument("--postgres-maintenance-db", default="postgres", help="创建/删除临时 PostgreSQL 数据库时连接的维护库")
+        parser.add_argument("--postgres-create-db", action="store_true", help="冒烟开始前创建临时 PostgreSQL 数据库")
+        parser.add_argument("--postgres-drop-db", action="store_true", help="冒烟结束后删除 --postgres-create-db 创建的临时 PostgreSQL 数据库")
+        parser.add_argument("--redis", choices=("auto", "on", "off"), default="auto", help="传递给 install_forum 的 Redis 策略")
+        parser.add_argument("--redis-host", help="Redis 主机")
+        parser.add_argument("--redis-port", help="Redis 端口")
+        parser.add_argument("--redis-db", help="Redis 数据库编号")
+        parser.add_argument("--frontend-url", default="http://localhost:5173", help="传递给 install_forum 的前端 URL")
+        parser.add_argument(
+            "--email-backend",
+            default="django.core.mail.backends.smtp.EmailBackend",
+            help="传递给 install_forum 的邮件后端，默认 SMTP backend 以满足 PostgreSQL 生产自检",
+        )
         parser.add_argument("--skip-collectstatic", action="store_true", help="传递给 install_forum / upgrade_forum，跳过 collectstatic")
         parser.add_argument("--skip-extension-frontend", action="store_true", help="传递给 install_forum / upgrade_forum，跳过扩展前端清单生成")
         parser.add_argument("--rebuild-extension-frontend", action="store_true", help="传递给 install_forum / upgrade_forum，执行真实前端构建")
@@ -41,11 +61,15 @@ class Command(BaseCommand):
         workdir = Path(explicit_workdir) if explicit_workdir else Path(tempfile.mkdtemp(prefix="bias-install-upgrade-"))
         created_workdir = not explicit_workdir
         config_path = workdir / "instance" / "site.json"
+        database = str(options["database"])
+        postgres_database = None
+        if database == "postgres":
+            postgres_database = self._build_postgres_database_options(options)
 
         install_args = [
             "install_forum",
             "--database",
-            "sqlite",
+            database,
             "--config",
             str(config_path),
             "--overwrite",
@@ -56,9 +80,34 @@ class Command(BaseCommand):
             str(options["admin_email"]),
             "--admin-password",
             str(options["admin_password"]),
-            "--sqlite-name",
-            str(workdir / "db.sqlite3"),
         ]
+        if database == "sqlite":
+            install_args.extend(["--sqlite-name", str(workdir / "db.sqlite3")])
+        else:
+            install_args.extend([
+                "--db-name",
+                postgres_database["name"],
+                "--db-user",
+                postgres_database["user"],
+                "--db-password",
+                postgres_database["password"],
+                "--db-host",
+                postgres_database["host"],
+                "--db-port",
+                postgres_database["port"],
+                "--redis",
+                str(options["redis"]),
+                "--email-backend",
+                str(options["email_backend"]),
+                "--frontend-url",
+                str(options["frontend_url"]),
+            ])
+            if options.get("redis_host"):
+                install_args.extend(["--redis-host", str(options["redis_host"])])
+            if options.get("redis_port"):
+                install_args.extend(["--redis-port", str(options["redis_port"])])
+            if options.get("redis_db"):
+                install_args.extend(["--redis-db", str(options["redis_db"])])
         upgrade_args = [
             "upgrade_forum",
             "--config",
@@ -81,6 +130,8 @@ class Command(BaseCommand):
         payload = {
             "workdir": str(workdir),
             "config_path": str(config_path),
+            "database": database,
+            "postgres": dict(postgres_database or {}),
             "static_root": str(workdir / "staticfiles"),
             "install": None,
             "upgrade": None,
@@ -96,6 +147,8 @@ class Command(BaseCommand):
             workdir.mkdir(parents=True, exist_ok=True)
             env = build_manage_env(config_path=config_path)
             env["BIAS_STATIC_ROOT"] = str(workdir / "staticfiles")
+            if postgres_database and options["postgres_create_db"]:
+                payload["postgres"]["created"] = self._create_postgres_database(postgres_database)
             if options["from_wheels"]:
                 wheel_payload = self._build_and_install_wheels(
                     workdir,
@@ -118,6 +171,11 @@ class Command(BaseCommand):
                 self.stdout.write(json.dumps(payload, ensure_ascii=False, indent=2))
             raise
         finally:
+            if postgres_database and options["postgres_create_db"] and options["postgres_drop_db"]:
+                try:
+                    payload["postgres"]["dropped"] = self._drop_postgres_database(postgres_database)
+                except Exception as exc:
+                    payload["postgres"]["drop_error"] = str(exc)
             if created_workdir and not keep_workdir:
                 shutil.rmtree(workdir, ignore_errors=True)
 
@@ -128,8 +186,90 @@ class Command(BaseCommand):
             self.stdout.write(f"- 临时站点: {workdir}")
             if payload.get("wheel_install"):
                 self.stdout.write(f"- wheel target: {payload['wheel_install']['target']}")
+            if payload.get("postgres"):
+                self.stdout.write(f"- PostgreSQL database: {payload['postgres'].get('name')}")
             self.stdout.write(f"- 已启用扩展: {len(payload['upgrade']['enabled_extensions'])}")
             self.stdout.write(f"- 管理员: {payload['upgrade']['admin_username']}")
+
+    def _build_postgres_database_options(self, options: dict) -> dict[str, str]:
+        create_db = bool(options.get("postgres_create_db"))
+        name = str(options.get("db_name") or os.getenv("DB_NAME") or "").strip()
+        if create_db and not name:
+            name = f"bias_smoke_{uuid.uuid4().hex[:12]}"
+        user = str(options.get("db_user") or os.getenv("DB_USER") or "").strip()
+        password = str(options.get("db_password") or os.getenv("DB_PASSWORD") or "").strip()
+        host = str(options.get("db_host") or os.getenv("DB_HOST") or "localhost").strip()
+        port = str(options.get("db_port") or os.getenv("DB_PORT") or "5432").strip()
+        missing = [
+            field for field, value in (
+                ("db_name", name),
+                ("db_user", user),
+                ("db_password", password),
+                ("db_host", host),
+                ("db_port", port),
+            )
+            if not value
+        ]
+        if missing:
+            raise CommandError(f"PostgreSQL 冒烟缺少必要配置: {', '.join(missing)}")
+        return {
+            "name": name,
+            "user": user,
+            "password": password,
+            "host": host,
+            "port": port,
+            "maintenance_db": str(options.get("postgres_maintenance_db") or "postgres"),
+            "created": False,
+            "dropped": False,
+        }
+
+    def _create_postgres_database(self, database: dict[str, str]) -> bool:
+        from psycopg2 import sql
+
+        dbname = database["name"]
+        connection = self._postgres_admin_connection(database)
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT 1 FROM pg_database WHERE datname = %s", [dbname])
+                if cursor.fetchone():
+                    raise CommandError(f"PostgreSQL 冒烟数据库已存在: {dbname}")
+                cursor.execute(sql.SQL("CREATE DATABASE {} OWNER {}").format(
+                    sql.Identifier(dbname),
+                    sql.Identifier(database["user"]),
+                ))
+        finally:
+            connection.close()
+        return True
+
+    def _drop_postgres_database(self, database: dict[str, str]) -> bool:
+        from psycopg2 import sql
+
+        dbname = database["name"]
+        connection = self._postgres_admin_connection(database)
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = %s AND pid <> pg_backend_pid()",
+                    [dbname],
+                )
+                cursor.execute(sql.SQL("DROP DATABASE IF EXISTS {}").format(sql.Identifier(dbname)))
+        finally:
+            connection.close()
+        return True
+
+    def _postgres_admin_connection(self, database: dict[str, str]):
+        import psycopg2
+
+        connection = psycopg2.connect(
+            dbname=database["maintenance_db"],
+            user=database["user"],
+            password=database["password"],
+            host=database["host"],
+            port=database["port"],
+            connect_timeout=5,
+        )
+        connection.autocommit = True
+        return connection
 
     def _build_and_install_wheels(self, workdir: Path, *, source_root: Path, timeout: int) -> dict:
         wheelhouse = workdir / "wheelhouse"

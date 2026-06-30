@@ -3581,6 +3581,135 @@ class ExtensionManagementCommandTests(TestCase):
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
+    def test_smoke_install_upgrade_can_run_against_postgres_database(self):
+        temp_dir = make_workspace_temp_dir()
+        calls = []
+        lifecycle = []
+        state_payloads = [
+            {
+                "admin_exists": True,
+                "admin_username": "smoke-admin",
+                "admin_email": "smoke-admin@example.com",
+                "installed_extensions": ["users"],
+                "enabled_extensions": ["users"],
+                "settings": {
+                    "system.version": "\"1.2.3\"",
+                    "advanced.queue_enabled": "false",
+                },
+            },
+            {
+                "admin_exists": True,
+                "admin_username": "smoke-admin",
+                "admin_email": "smoke-admin@example.com",
+                "installed_extensions": ["users"],
+                "enabled_extensions": ["users"],
+                "settings": {
+                    "system.version": "\"1.2.3\"",
+                    "advanced.queue_enabled": "false",
+                },
+            },
+        ]
+        static_payload = {
+            "static_root_exists": False,
+            "frontend_root_exists": False,
+            "frontend_file_count": 0,
+            "build_manifest_exists": False,
+            "output_manifest_exists": False,
+        }
+
+        def fake_run_manage_py(args, env):
+            calls.append((list(args), dict(env)))
+            if args[:2] == ["shell", "-c"]:
+                if "static_root = Path(settings.STATIC_ROOT)" in args[2]:
+                    return SimpleNamespace(stdout=json.dumps(static_payload), stderr="", returncode=0)
+                return SimpleNamespace(stdout=json.dumps(state_payloads.pop(0)), stderr="", returncode=0)
+            return SimpleNamespace(stdout="", stderr="", returncode=0)
+
+        def fake_create(self, database):
+            lifecycle.append(("create", dict(database)))
+            return True
+
+        def fake_drop(self, database):
+            lifecycle.append(("drop", dict(database)))
+            return True
+
+        try:
+            stdout = StringIO()
+            with patch("bias_core.management.commands.smoke_install_upgrade.Command._create_postgres_database", fake_create):
+                with patch("bias_core.management.commands.smoke_install_upgrade.Command._drop_postgres_database", fake_drop):
+                    with patch("bias_core.management.commands.smoke_install_upgrade.run_manage_py", side_effect=fake_run_manage_py):
+                        call_command(
+                            "smoke_install_upgrade",
+                            "--workdir",
+                            str(temp_dir),
+                            "--database",
+                            "postgres",
+                            "--db-name",
+                            "bias_smoke_test",
+                            "--db-user",
+                            "bias",
+                            "--db-password",
+                            "biaspass",
+                            "--db-host",
+                            "db",
+                            "--db-port",
+                            "5432",
+                            "--postgres-create-db",
+                            "--postgres-drop-db",
+                            "--skip-collectstatic",
+                            "--skip-extension-frontend",
+                            "--format",
+                            "json",
+                            stdout=stdout,
+                        )
+
+            payload = json.loads(stdout.getvalue())
+            self.assertTrue(payload["summary"]["ok"])
+            self.assertEqual(payload["database"], "postgres")
+            self.assertEqual(payload["postgres"]["name"], "bias_smoke_test")
+            self.assertTrue(payload["postgres"]["created"])
+            self.assertTrue(payload["postgres"]["dropped"])
+            self.assertEqual([item[0] for item in lifecycle], ["create", "drop"])
+
+            install_args = calls[0][0]
+            self.assertEqual(install_args[0], "install_forum")
+            self.assertEqual(install_args[install_args.index("--database") + 1], "postgres")
+            self.assertEqual(install_args[install_args.index("--db-name") + 1], "bias_smoke_test")
+            self.assertEqual(install_args[install_args.index("--db-user") + 1], "bias")
+            self.assertEqual(install_args[install_args.index("--db-password") + 1], "biaspass")
+            self.assertEqual(install_args[install_args.index("--db-host") + 1], "db")
+            self.assertEqual(install_args[install_args.index("--db-port") + 1], "5432")
+            self.assertEqual(install_args[install_args.index("--redis") + 1], "auto")
+            self.assertEqual(install_args[install_args.index("--frontend-url") + 1], "http://localhost:5173")
+            self.assertEqual(
+                install_args[install_args.index("--email-backend") + 1],
+                "django.core.mail.backends.smtp.EmailBackend",
+            )
+            self.assertNotIn("--sqlite-name", install_args)
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_smoke_install_upgrade_postgres_requires_database_config(self):
+        temp_dir = make_workspace_temp_dir()
+        try:
+            with patch.dict(os.environ, {
+                "DB_NAME": "",
+                "DB_USER": "",
+                "DB_PASSWORD": "",
+                "DB_HOST": "",
+                "DB_PORT": "",
+            }, clear=False):
+                with self.assertRaisesMessage(CommandError, "PostgreSQL 冒烟缺少必要配置"):
+                    call_command_quietly(
+                        "smoke_install_upgrade",
+                        "--workdir",
+                        str(temp_dir),
+                        "--database",
+                        "postgres",
+                    )
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
     def test_smoke_install_upgrade_from_wheels_rejects_source_import(self):
         temp_dir = make_workspace_temp_dir()
         wheel_target = Path(temp_dir) / "site-packages"
@@ -3709,7 +3838,7 @@ class ExtensionManagementCommandTests(TestCase):
                         call_command_quietly(
                             "install_forum",
                             "--database",
-                            "sqlite",
+                            "postgres",
                             "--config",
                             str(config_path),
                             "--overwrite",
@@ -3720,13 +3849,28 @@ class ExtensionManagementCommandTests(TestCase):
                             "smoke-admin@example.com",
                             "--admin-password",
                             "smoke-admin-password",
-                            "--sqlite-name",
-                            str(Path(temp_dir) / "db.sqlite3"),
+                            "--db-name",
+                            "bias_smoke_test",
+                            "--db-user",
+                            "bias",
+                            "--db-password",
+                            "biaspass",
+                            "--db-host",
+                            "127.0.0.1",
+                            "--db-port",
+                            "5432",
+                            "--redis",
+                            "auto",
                             "--publish-frontend-dist",
                         )
 
             frontend_call = next(args for args in calls if args and args[0] == "build_extension_frontend")
+            settings_call = next(args for args in calls if args[:2] == ["shell", "-c"] and "advanced.queue_enabled" in args[2])
+            migrate_index = calls.index(["migrate", "--noinput"])
+            sync_index = calls.index(["sync_extensions"])
             collectstatic_index = calls.index(["collectstatic", "--noinput"])
+            self.assertLess(migrate_index, calls.index(settings_call))
+            self.assertLess(calls.index(settings_call), sync_index)
             self.assertLess(calls.index(frontend_call), collectstatic_index)
             self.assertIn("--rebuild", frontend_call)
             self.assertIn("--publish", frontend_call)

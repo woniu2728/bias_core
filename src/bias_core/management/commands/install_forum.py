@@ -206,7 +206,7 @@ class Command(BaseCommand):
             else:
                 self.stdout.write("[SKIP] 已跳过 migrate")
 
-            self._write_install_settings(install_settings)
+            self._write_install_settings(install_settings, command_env)
 
             if not options["skip_sync_extensions"]:
                 self._run_manage_step("扩展状态同步", ["sync_extensions"], command_env)
@@ -467,9 +467,18 @@ class Command(BaseCommand):
             "advanced.queue_driver": json.dumps("redis", ensure_ascii=False),
         }
 
-    def _write_install_settings(self, settings_map: dict[str, str]) -> None:
-        for key, value in settings_map.items():
-            Setting.objects.update_or_create(key=key, defaults={"value": value})
+    def _write_install_settings(self, settings_map: dict[str, str], env: Dict[str, str]) -> None:
+        if not settings_map:
+            return
+        payload = json.dumps(settings_map, ensure_ascii=False)
+        script = "\n".join([
+            "import json",
+            "from bias_core.models import Setting",
+            f"settings_map = json.loads({payload!r})",
+            "for key, value in settings_map.items():",
+            "    Setting.objects.update_or_create(key=key, defaults={'value': value})",
+        ])
+        self._run_manage_step("安装运行时设置写入", ["shell", "-c", script], env)
 
     def _run_manage_step(self, label: str, args: list[str], env: Dict[str, str]) -> None:
         self.stdout.write(f"执行{label}...")
