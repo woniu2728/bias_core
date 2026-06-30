@@ -182,6 +182,15 @@ class ForumDiscussionApiTests(TestCase):
         self.assertEqual(response.status_code, 200, response.content)
         return {item["id"] for item in response.json()[key]}
 
+    def assert_plain_api_error(self, response, *, status, code, message):
+        self.assertEqual(response.status_code, status, response.content)
+        payload = response.json()
+        self.assertEqual(payload["error"], message)
+        self.assertEqual(payload["message"], message)
+        self.assertEqual(payload["code"], code)
+        self.assertEqual(payload["field_errors"], {})
+        self.assertTrue(payload["request_id"])
+
     def test_discussion_list_endpoint_returns_visible_discussions_with_default_relationships(self):
         discussion = self.create_discussion(title="Visible topic", content="Opening post")
         self.create_reply(discussion, content="Follow-up reply")
@@ -201,6 +210,29 @@ class ForumDiscussionApiTests(TestCase):
         self.assertEqual(row["last_posted_user"]["username"], self.other_user.username)
         self.assertEqual(row["most_relevant_post"]["number"], 1)
         self.assertEqual(row["most_relevant_post"]["user"]["username"], self.user.username)
+
+    def test_discussion_list_endpoint_respects_resource_fields_and_includes(self):
+        discussion = self.create_discussion(title="Resource list topic", content="Opening resource body")
+        reply = self.create_reply(discussion, content="Included resource reply", user=self.other_user)
+
+        response = self.client.get(
+            "/api/discussions/",
+            {
+                "fields[discussion]": "can_reply,can_hide",
+                "include": "first_post,last_post.user",
+            },
+            **self.auth_header(self.user),
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        row = response.json()["data"][0]
+        self.assertEqual(row["id"], discussion.id)
+        self.assertEqual(row["title"], "Resource list topic")
+        self.assertTrue(row["can_reply"])
+        self.assertFalse(row["can_hide"])
+        self.assertEqual(row["first_post"]["content"], "Opening resource body")
+        self.assertEqual(row["last_post"]["id"], reply.id)
+        self.assertEqual(row["last_post"]["user"]["username"], self.other_user.username)
 
     def test_discussion_list_endpoint_keeps_query_count_within_budget(self):
         for index in range(6):
@@ -270,6 +302,29 @@ class ForumDiscussionApiTests(TestCase):
         self.assertIn("last_read_post_number", payload)
         self.assertIn("unread_count", payload)
 
+    def test_discussion_detail_endpoint_respects_resource_fields_and_includes(self):
+        discussion = self.create_discussion(title="Resource detail topic", content="Opening detail body")
+        reply = self.create_reply(discussion, content="Detail include reply", user=self.other_user)
+
+        response = self.client.get(
+            f"/api/discussions/{discussion.id}",
+            {
+                "fields[discussion]": "can_reply,can_hide",
+                "include": "last_post.user",
+            },
+            **self.auth_header(self.user),
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        payload = response.json()
+        self.assertEqual(payload["id"], discussion.id)
+        self.assertEqual(payload["title"], "Resource detail topic")
+        self.assertTrue(payload["can_reply"])
+        self.assertFalse(payload["can_hide"])
+        self.assertEqual(payload["last_post"]["id"], reply.id)
+        self.assertEqual(payload["last_post"]["user"]["username"], self.other_user.username)
+        self.assertEqual(payload["first_post"]["content"], "Opening detail body")
+
     def test_post_stream_endpoint_supports_window_parameters(self):
         discussion = self.create_discussion(title="Post stream", content="Opening")
         post_two = self.create_reply(discussion, content="Second")
@@ -299,6 +354,91 @@ class ForumDiscussionApiTests(TestCase):
         self.assertEqual([item["number"] for item in after_response.json()["data"]], [post_three.number])
         self.assertTrue(after_response.json()["has_previous"])
         self.assertFalse(after_response.json()["has_more"])
+
+    def test_post_stream_and_detail_endpoints_respect_resource_fields_and_includes(self):
+        discussion = self.create_discussion(title="Post resource discussion", content="Opening")
+        reply = self.create_reply(discussion, content="Reply with resource fields", user=self.other_user)
+
+        stream_response = self.client.get(
+            f"/api/discussions/{discussion.id}/posts",
+            {
+                "fields[post]": "can_hide,post_type",
+                "include": "discussion",
+            },
+            **self.auth_header(self.moderator),
+        )
+        detail_response = self.client.get(
+            f"/api/posts/{reply.id}",
+            {
+                "fields[post]": "can_hide,post_type",
+                "include": "discussion",
+            },
+            **self.auth_header(self.moderator),
+        )
+
+        self.assertEqual(stream_response.status_code, 200, stream_response.content)
+        stream_reply = next(item for item in stream_response.json()["data"] if item["id"] == reply.id)
+        self.assertEqual(stream_reply["content"], "Reply with resource fields")
+        self.assertTrue(stream_reply["can_hide"])
+        self.assertEqual(stream_reply["post_type"]["code"], "comment")
+        self.assertEqual(stream_reply["discussion"]["id"], discussion.id)
+        self.assertEqual(stream_reply["discussion"]["title"], "Post resource discussion")
+
+        self.assertEqual(detail_response.status_code, 200, detail_response.content)
+        detail_payload = detail_response.json()
+        self.assertEqual(detail_payload["id"], reply.id)
+        self.assertTrue(detail_payload["can_hide"])
+        self.assertEqual(detail_payload["post_type"]["code"], "comment")
+        self.assertEqual(detail_payload["discussion"]["id"], discussion.id)
+
+    def test_core_forum_resource_endpoints_return_consistent_plain_error_format(self):
+        discussion = self.create_discussion(title="Error resource topic", content="Opening")
+        reply = self.create_reply(discussion, content="Error resource reply", user=self.other_user)
+
+        missing_discussion_response = self.client.get("/api/discussions/999999")
+        forbidden_discussion_response = self.client.post(
+            f"/api/discussions/{discussion.id}/lock",
+            **self.auth_header(self.other_user),
+        )
+        missing_stream_response = self.client.get("/api/discussions/999999/posts")
+        missing_post_response = self.client.get("/api/posts/999999")
+        forbidden_post_response = self.client.patch(
+            f"/api/posts/{reply.id}",
+            data=json.dumps({"content": "Unauthorized edit"}),
+            content_type="application/json",
+            **self.auth_header(self.user),
+        )
+
+        self.assert_plain_api_error(
+            missing_discussion_response,
+            status=404,
+            code="not_found",
+            message="讨论不存在",
+        )
+        self.assert_plain_api_error(
+            forbidden_discussion_response,
+            status=403,
+            code="forbidden",
+            message="没有权限锁定/解锁讨论",
+        )
+        self.assert_plain_api_error(
+            missing_stream_response,
+            status=404,
+            code="not_found",
+            message="讨论不存在",
+        )
+        self.assert_plain_api_error(
+            missing_post_response,
+            status=404,
+            code="not_found",
+            message="帖子不存在",
+        )
+        self.assert_plain_api_error(
+            forbidden_post_response,
+            status=403,
+            code="forbidden",
+            message="没有权限编辑此帖子",
+        )
 
     def test_discussion_read_state_endpoints_mark_single_and_all_discussions_read(self):
         first_discussion = self.create_discussion(title="Read state one", content="Opening", user=self.user)
