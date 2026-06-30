@@ -40,13 +40,13 @@ class ExtensionManagementCommandTests(TestCase):
         self.assertEqual(SyncPackageMetadataCommand.requires_system_checks, [])
         self.assertEqual(ValidateExtensionsCommand.requires_system_checks, [])
 
-    def test_ci_runs_extension_import_boundary_audit_when_split_workspace_is_available(self):
+    def test_ci_runs_extension_workspace_gate_when_split_workspace_is_available(self):
         workflow_path = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "ci.yml"
         workflow = workflow_path.read_text(encoding="utf-8")
 
-        self.assertIn("Audit extension backend import boundaries", workflow)
-        self.assertIn("python -m django inspect_extension_imports", workflow)
-        self.assertIn("--fail-on-warnings", workflow)
+        self.assertIn("Check extension workspace gate", workflow)
+        self.assertIn("python -m django check_extension_workspace", workflow)
+        self.assertNotIn("python -m django inspect_extension_imports", workflow)
         self.assertIn("python -m django inspect_extension_packages", workflow)
         self.assertIn("--require-extensions", workflow)
         self.assertIn("--migration-smoke", workflow)
@@ -3234,15 +3234,12 @@ class ExtensionManagementCommandTests(TestCase):
 
             validate_call = next((args for name, args in calls if name == "validate_extensions"), None)
             sync_call = next((args for name, args in calls if name == "sync_extension_package_metadata"), None)
-            import_call = next((args for name, args in calls if name == "inspect_extension_imports"), None)
+            workspace_gate_call = next((args for name, args in calls if name == "check_extension_workspace"), None)
             package_call = next((args for name, args in calls if name == "inspect_extension_packages"), None)
             self.assertIsNotNone(sync_call)
             self.assertIn("--extensions-path", sync_call)
-            self.assertIsNotNone(import_call)
-            self.assertNotIn("--internal", import_call)
-            self.assertIn("--require-extensions", import_call)
-            self.assertIn("--fail-on-warnings", import_call)
-            self.assertIn("--extensions-path", import_call)
+            self.assertIsNotNone(workspace_gate_call)
+            self.assertIn("--extensions-path", workspace_gate_call)
             self.assertIsNotNone(package_call)
             self.assertIn("--install-set-smoke", package_call)
             self.assertIn("--migration-smoke", package_call)
@@ -3310,12 +3307,12 @@ class ExtensionManagementCommandTests(TestCase):
 
             validate_call = next(args for name, args in calls if name == "validate_extensions")
             sync_call = next(args for name, args in calls if name == "sync_extension_package_metadata")
-            import_call = next(args for name, args in calls if name == "inspect_extension_imports")
+            workspace_gate_call = next(args for name, args in calls if name == "check_extension_workspace")
             sync_extensions_path = sync_call[sync_call.index("--extensions-path") + 1]
-            import_extensions_path = import_call[import_call.index("--extensions-path") + 1]
+            workspace_gate_extensions_path = workspace_gate_call[workspace_gate_call.index("--extensions-path") + 1]
             extensions_path = validate_call[validate_call.index("--extensions-path") + 1]
             self.assertEqual(sync_extensions_path, str(workspace_root / "extensions"))
-            self.assertEqual(import_extensions_path, str(workspace_root / "extensions"))
+            self.assertEqual(workspace_gate_extensions_path, str(workspace_root / "extensions"))
             self.assertEqual(extensions_path, str(workspace_root / "extensions"))
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
@@ -3369,17 +3366,17 @@ class ExtensionManagementCommandTests(TestCase):
             }), encoding="utf-8")
 
             def fake_call_command(name, *args, **kwargs):
-                if name == "inspect_extension_imports":
-                    raise CommandError("扩展 import 边界审计失败")
+                if name == "check_extension_workspace":
+                    raise CommandError("扩展 workspace 门禁失败")
                 if name in {"validate_extensions", "inspect_extensions"}:
-                    self.fail("prepare_release should stop before extension validation when import boundary fails")
+                    self.fail("prepare_release should stop before extension validation when workspace gate fails")
                 return None
 
             with override_settings(BASE_DIR=base_dir, BIAS_FRONTEND_DIR=frontend_dir):
                 with patch("bias_core.management.commands.prepare_release.run_git_command") as git_mock:
                     git_mock.return_value = SimpleNamespace(stdout="")
                     with patch("bias_core.management.commands.prepare_release.call_command", side_effect=fake_call_command):
-                        with self.assertRaisesMessage(CommandError, "扩展 import 边界审计失败"):
+                        with self.assertRaisesMessage(CommandError, "扩展 workspace 门禁失败"):
                             call_command_quietly(
                                 "prepare_release",
                                 "--skip-frontend-platform-check",

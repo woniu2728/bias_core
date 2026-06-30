@@ -73,28 +73,16 @@ jobs:
         run: |
           python -m django test tests.test_extension_commands tests.test_extension_boundary -v 2
 
-      - name: Audit extension backend import boundaries
+      - name: Check extension workspace gate
         env:
           DJANGO_SETTINGS_MODULE: tests.settings
           BIAS_EXTENSION_WORKSPACE_ROOT: ${{ github.workspace }}/..
           BIAS_FRONTEND_DIR: ${{ github.workspace }}/../bias/frontend
         run: |
           if [ -d "$BIAS_EXTENSION_WORKSPACE_ROOT/bias-ext-tags" ]; then
-            python -m django inspect_extension_imports --extensions-path "$BIAS_EXTENSION_WORKSPACE_ROOT/extensions" --require-extensions --fail-on-warnings
+            python -m django check_extension_workspace --extensions-path "$BIAS_EXTENSION_WORKSPACE_ROOT/extensions"
           else
-            echo "Split extension workspace not present; backend import boundary audit is covered in workspace CI."
-          fi
-
-      - name: Audit extension test import boundaries
-        env:
-          DJANGO_SETTINGS_MODULE: tests.settings
-          BIAS_EXTENSION_WORKSPACE_ROOT: ${{ github.workspace }}/..
-          BIAS_FRONTEND_DIR: ${{ github.workspace }}/../bias/frontend
-        run: |
-          if [ -d "$BIAS_EXTENSION_WORKSPACE_ROOT/bias-ext-tags" ]; then
-            python -m django inspect_extension_imports --extensions-path "$BIAS_EXTENSION_WORKSPACE_ROOT/extensions" --require-extensions --fail-on-warnings --include-tests
-          else
-            echo "Split extension workspace not present; test import boundary audit is covered in workspace CI."
+            echo "Split extension workspace not present; workspace gate is covered in workspace CI."
           fi
 
       - name: Audit extension wheel packages

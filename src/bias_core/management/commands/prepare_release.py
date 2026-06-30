@@ -82,17 +82,7 @@ class Command(BaseCommand):
             str(extensions_path),
         )
         call_command(
-            "inspect_extension_imports",
-            "--require-extensions",
-            "--fail-on-warnings",
-            "--extensions-path",
-            str(extensions_path),
-        )
-        call_command(
-            "inspect_extension_imports",
-            "--require-extensions",
-            "--fail-on-warnings",
-            "--include-tests",
+            "check_extension_workspace",
             "--extensions-path",
             str(extensions_path),
         )
