@@ -86,6 +86,7 @@ _EXPORT_MODULES = {
     "RoutesExtender": "bias_core.extensions.extenders_routes_policy",
     "RuntimeActionsExtender": "bias_core.extensions.extenders_forum_admin",
     "RuntimeModel": "bias_core.extensions.extenders_model_search",
+    "RuntimeServiceContractExtender": "bias_core.extensions.extenders_system",
     "SearchDriverExtender": "bias_core.extensions.extenders_model_search",
     "SearchFilterDefinition": "bias_core.extensions.sdk",
     "SearchIndexExtender": "bias_core.extensions.extenders_model_search",

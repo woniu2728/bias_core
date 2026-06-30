@@ -1054,9 +1054,10 @@ def _snapshot_formatter_pipeline(items):
 
 
 def _snapshot_runtime_contracts(runtime_view):
+    host = get_extension_host()
     return {
         "facades": _snapshot_runtime_facades(),
-        "service_contracts": snapshot_runtime_service_contracts(),
+        "service_contracts": snapshot_runtime_service_contracts(host=host),
         "validators": _snapshot_objects(_runtime_items(runtime_view, "validators"), ("target", "key", "module_id", "description")),
         "mailers": _snapshot_objects(_runtime_items(runtime_view, "mailers"), ("key", "module_id", "description")),
         "error_handlers": _snapshot_objects(_runtime_items(runtime_view, "error_handlers"), ("key", "module_id", "description", "order")),

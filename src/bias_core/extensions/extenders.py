@@ -49,6 +49,7 @@ from bias_core.extensions.extenders_system import (
     ErrorHandlingExtender,
     FilesystemExtender,
     PostEventExtender,
+    RuntimeServiceContractExtender,
     ServiceProviderExtender,
     SessionExtender,
     SystemHookExtender,

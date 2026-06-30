@@ -4,6 +4,7 @@ from dataclasses import dataclass, replace
 from typing import Any, TYPE_CHECKING
 
 from bias_core.extensions.container import wrap_callback
+from bias_core.extensions.runtime_service_contracts import RuntimeServiceContract
 from bias_core.extensions.types import ExtensionSystemHookDefinition
 
 if TYPE_CHECKING:
@@ -31,6 +32,52 @@ class ServiceProviderExtender:
             return providers
 
         app.resolving("providers", apply)
+
+
+@dataclass(frozen=True)
+class RuntimeServiceContractExtender:
+    contracts: tuple[RuntimeServiceContract, ...] = ()
+
+    def service(
+        self,
+        service_key: str,
+        *,
+        required_methods: tuple[str, ...] | list[str] | set[str] = (),
+        required_values: tuple[str, ...] | list[str] | set[str] = (),
+        optional_methods: tuple[str, ...] | list[str] | set[str] = (),
+    ) -> "RuntimeServiceContractExtender":
+        normalized_key = str(service_key or "").strip()
+        if not normalized_key:
+            return self
+        contract = RuntimeServiceContract(
+            service_key=normalized_key,
+            provider_extension="",
+            required_methods=_normalize_contract_names(required_methods),
+            required_values=_normalize_contract_names(required_values),
+            optional_methods=_normalize_contract_names(optional_methods),
+        )
+        return RuntimeServiceContractExtender(tuple([*self.contracts, contract]))
+
+    def extend(self, app: "ExtensionHost", extension: "ExtensionRuntimeView") -> None:
+        extension_id = str(extension.extension_id or "").strip()
+        if not extension_id:
+            return
+        register = getattr(app, "register_runtime_service_contract", None)
+        for contract in self.contracts:
+            if not contract.service_key:
+                continue
+            declared = replace(contract, provider_extension=extension_id)
+            if callable(register):
+                register(extension, declared)
+            else:
+                extension.runtime_service_contracts = tuple([
+                    *(
+                        existing
+                        for existing in extension.runtime_service_contracts
+                        if existing.service_key != declared.service_key
+                    ),
+                    declared,
+                ])
 
 
 @dataclass(frozen=True)
@@ -138,6 +185,14 @@ class PostEventExtender:
             return service
 
         app.resolving("post.events", apply)
+
+
+def _normalize_contract_names(values) -> tuple[str, ...]:
+    return tuple(
+        item
+        for item in sorted({str(value or "").strip() for value in values or ()})
+        if item
+    )
 
 
 class ErrorHandlingExtender(SystemHookExtender):

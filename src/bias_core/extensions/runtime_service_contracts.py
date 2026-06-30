@@ -236,12 +236,34 @@ RUNTIME_SERVICE_CONTRACTS = {
 }
 
 
-def get_runtime_service_contracts(*, provider_extension: str | None = None) -> tuple[RuntimeServiceContract, ...]:
+def get_declared_runtime_service_contracts(host: Any) -> tuple[RuntimeServiceContract, ...]:
+    if host is None:
+        return ()
+    getter = getattr(host, "get_runtime_views", None) or getattr(host, "get_extension_views", None)
+    if not callable(getter):
+        return ()
+    contracts: dict[str, RuntimeServiceContract] = {}
+    for view in getter() or ():
+        extension_id = str(getattr(view, "extension_id", "") or getattr(view, "id", "") or "").strip()
+        for contract in getattr(view, "runtime_service_contracts", ()) or ():
+            normalized = _normalize_runtime_service_contract(contract, provider_extension=extension_id)
+            if normalized is not None:
+                contracts[normalized.service_key] = normalized
+    return tuple(contracts[key] for key in sorted(contracts))
+
+
+def get_runtime_service_contracts(
+    *,
+    host: Any | None = None,
+    provider_extension: str | None = None,
+) -> tuple[RuntimeServiceContract, ...]:
     normalized_provider = str(provider_extension or "").strip()
-    contracts = tuple(
-        RUNTIME_SERVICE_CONTRACTS[key]
-        for key in sorted(RUNTIME_SERVICE_CONTRACTS)
-    )
+    contracts_by_key = dict(RUNTIME_SERVICE_CONTRACTS)
+    contracts_by_key.update({
+        contract.service_key: contract
+        for contract in get_declared_runtime_service_contracts(host)
+    })
+    contracts = tuple(contracts_by_key[key] for key in sorted(contracts_by_key))
     if not normalized_provider:
         return contracts
     return tuple(
@@ -255,7 +277,7 @@ def inspect_runtime_service_contracts(host: Any, *, provider_extension: str | No
     issues: list[dict] = []
     if host is None:
         return issues
-    for contract in get_runtime_service_contracts(provider_extension=provider_extension):
+    for contract in get_runtime_service_contracts(host=host, provider_extension=provider_extension):
         if not _host_provider_registered(host, contract):
             issues.append(_issue(contract, "missing_provider_registration", contract.service_key))
         service = _resolve_host_service(host, contract.service_key)
@@ -271,7 +293,7 @@ def inspect_runtime_service_contracts(host: Any, *, provider_extension: str | No
     return issues
 
 
-def snapshot_runtime_service_contracts() -> list[dict]:
+def snapshot_runtime_service_contracts(*, host: Any | None = None) -> list[dict]:
     return [
         {
             "service_key": contract.service_key,
@@ -280,7 +302,7 @@ def snapshot_runtime_service_contracts() -> list[dict]:
             "required_values": sorted(contract.required_values),
             "optional_methods": sorted(contract.optional_methods),
         }
-        for contract in get_runtime_service_contracts()
+        for contract in get_runtime_service_contracts(host=host)
     ]
 
 
@@ -325,6 +347,32 @@ def _issue(contract: RuntimeServiceContract, code: str, member: str) -> dict:
     }
 
 
+def _normalize_runtime_service_contract(
+    contract: RuntimeServiceContract,
+    *,
+    provider_extension: str = "",
+) -> RuntimeServiceContract | None:
+    service_key = str(getattr(contract, "service_key", "") or "").strip()
+    if not service_key:
+        return None
+    provider = str(provider_extension or getattr(contract, "provider_extension", "") or "").strip()
+    return RuntimeServiceContract(
+        service_key=service_key,
+        provider_extension=provider,
+        required_methods=_normalize_contract_names(getattr(contract, "required_methods", ()) or ()),
+        required_values=_normalize_contract_names(getattr(contract, "required_values", ()) or ()),
+        optional_methods=_normalize_contract_names(getattr(contract, "optional_methods", ()) or ()),
+    )
+
+
+def _normalize_contract_names(values) -> tuple[str, ...]:
+    return tuple(
+        item
+        for item in sorted({str(value or "").strip() for value in values or ()})
+        if item
+    )
+
+
 def _validate_runtime_service_contracts() -> None:
     for service_key, contract in RUNTIME_SERVICE_CONTRACTS.items():
         if service_key != contract.service_key:
@@ -357,6 +405,7 @@ _validate_runtime_service_contracts()
 __all__ = [
     "RUNTIME_SERVICE_CONTRACTS",
     "RuntimeServiceContract",
+    "get_declared_runtime_service_contracts",
     "get_runtime_service_contracts",
     "inspect_runtime_service_contracts",
     "snapshot_runtime_service_contracts",

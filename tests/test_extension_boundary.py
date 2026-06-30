@@ -84,6 +84,7 @@ class ExtensionPublicApiBoundaryTests(TestCase):
             "    LifecycleExtender,\n"
             "    ModelExtender,\n"
             "    RoutesExtender,\n"
+            "    RuntimeServiceContractExtender,\n"
             "    ServiceProviderExtender,\n"
             "    SettingsExtender,\n"
             "    sdk,\n"
@@ -100,6 +101,7 @@ class ExtensionPublicApiBoundaryTests(TestCase):
             "assert ConditionalExtender().callbacks == ()\n"
             "assert ModelExtender(model='alpha').model == 'alpha'\n"
             "assert EventListenersExtender().listeners == ()\n"
+            "assert RuntimeServiceContractExtender().service('alpha.service').contracts[0].service_key == 'alpha.service'\n"
             "assert ServiceProviderExtender('alpha', object()).key == 'alpha'\n"
             "from bias_core.extensions import platform\n"
             "from bias_core.extensions.platform import api_error, get_forum_registry, set_access_token_cookie\n"
@@ -292,6 +294,66 @@ class ExtensionPublicApiBoundaryTests(TestCase):
                 return ["users.service"] if extension_id == "users" else []
 
         self.assertEqual(inspect_runtime_service_contracts(Host(), provider_extension="users"), [])
+
+    def test_runtime_service_contract_extender_declares_provider_owned_contract(self):
+        from bias_core.extensions import RuntimeServiceContractExtender
+        from bias_core.extensions.application import ExtensionApplication
+
+        app = ExtensionApplication()
+        view = app.get_or_create_runtime_view("alpha")
+        RuntimeServiceContractExtender().service(
+            "alpha.service",
+            required_methods=("run",),
+            required_values=("model",),
+            optional_methods=("serialize",),
+        ).extend(app, view)
+
+        self.assertEqual(len(view.runtime_service_contracts), 1)
+        contract = view.runtime_service_contracts[0]
+        self.assertEqual(contract.service_key, "alpha.service")
+        self.assertEqual(contract.provider_extension, "alpha")
+        self.assertEqual(contract.required_methods, ("run",))
+        self.assertEqual(contract.required_values, ("model",))
+        self.assertEqual(contract.optional_methods, ("serialize",))
+
+    def test_runtime_service_contracts_prefer_host_declared_contracts(self):
+        from bias_core.extensions.runtime_service_contracts import (
+            RuntimeServiceContract,
+            inspect_runtime_service_contracts,
+            snapshot_runtime_service_contracts,
+        )
+
+        class View:
+            extension_id = "users"
+            runtime_service_contracts = (
+                RuntimeServiceContract(
+                    service_key="users.service",
+                    provider_extension="",
+                    required_methods=("custom",),
+                    required_values=("model",),
+                ),
+            )
+
+        class Host:
+            def get_runtime_views(self):
+                return [View()]
+
+            def make(self, key, default=None):
+                if key == "users.service":
+                    return {"model": object(), "custom": lambda: None}
+                return default
+
+            def get_service_provider_keys(self, *, extension_id=None):
+                return ["users.service"] if extension_id == "users" else []
+
+        self.assertEqual(inspect_runtime_service_contracts(Host(), provider_extension="users"), [])
+        users_contract = next(
+            item
+            for item in snapshot_runtime_service_contracts(host=Host())
+            if item["service_key"] == "users.service"
+        )
+        self.assertEqual(users_contract["provider_extension"], "users")
+        self.assertEqual(users_contract["required_methods"], ["custom"])
 
     def test_platform_sdk_exports_auth_and_cookie_helpers(self):
         from bias_core.extensions import platform

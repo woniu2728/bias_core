@@ -61,6 +61,7 @@ from bias_core.extensions.forum_registry_types import (
     SearchFilterDefinition,
     UserPreferenceDefinition,
 )
+from bias_core.extensions.runtime_service_contracts import RuntimeServiceContract
 
 
 @dataclass
@@ -148,6 +149,7 @@ class ExtensionApplicationRecord:
     middleware_mounts: list[ApplicationMiddlewareMount] = field(default_factory=list)
     policy_mounts: list[ApplicationPolicyMount] = field(default_factory=list)
     service_providers: list[str] = field(default_factory=list)
+    runtime_service_contracts: list[RuntimeServiceContract] = field(default_factory=list)
     extender_keys: list[str] = field(default_factory=list)
     lifecycle_extender_keys: list[str] = field(default_factory=list)
     lifecycle_hook_keys: list[str] = field(default_factory=list)
@@ -247,6 +249,7 @@ class ExtensionRuntimeView:
     middleware_mounts: tuple[ApplicationMiddlewareMount, ...] = ()
     policy_mounts: tuple[ApplicationPolicyMount, ...] = ()
     service_providers: tuple[str, ...] = ()
+    runtime_service_contracts: tuple[RuntimeServiceContract, ...] = ()
     extender_keys: tuple[str, ...] = ()
     lifecycle_extender_keys: tuple[str, ...] = ()
     lifecycle_hook_keys: tuple[str, ...] = ()

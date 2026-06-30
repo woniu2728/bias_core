@@ -61,6 +61,7 @@ from bias_core.extensions.application_runtime import (
 )
 from bias_core.extensions.application_search import ApplicationSearchService
 from bias_core.extensions.exceptions import ExtensionBootError
+from bias_core.extensions.runtime_service_contracts import RuntimeServiceContract
 
 
 logger = logging.getLogger(__name__)
@@ -720,6 +721,22 @@ class ExtensionApplication:
         if registered_key:
             view.service_providers = tuple(self.providers.get_provider_keys(extension_id=extension.extension_id))
 
+    def register_runtime_service_contract(
+        self,
+        extension: ExtensionRuntimeView,
+        contract: RuntimeServiceContract,
+    ) -> None:
+        view = self._get_or_create_runtime_view(extension.extension_id)
+        normalized_key = str(getattr(contract, "service_key", "") or "").strip()
+        if not normalized_key:
+            return
+        contracts = tuple(
+            existing
+            for existing in view.runtime_service_contracts
+            if existing.service_key != normalized_key
+        )
+        view.runtime_service_contracts = tuple([*contracts, contract])
+
     def register_middleware_mount(
         self,
         extension: ExtensionRuntimeView,
@@ -945,6 +962,7 @@ class ExtensionApplication:
             middleware_mounts=list(view.middleware_mounts),
             policy_mounts=list(view.policy_mounts),
             service_providers=list(view.service_providers),
+            runtime_service_contracts=list(view.runtime_service_contracts),
             extender_keys=list(view.extender_keys),
             lifecycle_extender_keys=list(view.lifecycle_extender_keys),
             lifecycle_hook_keys=list(view.lifecycle_hook_keys),
