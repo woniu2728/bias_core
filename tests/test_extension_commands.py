@@ -23,6 +23,7 @@ def build_minimal_contract_snapshot(extension_id):
 class ExtensionManagementCommandTests(TestCase):
     def test_extension_management_commands_skip_django_system_checks(self):
         from bias_core.management.commands.create_extension import Command as CreateExtensionCommand
+        from bias_core.management.commands.check_extension_workspace import Command as CheckExtensionWorkspaceCommand
         from bias_core.management.commands.extension_console import Command as ExtensionConsoleCommand
         from bias_core.management.commands.inspect_extensions import Command as InspectExtensionsCommand
         from bias_core.management.commands.inspect_extension_imports import Command as InspectExtensionImportsCommand
@@ -30,6 +31,7 @@ class ExtensionManagementCommandTests(TestCase):
         from bias_core.management.commands.sync_extension_package_metadata import Command as SyncPackageMetadataCommand
         from bias_core.management.commands.validate_extensions import Command as ValidateExtensionsCommand
 
+        self.assertEqual(CheckExtensionWorkspaceCommand.requires_system_checks, [])
         self.assertEqual(CreateExtensionCommand.requires_system_checks, [])
         self.assertEqual(ExtensionConsoleCommand.requires_system_checks, [])
         self.assertEqual(InspectExtensionsCommand.requires_system_checks, [])
@@ -1213,6 +1215,164 @@ class ExtensionManagementCommandTests(TestCase):
                     stdout=stdout,
                 )
             self.assertIn("undeclared_runtime_facade_dependency", stdout.getvalue())
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_check_extension_workspace_reports_missing_shared_test_settings(self):
+        temp_dir = make_workspace_temp_dir()
+        try:
+            manifest_dir = Path(temp_dir) / "bias-ext-alpha"
+            manifest_dir.mkdir(parents=True, exist_ok=False)
+            (manifest_dir / "extension.json").write_text(json.dumps({
+                "id": "alpha",
+                "name": "Alpha",
+                "version": "1.0.0",
+            }, ensure_ascii=False), encoding="utf-8")
+            (manifest_dir / "pyproject.toml").write_text(
+                "[project]\nname = \"bias-ext-alpha\"\nversion = \"1.0.0\"\n",
+                encoding="utf-8",
+            )
+
+            stdout = StringIO()
+            with self.assertRaisesMessage(CommandError, "扩展 workspace 门禁失败"):
+                call_command(
+                    "check_extension_workspace",
+                    "--extensions-path",
+                    str(temp_dir),
+                    "--skip-inspect-extensions",
+                    "--format",
+                    "json",
+                    stdout=stdout,
+                )
+
+            payload = json.loads(stdout.getvalue())
+            self.assertFalse(payload["summary"]["ok"])
+            self.assertEqual(payload["summary"]["manifest_count"], 1)
+            self.assertTrue(any(
+                issue["code"] == "missing_shared_test_settings"
+                and issue["extension_id"] == "alpha"
+                for issue in payload["issues"]
+            ))
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_check_extension_workspace_passes_static_checks_with_shared_test_settings(self):
+        temp_dir = make_workspace_temp_dir()
+        try:
+            manifest_dir = Path(temp_dir) / "bias-ext-alpha"
+            manifest_dir.mkdir(parents=True, exist_ok=False)
+            (manifest_dir / "extension.json").write_text(json.dumps({
+                "id": "alpha",
+                "name": "Alpha",
+                "version": "1.0.0",
+            }, ensure_ascii=False), encoding="utf-8")
+            (manifest_dir / "pyproject.toml").write_text(
+                "\n".join([
+                    "[project]",
+                    'name = "bias-ext-alpha"',
+                    'version = "1.0.0"',
+                    "",
+                    "[tool.pytest.ini_options]",
+                    'DJANGO_SETTINGS_MODULE = "bias_core.extension_test_settings"',
+                    "",
+                ]),
+                encoding="utf-8",
+            )
+
+            stdout = StringIO()
+            call_command(
+                "check_extension_workspace",
+                "--extensions-path",
+                str(temp_dir),
+                "--skip-inspect-extensions",
+                "--format",
+                "json",
+                stdout=stdout,
+            )
+
+            payload = json.loads(stdout.getvalue())
+            self.assertTrue(payload["summary"]["ok"])
+            self.assertEqual(payload["summary"]["manifest_count"], 1)
+            self.assertEqual(payload["issues"], [])
+            self.assertTrue(payload["checks"]["pyproject_test_settings"]["ok"])
+            self.assertTrue(payload["checks"]["import_boundaries"]["ok"])
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_check_extension_workspace_runs_runtime_service_contract_gate(self):
+        temp_dir = make_workspace_temp_dir()
+        try:
+            manifest_dir = Path(temp_dir) / "bias-ext-alpha"
+            manifest_dir.mkdir(parents=True, exist_ok=False)
+            (manifest_dir / "extension.json").write_text(json.dumps({
+                "id": "alpha",
+                "name": "Alpha",
+                "version": "1.0.0",
+            }, ensure_ascii=False), encoding="utf-8")
+            (manifest_dir / "pyproject.toml").write_text(
+                "\n".join([
+                    "[project]",
+                    'name = "bias-ext-alpha"',
+                    'version = "1.0.0"',
+                    "",
+                    "[tool.pytest.ini_options]",
+                    'DJANGO_SETTINGS_MODULE = "bias_core.extension_test_settings"',
+                    "",
+                ]),
+                encoding="utf-8",
+            )
+            calls = []
+
+            def fake_call_command(name, *args, **kwargs):
+                calls.append((name, args))
+                stdout = kwargs.get("stdout")
+                if name == "inspect_extension_imports":
+                    stdout.write(json.dumps({
+                        "summary": {"ok": True, "manifest_count": 1, "error_count": 0, "warning_count": 0},
+                        "issues": [],
+                    }))
+                    return None
+                return call_command(name, *args, **kwargs)
+
+            stdout = StringIO()
+            with patch("bias_core.management.commands.check_extension_workspace.call_command", side_effect=fake_call_command):
+                with patch(
+                    "bias_core.management.commands.check_extension_workspace.build_extension_test_host",
+                    return_value=object(),
+                ) as build_host_mock:
+                    with patch(
+                        "bias_core.management.commands.check_extension_workspace.inspect_runtime_service_contracts",
+                        return_value=[{
+                            "code": "missing_service",
+                            "provider_extension": "alpha",
+                            "service_key": "alpha.service",
+                        }],
+                    ):
+                        with patch(
+                            "bias_core.management.commands.check_extension_workspace.inspect_runtime_service_contract_sources",
+                            return_value=[],
+                        ):
+                            with patch(
+                                "bias_core.management.commands.check_extension_workspace.snapshot_runtime_service_contracts",
+                                return_value=[],
+                            ):
+                                with self.assertRaisesMessage(CommandError, "扩展 workspace 门禁失败"):
+                                    call_command(
+                                        "check_extension_workspace",
+                                        "--extensions-path",
+                                        str(temp_dir),
+                                        "--format",
+                                        "json",
+                                        stdout=stdout,
+                                    )
+
+            payload = json.loads(stdout.getvalue())
+            self.assertFalse(payload["summary"]["ok"])
+            self.assertTrue(any(issue["code"] == "missing_service" for issue in payload["issues"]))
+            build_host_mock.assert_called_once_with("alpha")
+            import_call = next(args for name, args in calls if name == "inspect_extension_imports")
+            self.assertIn("--check-runtime-facades", import_call)
+            self.assertIn("--fail-on-warnings", import_call)
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
