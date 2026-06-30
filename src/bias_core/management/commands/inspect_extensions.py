@@ -53,6 +53,11 @@ class Command(BaseCommand):
             help="仅输出扩展契约基线，供 prepare_release --contract-baseline 消费",
         )
         parser.add_argument(
+            "--fail-on-runtime-service-fallback",
+            action="store_true",
+            help="存在 runtime service contract core fallback 时失败，用于 CI/发布阻断契约回退",
+        )
+        parser.add_argument(
             "--format",
             choices=("json",),
             default="json",
@@ -69,6 +74,7 @@ class Command(BaseCommand):
         only_blocking = bool(options.get("only_blocking"))
         include_permissions = bool(options.get("include_permissions"))
         contract_baseline_only = bool(options.get("contract_baseline_only"))
+        fail_on_runtime_service_fallback = bool(options.get("fail_on_runtime_service_fallback"))
         output = str(options.get("output") or "").strip()
 
         try:
@@ -165,6 +171,7 @@ class Command(BaseCommand):
             "only_blocking": only_blocking,
             "include_permissions": include_permissions,
             "contract_baseline_only": contract_baseline_only,
+            "fail_on_runtime_service_fallback": fail_on_runtime_service_fallback,
         }
         try:
             payload["package_lock"] = registry.inspect_extension_packages(force=True)
@@ -175,6 +182,12 @@ class Command(BaseCommand):
                 "message": "Django 数据库迁移尚未应用，无法读取扩展安装状态。请先执行 python manage.py migrate。",
                 "error": str(exc),
             }
+        if fail_on_runtime_service_fallback:
+            fallback_issues = _runtime_service_fallback_issues(payload)
+            if fallback_issues:
+                detail = ", ".join(f"{item['extension_id']}:{item['service_key']}" for item in fallback_issues[:10])
+                suffix = " ..." if len(fallback_issues) > 10 else ""
+                raise CommandError(f"runtime service contract 仍依赖 core fallback: {detail}{suffix}")
         if contract_baseline_only:
             payload = _build_contract_baseline_payload(payload)
         serialized = json.dumps(payload, ensure_ascii=False, indent=2)
@@ -238,6 +251,41 @@ def _build_contract_baseline_payload(payload: dict) -> dict:
             "base_dir": (payload.get("meta") or {}).get("base_dir", ""),
         },
     }
+
+
+def _runtime_service_fallback_issues(payload: dict) -> list[dict]:
+    issues: list[dict] = []
+    for extension in payload.get("extensions") or ():
+        if not isinstance(extension, dict):
+            continue
+        extension_id = str(extension.get("id") or "").strip()
+        for warning in extension.get("runtime_service_contract_warnings") or ():
+            if not isinstance(warning, dict):
+                continue
+            if warning.get("code") != "runtime_service_contract_uses_core_fallback":
+                continue
+            issues.append({
+                "extension_id": extension_id,
+                "service_key": str(warning.get("service_key") or "").strip(),
+            })
+        snapshot = extension.get("contract_snapshot") or {}
+        runtime = snapshot.get("runtime") or {}
+        for contract in runtime.get("service_contracts") or ():
+            if not isinstance(contract, dict):
+                continue
+            if contract.get("source") != "core_fallback":
+                continue
+            service_key = str(contract.get("service_key") or "").strip()
+            duplicate = any(
+                item["extension_id"] == extension_id and item["service_key"] == service_key
+                for item in issues
+            )
+            if not duplicate:
+                issues.append({
+                    "extension_id": extension_id,
+                    "service_key": service_key,
+                })
+    return issues
 
 
 def _build_database_unavailable_payload(

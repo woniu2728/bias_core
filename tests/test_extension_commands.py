@@ -2515,6 +2515,49 @@ class ExtensionManagementCommandTests(TestCase):
         self.assertEqual(set(payload["contract_snapshots"].keys()), {"tags"})
         self.assertEqual(payload["contract_snapshots"]["tags"]["extension_id"], "tags")
 
+    def test_inspect_extensions_command_can_fail_on_runtime_service_contract_fallback(self):
+        fallback_payload = {
+            "extensions": [{
+                "id": "alpha",
+                "runtime_service_contract_warnings": [{
+                    "code": "runtime_service_contract_uses_core_fallback",
+                    "service_key": "alpha.service",
+                }],
+                "contract_snapshot": {
+                    "runtime": {
+                        "service_contracts": [{
+                            "service_key": "alpha.service",
+                            "source": "core_fallback",
+                        }],
+                    },
+                },
+                "diagnostics": {},
+                "enabled": True,
+                "healthy": True,
+                "source": "filesystem",
+            }],
+            "summary": {
+                "extension_count": 1,
+                "enabled_count": 1,
+                "healthy_count": 1,
+                "filesystem_count": 1,
+            },
+        }
+
+        with patch(
+            "bias_core.management.commands.inspect_extensions.serialize_admin_extensions_payload",
+            return_value=fallback_payload,
+        ):
+            with self.assertRaisesMessage(
+                CommandError,
+                "runtime service contract 仍依赖 core fallback: alpha:alpha.service",
+            ):
+                call_command(
+                    "inspect_extensions",
+                    "--fail-on-runtime-service-fallback",
+                    stdout=StringIO(),
+                )
+
     def test_inspect_extensions_command_can_write_utf8_json_output(self):
         temp_dir = make_workspace_temp_dir()
         try:
@@ -3048,7 +3091,9 @@ class ExtensionManagementCommandTests(TestCase):
             self.assertIn("--internal", validate_call)
             self.assertIn("--require-extensions", validate_call)
             self.assertIn("--extensions-path", validate_call)
-            self.assertTrue(any(name == "inspect_extensions" for name, _args in calls))
+            inspect_call = next((args for name, args in calls if name == "inspect_extensions"), None)
+            self.assertIsNotNone(inspect_call)
+            self.assertIn("--fail-on-runtime-service-fallback", inspect_call)
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 

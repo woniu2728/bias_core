@@ -190,7 +190,13 @@ class Command(BaseCommand):
         from io import StringIO
 
         stdout = StringIO()
-        call_command("inspect_extensions", "--format", "json", stdout=stdout)
+        call_command(
+            "inspect_extensions",
+            "--format",
+            "json",
+            "--fail-on-runtime-service-fallback",
+            stdout=stdout,
+        )
         return json.loads(stdout.getvalue())
 
     def _release_extensions_path(self, base_dir: Path) -> Path:
