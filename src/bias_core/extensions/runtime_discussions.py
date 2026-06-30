@@ -203,7 +203,7 @@ def get_runtime_visible_discussion_ids(user: Any = None, *, ability: str = "view
     return _discussion.get_visible_ids(user=user, ability=ability, context=context or {})
 
 
-def has_runtime_discussion_visibility(*, ability: str | None = None) -> bool:
+def has_runtime_discussion_visibility(*, ability: str | None = None, exact: bool = False) -> bool:
     service = get_runtime_content_discussion_service(None) or get_runtime_discussion_service()
     if service is None:
         return False
@@ -211,7 +211,12 @@ def has_runtime_discussion_visibility(*, ability: str | None = None) -> bool:
         checker = service.get("has_visibility") if isinstance(service, dict) else getattr(service, "has_visibility")
     except (AttributeError, KeyError):
         return False
-    return bool(checker(ability=ability))
+    try:
+        return bool(checker(ability=ability, exact=exact))
+    except TypeError:
+        if exact:
+            return False
+        return bool(checker(ability=ability))
 
 
 def validate_runtime_replyable_discussion(discussion_id: int, user: Any, *, discussion: Any = None):

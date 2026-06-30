@@ -3232,6 +3232,87 @@ class ExtensionManifestLoaderTests(TestCase):
             ("base", "view"),
         )
 
+    def test_model_visibility_exact_match_ignores_wildcard_scopers(self):
+        from bias_core.extensions import ExtensionModelVisibilityDefinition
+
+        class DemoModel:
+            pass
+
+        app = ExtensionApplication()
+        app.models.register_visibility(
+            "alpha-tools",
+            ExtensionModelVisibilityDefinition(
+                model=DemoModel,
+                ability="*",
+                scope=lambda queryset, context: queryset,
+            ),
+        )
+
+        self.assertTrue(app.models.has_visibility(DemoModel, ability="hide"))
+        self.assertFalse(app.models.has_visibility(DemoModel, ability="hide", exact=True))
+
+        app.models.register_visibility(
+            "beta-tools",
+            ExtensionModelVisibilityDefinition(
+                model=DemoModel,
+                ability="hide",
+                scope=lambda queryset, context: queryset,
+            ),
+        )
+
+        self.assertTrue(app.models.has_visibility(DemoModel, ability="hide", exact=True))
+
+    def test_runtime_model_visibility_exact_match_ignores_wildcard_scopers(self):
+        from bias_core.extensions import ExtensionModelVisibilityDefinition
+        from bias_core.extensions.runtime_models import has_runtime_model_visibility
+
+        class DemoModel:
+            pass
+
+        app = ExtensionApplication()
+        app.models.register_visibility(
+            "alpha-tools",
+            ExtensionModelVisibilityDefinition(
+                model=DemoModel,
+                ability="*",
+                scope=lambda queryset, context: queryset,
+            ),
+        )
+
+        with patch("bias_core.extensions.runtime_models.get_runtime_model_service", return_value=app.models):
+            self.assertTrue(has_runtime_model_visibility(DemoModel, ability="editPosts"))
+            self.assertFalse(has_runtime_model_visibility(DemoModel, ability="editPosts", exact=True))
+
+    def test_runtime_discussion_visibility_exact_is_forwarded_to_service(self):
+        from bias_core.extensions.runtime_discussions import has_runtime_discussion_visibility
+
+        calls = []
+
+        def checker(**kwargs):
+            calls.append(kwargs)
+            return True
+
+        with patch(
+            "bias_core.extensions.runtime_discussions.get_runtime_content_discussion_service",
+            return_value={"has_visibility": checker},
+        ):
+            self.assertTrue(has_runtime_discussion_visibility(ability="hidePosts", exact=True))
+
+        self.assertEqual(calls, [{"ability": "hidePosts", "exact": True}])
+
+    def test_runtime_discussion_visibility_exact_ignores_legacy_service_checker(self):
+        from bias_core.extensions.runtime_discussions import has_runtime_discussion_visibility
+
+        def legacy_checker(*, ability=None):
+            return ability == "hidePosts"
+
+        with patch(
+            "bias_core.extensions.runtime_discussions.get_runtime_content_discussion_service",
+            return_value={"has_visibility": legacy_checker},
+        ):
+            self.assertTrue(has_runtime_discussion_visibility(ability="hidePosts"))
+            self.assertFalse(has_runtime_discussion_visibility(ability="hidePosts", exact=True))
+
     def test_model_visibility_scopers_follow_parent_wildcard_ability_order(self):
         from bias_core.extensions import ExtensionModelVisibilityDefinition
 

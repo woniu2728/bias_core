@@ -113,10 +113,10 @@ class ApplicationModelService:
             definitions.extend(items)
         return definitions
 
-    def has_visibility(self, model: Any, *, ability: str | None = None) -> bool:
+    def has_visibility(self, model: Any, *, ability: str | None = None, exact: bool = False) -> bool:
         return any(
             True
-            for _definition in self._get_visibility_for_model(model, ability=ability)
+            for _definition in self._get_visibility_for_model(model, ability=ability, exact=exact)
         )
 
     def apply_visibility(self, model: Any, queryset, context: dict | None = None):
@@ -127,14 +127,23 @@ class ApplicationModelService:
             output = definition.scope(output, resolved_context)
         return output
 
-    def _get_visibility_for_model(self, model: Any, *, ability: str | None = None) -> list[ExtensionModelVisibilityDefinition]:
+    def _get_visibility_for_model(
+        self,
+        model: Any,
+        *,
+        ability: str | None = None,
+        exact: bool = False,
+    ) -> list[ExtensionModelVisibilityDefinition]:
         requested_ability = str(ability or "view")
         definitions = []
         for sequence, definition in enumerate(self.get_visibility()):
             if not self._model_matches(definition.model, model):
                 continue
             definition_ability = str(definition.ability or "*")
-            if definition_ability not in {"*", requested_ability}:
+            if exact:
+                if definition_ability != requested_ability:
+                    continue
+            elif definition_ability not in {"*", requested_ability}:
                 continue
             definitions.append((self._visibility_sort_key(definition, model, requested_ability, sequence), definition))
         return [definition for _key, definition in sorted(definitions, key=lambda item: item[0])]

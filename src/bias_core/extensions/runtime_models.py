@@ -77,12 +77,12 @@ def apply_runtime_model_visibility(model: Any, queryset, context: dict | None = 
     return model_service.apply_visibility(model, queryset, context or {})
 
 
-def has_runtime_model_visibility(model: Any, *, ability: str | None = None) -> bool:
+def has_runtime_model_visibility(model: Any, *, ability: str | None = None, exact: bool = False) -> bool:
     model_service = get_runtime_model_service()
     if model_service is None:
         return False
     if hasattr(model_service, "has_visibility"):
-        return bool(model_service.has_visibility(model, ability=ability))
+        return bool(model_service.has_visibility(model, ability=ability, exact=exact))
     try:
         definitions = model_service.get_visibility()
     except Exception:
@@ -90,7 +90,11 @@ def has_runtime_model_visibility(model: Any, *, ability: str | None = None) -> b
     requested_ability = str(ability or "view")
     return any(
         _model_matches(definition.model, model)
-        and str(definition.ability or "*") in {"*", requested_ability}
+        and (
+            str(definition.ability or "*") == requested_ability
+            if exact
+            else str(definition.ability or "*") in {"*", requested_ability}
+        )
         for definition in definitions
     )
 
