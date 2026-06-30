@@ -2334,6 +2334,36 @@ class ExtensionManagementCommandTests(TestCase):
         self.assertIn("hooks", snapshot["lifecycle"])
         self.assertEqual(snapshot["lifecycle"]["hooks"], sorted(snapshot["lifecycle"]["hooks"]))
 
+    def test_inspect_extensions_command_reports_runtime_facade_contracts(self):
+        stdout = StringIO()
+        call_command(
+            "inspect_extensions",
+            "--extension-id",
+            "tags",
+            stdout=stdout,
+        )
+        payload = json.loads(stdout.getvalue())
+        snapshot = payload["extensions"][0]["contract_snapshot"]
+        facades = snapshot["runtime"]["facades"]
+
+        self.assertEqual(snapshot["summary"]["runtime_facade_count"], len(facades))
+        self.assertEqual(facades, sorted(facades, key=lambda item: item["name"]))
+        self.assertTrue(all("missing_service" in item for item in facades))
+        self.assertIn({
+            "name": "get_runtime_user_by_id",
+            "domain": "users",
+            "provider_extension": "users",
+            "stability": "public",
+            "missing_service": "raises_runtime_error",
+        }, facades)
+        self.assertIn({
+            "name": "has_runtime_model_visibility",
+            "domain": "models",
+            "provider_extension": "",
+            "stability": "public",
+            "missing_service": "returns_false",
+        }, facades)
+
     def test_inspect_extensions_command_reports_runtime_contract_snapshot(self):
         stdout = StringIO()
         call_command(
@@ -3595,6 +3625,76 @@ class ExtensionManagementCommandTests(TestCase):
                     git_mock.return_value = SimpleNamespace(stdout="")
                     with patch("bias_core.management.commands.prepare_release.call_command", side_effect=fake_call_command):
                         with self.assertRaisesMessage(CommandError, "contract_snapshot.resources.definitions 移除 discussion"):
+                            call_command_quietly(
+                                "prepare_release",
+                                "--skip-frontend-platform-check",
+                                "--set-version",
+                                "1.2.3",
+                                "--dry-run",
+                                "--contract-baseline",
+                                str(baseline_path),
+                            )
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_prepare_release_stops_when_contract_baseline_loses_runtime_facade(self):
+        temp_dir = make_workspace_temp_dir()
+        try:
+            base_dir = Path(temp_dir)
+            (base_dir / "VERSION").write_text("1.2.3\n", encoding="utf-8")
+            frontend_dir = base_dir / "frontend"
+            frontend_dir.mkdir(parents=True, exist_ok=False)
+            (frontend_dir / "package.json").write_text(json.dumps({"version": "1.2.3"}), encoding="utf-8")
+            (frontend_dir / "package-lock.json").write_text(json.dumps({
+                "version": "1.2.3",
+                "packages": {"": {"version": "1.2.3"}},
+            }), encoding="utf-8")
+            baseline_snapshot = build_minimal_contract_snapshot("alpha")
+            baseline_snapshot["runtime"] = {
+                "facades": [{
+                    "name": "get_runtime_user_by_id",
+                    "domain": "users",
+                    "provider_extension": "users",
+                    "stability": "public",
+                    "missing_service": "raises_runtime_error",
+                }],
+            }
+            current_snapshot = build_minimal_contract_snapshot("alpha")
+            current_snapshot["runtime"] = {"facades": []}
+            baseline_path = base_dir / "extension-contract-baseline.json"
+            baseline_path.write_text(json.dumps({
+                "contract_snapshots": {
+                    "alpha": baseline_snapshot,
+                },
+            }, ensure_ascii=False), encoding="utf-8")
+
+            def fake_call_command(name, *args, **kwargs):
+                if name == "inspect_extensions":
+                    kwargs["stdout"].write(json.dumps({
+                        "summary": {
+                            "blocking_count": 0,
+                            "warning_count": 0,
+                            "attention_count": 0,
+                            "asset_count": 0,
+                            "frontend_bundle_count": 0,
+                            "migration_bundle_count": 0,
+                            "locale_bundle_count": 0,
+                            "signed_extension_count": 0,
+                        },
+                        "extensions": [
+                            {
+                                "id": "alpha",
+                                "contract_snapshot": current_snapshot,
+                            },
+                        ],
+                    }))
+                return None
+
+            with override_settings(BASE_DIR=base_dir, BIAS_FRONTEND_DIR=frontend_dir):
+                with patch("bias_core.management.commands.prepare_release.run_git_command") as git_mock:
+                    git_mock.return_value = SimpleNamespace(stdout="")
+                    with patch("bias_core.management.commands.prepare_release.call_command", side_effect=fake_call_command):
+                        with self.assertRaisesMessage(CommandError, "contract_snapshot.runtime.facades 移除 get_runtime_user_by_id"):
                             call_command_quietly(
                                 "prepare_release",
                                 "--skip-frontend-platform-check",

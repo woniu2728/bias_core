@@ -78,6 +78,7 @@ from bias_core.extensions.product import (
     is_extension_protected,
     is_product_visible_extension,
 )
+from bias_core.extensions.runtime_contracts import RUNTIME_FACADE_CONTRACTS
 from bias_core.extensions.recovery import (
     get_extension_bisect_state,
     get_extension_safe_mode_extension_ids,
@@ -1041,6 +1042,7 @@ def _snapshot_formatter_pipeline(items):
 
 def _snapshot_runtime_contracts(runtime_view):
     return {
+        "facades": _snapshot_runtime_facades(),
         "validators": _snapshot_objects(_runtime_items(runtime_view, "validators"), ("target", "key", "module_id", "description")),
         "mailers": _snapshot_objects(_runtime_items(runtime_view, "mailers"), ("key", "module_id", "description")),
         "error_handlers": _snapshot_objects(_runtime_items(runtime_view, "error_handlers"), ("key", "module_id", "description", "order")),
@@ -1063,6 +1065,7 @@ def _snapshot_runtime_contracts(runtime_view):
 
 def _snapshot_runtime_summary(runtime):
     return {
+        "runtime_facade_count": len(runtime["facades"]),
         "validator_count": len(runtime["validators"]),
         "mailer_count": len(runtime["mailers"]),
         "error_handler_count": len(runtime["error_handlers"]),
@@ -1081,6 +1084,22 @@ def _snapshot_runtime_summary(runtime):
         "route_mount_count": len(runtime["route_mounts"]),
         "service_provider_count": len(runtime["service_providers"]),
     }
+
+
+def _snapshot_runtime_facades():
+    return sorted(
+        [
+            {
+                "name": contract.name,
+                "domain": contract.domain,
+                "provider_extension": contract.provider_extension,
+                "stability": contract.stability,
+                "missing_service": contract.missing_service,
+            }
+            for contract in RUNTIME_FACADE_CONTRACTS.values()
+        ],
+        key=lambda value: value["name"],
+    )
 
 
 def _snapshot_policy_mounts(runtime_view):

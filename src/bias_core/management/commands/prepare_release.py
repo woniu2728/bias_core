@@ -487,6 +487,7 @@ _CONTRACT_OBJECT_LIST_PATHS = (
     (("runtime", "middleware_mounts"), ("target",), ()),
     (("runtime", "policy_mounts"), ("key", "model"), ()),
     (("runtime", "route_mounts"), ("prefix",), ("module_id",)),
+    (("runtime", "facades"), ("name",), ("domain", "provider_extension", "stability", "missing_service")),
     (("presentation", "view_namespaces"), ("namespace",), ("hints", "module_id", "prepend")),
     (("presentation", "formatter_callbacks"), ("phase", "callback", "module_id"), ()),
 )
