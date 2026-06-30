@@ -226,9 +226,33 @@ class ExtensionPublicApiBoundaryTests(TestCase):
                 self.assertEqual(RUNTIME_FACADE_CONTRACTS[name].missing_service, behavior)
 
     def test_runtime_service_contracts_detect_missing_members(self):
-        from bias_core.extensions.runtime_service_contracts import inspect_runtime_service_contracts
+        from bias_core.extensions.runtime_service_contracts import (
+            RuntimeServiceContract,
+            inspect_runtime_service_contracts,
+        )
+
+        class View:
+            extension_id = "users"
+            runtime_service_contracts = (
+                RuntimeServiceContract(
+                    service_key="users.service",
+                    provider_extension="",
+                    required_values=(
+                        "group_model",
+                        "model",
+                        "permission_model",
+                    ),
+                    required_methods=(
+                        "get_by_id",
+                        "get_by_username",
+                    ),
+                ),
+            )
 
         class Host:
+            def get_runtime_views(self):
+                return [View()]
+
             def make(self, key, default=None):
                 if key == "users.service":
                     return {
@@ -263,9 +287,46 @@ class ExtensionPublicApiBoundaryTests(TestCase):
         }, issues)
 
     def test_runtime_service_contracts_accept_registered_complete_service(self):
-        from bias_core.extensions.runtime_service_contracts import inspect_runtime_service_contracts
+        from bias_core.extensions.runtime_service_contracts import (
+            RuntimeServiceContract,
+            inspect_runtime_service_contracts,
+        )
+
+        class View:
+            extension_id = "users"
+            runtime_service_contracts = (
+                RuntimeServiceContract(
+                    service_key="users.service",
+                    provider_extension="",
+                    required_values=(
+                        "group_model",
+                        "model",
+                        "permission_model",
+                    ),
+                    required_methods=(
+                        "apply_comment_count_deltas",
+                        "ensure_admin",
+                        "ensure_email_confirmed",
+                        "ensure_forum_permission",
+                        "ensure_not_suspended",
+                        "get_by_id",
+                        "get_by_username",
+                        "get_forum_permissions",
+                        "get_preference",
+                        "increment_comment_count",
+                        "increment_discussion_count",
+                        "list_by_usernames",
+                        "requires_content_approval",
+                        "serialize_many_by_ids",
+                        "username_id_map",
+                    ),
+                ),
+            )
 
         class Host:
+            def get_runtime_views(self):
+                return [View()]
+
             def make(self, key, default=None):
                 if key != "users.service":
                     return default
@@ -360,6 +421,8 @@ class ExtensionPublicApiBoundaryTests(TestCase):
 
     def test_runtime_service_contracts_report_core_fallback_source(self):
         from bias_core.extensions.runtime_service_contracts import (
+            RUNTIME_SERVICE_CONTRACTS,
+            RuntimeServiceContract,
             inspect_runtime_service_contract_sources,
             snapshot_runtime_service_contracts,
         )
@@ -374,18 +437,29 @@ class ExtensionPublicApiBoundaryTests(TestCase):
             def get_service_provider_keys(self, *, extension_id=None):
                 return []
 
-        self.assertIn({
-            "code": "runtime_service_contract_uses_core_fallback",
-            "service_key": "users.service",
-            "provider_extension": "users",
-            "member": "users.service",
-            "severity": "warning",
-        }, inspect_runtime_service_contract_sources(Host(), provider_extension="users"))
-        users_contract = next(
-            item
-            for item in snapshot_runtime_service_contracts(host=Host())
-            if item["service_key"] == "users.service"
-        )
+        with patch.dict(
+            RUNTIME_SERVICE_CONTRACTS,
+            {
+                "users.service": RuntimeServiceContract(
+                    service_key="users.service",
+                    provider_extension="users",
+                    required_methods=("get_by_id",),
+                ),
+            },
+            clear=True,
+        ):
+            self.assertIn({
+                "code": "runtime_service_contract_uses_core_fallback",
+                "service_key": "users.service",
+                "provider_extension": "users",
+                "member": "users.service",
+                "severity": "warning",
+            }, inspect_runtime_service_contract_sources(Host(), provider_extension="users"))
+            users_contract = next(
+                item
+                for item in snapshot_runtime_service_contracts(host=Host())
+                if item["service_key"] == "users.service"
+            )
         self.assertEqual(users_contract["source"], "core_fallback")
 
     def test_runtime_service_contracts_detect_non_callable_service(self):
