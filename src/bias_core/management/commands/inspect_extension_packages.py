@@ -50,6 +50,11 @@ class Command(BaseCommand):
             help="配合 --install-set-smoke，在安装态临时数据库中执行 Django migrate 并验证扩展迁移已应用",
         )
         parser.add_argument(
+            "--lifecycle-smoke",
+            action="store_true",
+            help="配合 --install-set-smoke，在安装态临时站点中验证扩展 install/disable/enable 生命周期",
+        )
+        parser.add_argument(
             "--wheel-dir",
             help="不构建时，从指定目录查找 wheel；默认使用每个扩展自己的 dist 目录",
         )
@@ -78,6 +83,7 @@ class Command(BaseCommand):
         install_smoke = bool(options.get("install_smoke"))
         install_set_smoke = bool(options.get("install_set_smoke"))
         migration_smoke = bool(options.get("migration_smoke"))
+        lifecycle_smoke = bool(options.get("lifecycle_smoke"))
         wheel_dir_option = str(options.get("wheel_dir") or "").strip()
         wheel_dir = Path(wheel_dir_option) if wheel_dir_option else None
         build_timeout = int(options.get("build_timeout") or 120)
@@ -86,6 +92,8 @@ class Command(BaseCommand):
 
         if migration_smoke and not install_set_smoke:
             raise CommandError("--migration-smoke 必须配合 --install-set-smoke 使用")
+        if lifecycle_smoke and not install_set_smoke:
+            raise CommandError("--lifecycle-smoke 必须配合 --install-set-smoke 使用")
 
         include_workspace = bool(
             extensions_path.name == "extensions"
@@ -133,6 +141,7 @@ class Command(BaseCommand):
                         for manifest in manifests
                     },
                     migration_smoke=migration_smoke,
+                    lifecycle_smoke=lifecycle_smoke,
                     timeout=build_timeout,
                 )
                 if set_smoke_result.errors:
@@ -143,6 +152,7 @@ class Command(BaseCommand):
             "install_smoke": install_smoke,
             "install_set_smoke": install_set_smoke,
             "migration_smoke": migration_smoke,
+            "lifecycle_smoke": lifecycle_smoke,
             "wheel_dir": str(wheel_dir) if wheel_dir is not None else "",
             "summary": {
                 "manifest_count": len(manifests),
@@ -173,10 +183,13 @@ class Command(BaseCommand):
                     "discovered_sources": dict(set_smoke_result.discovered_sources),
                     "discovered_migration_modules": dict(set_smoke_result.discovered_migration_modules),
                     "migration_smoke": set_smoke_result.migration_smoke,
+                    "lifecycle_smoke": set_smoke_result.lifecycle_smoke,
                     "applied_migration_files": {
                         key: list(value)
                         for key, value in set_smoke_result.applied_migration_files.items()
                     },
+                    "lifecycle_states": dict(set_smoke_result.lifecycle_states),
+                    "lifecycle_backend_hooks": dict(set_smoke_result.lifecycle_backend_hooks),
                     "boot_order": list(set_smoke_result.boot_order),
                     "errors": list(set_smoke_result.errors),
                 }

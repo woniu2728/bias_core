@@ -63,7 +63,10 @@ class ExtensionPackageInstallSmokeInspection:
     discovered_sources: dict[str, str]
     discovered_migration_modules: dict[str, str]
     migration_smoke: bool
+    lifecycle_smoke: bool
     applied_migration_files: dict[str, tuple[str, ...]]
+    lifecycle_states: dict[str, dict[str, bool]]
+    lifecycle_backend_hooks: dict[str, dict[str, str]]
     boot_order: tuple[str, ...]
     errors: tuple[str, ...]
 
@@ -260,6 +263,7 @@ def inspect_extension_package_install_set(
     *,
     expected_extensions: dict[str, str],
     migration_smoke: bool = False,
+    lifecycle_smoke: bool = False,
     timeout: int = 120,
 ) -> ExtensionPackageInstallSmokeInspection:
     normalized_wheel_paths = tuple(Path(path) for path in wheel_paths)
@@ -272,7 +276,10 @@ def inspect_extension_package_install_set(
             discovered_sources={},
             discovered_migration_modules={},
             migration_smoke=migration_smoke,
+            lifecycle_smoke=lifecycle_smoke,
             applied_migration_files={},
+            lifecycle_states={},
+            lifecycle_backend_hooks={},
             boot_order=(),
             errors=("未提供可安装的扩展 wheel",),
         )
@@ -288,7 +295,10 @@ def inspect_extension_package_install_set(
                 discovered_sources={},
                 discovered_migration_modules={},
                 migration_smoke=migration_smoke,
+                lifecycle_smoke=lifecycle_smoke,
                 applied_migration_files={},
+                lifecycle_states={},
+                lifecycle_backend_hooks={},
                 boot_order=(),
                 errors=tuple(install_errors),
             )
@@ -296,6 +306,7 @@ def inspect_extension_package_install_set(
             target_dir,
             expected_extensions=expected_extensions,
             migration_smoke=migration_smoke,
+            lifecycle_smoke=lifecycle_smoke,
             timeout=timeout,
         )
     return ExtensionPackageInstallSmokeInspection(
@@ -305,9 +316,25 @@ def inspect_extension_package_install_set(
         discovered_sources=dict(smoke_result["discovered_sources"]),
         discovered_migration_modules=dict(smoke_result["discovered_migration_modules"]),
         migration_smoke=migration_smoke,
+        lifecycle_smoke=lifecycle_smoke,
         applied_migration_files={
             str(key): tuple(str(item) for item in value)
             for key, value in dict(smoke_result["applied_migration_files"]).items()
+        },
+        lifecycle_states={
+            str(key): {
+                "installed": bool(value.get("installed")),
+                "enabled": bool(value.get("enabled")),
+                "booted": bool(value.get("booted")),
+            }
+            for key, value in dict(smoke_result["lifecycle_states"]).items()
+        },
+        lifecycle_backend_hooks={
+            str(key): {
+                str(hook): str(status)
+                for hook, status in dict(value).items()
+            }
+            for key, value in dict(smoke_result["lifecycle_backend_hooks"]).items()
         },
         boot_order=tuple(smoke_result["boot_order"]),
         errors=tuple(smoke_result["errors"]),
@@ -756,6 +783,7 @@ def _run_isolated_install_set_smoke(
     *,
     expected_extensions: dict[str, str],
     migration_smoke: bool,
+    lifecycle_smoke: bool,
     timeout: int,
 ) -> dict[str, Any]:
     script = r"""
@@ -769,6 +797,7 @@ core_src = Path(sys.argv[1])
 target_dir = Path(sys.argv[2])
 expected_extensions = json.loads(sys.argv[3])
 migration_smoke = sys.argv[4] == "1"
+lifecycle_smoke = sys.argv[5] == "1"
 
 sys.path.insert(0, str(core_src))
 sys.path.insert(0, str(target_dir))
@@ -828,9 +857,11 @@ if not settings.configured:
         },
         SECRET_KEY="bias-install-set-smoke",
         BASE_DIR=str(target_dir),
+        ROOT_URLCONF="bias_core.extension_test_urls",
         USE_TZ=True,
         DEFAULT_AUTO_FIELD="django.db.models.BigAutoField",
-        BIAS_EXTENSION_PACKAGE_DISCOVERY=False,
+        STATIC_URL="/static/",
+        BIAS_EXTENSION_PACKAGE_DISCOVERY=True,
     )
 import django
 django.setup()
@@ -850,6 +881,8 @@ payload = {
     "discovered_sources": {manifest.id: manifest.source for manifest in manifests},
     "discovered_migration_modules": {},
     "applied_migration_files": {},
+    "lifecycle_states": {},
+    "lifecycle_backend_hooks": {},
     "boot_order": [],
     "errors": [],
 }
@@ -928,7 +961,7 @@ try:
 except Exception as exc:
     payload["errors"].append(f"安装态依赖顺序解析失败: {type(exc).__name__}: {exc}")
 
-if migration_smoke and not payload["errors"]:
+if (migration_smoke or lifecycle_smoke) and not payload["errors"]:
     try:
         from django.core.management import call_command
         from django.db import connection
@@ -969,6 +1002,30 @@ if migration_smoke and not payload["errors"]:
     except Exception as exc:
         payload["errors"].append(f"安装态数据库迁移 smoke 失败: {type(exc).__name__}: {exc}")
 
+if lifecycle_smoke and not payload["errors"]:
+    try:
+        from bias_core.extensions.manager import ExtensionManager
+
+        manager = ExtensionManager(extensions_path=target_dir / "bias_extensions")
+        manager.load(force=True)
+        for extension_id in sorted(expected_extensions):
+            installed = manager.install_extension(extension_id)
+            disabled = manager.set_extension_enabled(extension_id, False)
+            enabled = manager.set_extension_enabled(extension_id, True)
+            payload["lifecycle_states"][extension_id] = {
+                "installed": bool(enabled.runtime.installed),
+                "enabled": bool(enabled.runtime.enabled),
+                "booted": bool(enabled.runtime.booted),
+            }
+            payload["lifecycle_backend_hooks"][extension_id] = {
+                "install": str((installed.runtime.backend_hooks.get("run_install") or {}).get("status") or ""),
+                "install_enable": str((installed.runtime.backend_hooks.get("run_enable") or {}).get("status") or ""),
+                "disable": str((disabled.runtime.backend_hooks.get("run_disable") or {}).get("status") or ""),
+                "enable": str((enabled.runtime.backend_hooks.get("run_enable") or {}).get("status") or ""),
+            }
+    except Exception as exc:
+        payload["errors"].append(f"安装态生命周期 smoke 失败: {type(exc).__name__}: {exc}")
+
 print(json.dumps(payload, ensure_ascii=False))
 """
     env = dict(os.environ)
@@ -986,6 +1043,7 @@ print(json.dumps(payload, ensure_ascii=False))
                 str(target_dir),
                 json.dumps(expected_extensions, ensure_ascii=False),
                 "1" if migration_smoke else "0",
+                "1" if lifecycle_smoke else "0",
             ],
             text=True,
             capture_output=True,
@@ -998,6 +1056,8 @@ print(json.dumps(payload, ensure_ascii=False))
             "discovered_sources": {},
             "discovered_migration_modules": {},
             "applied_migration_files": {},
+            "lifecycle_states": {},
+            "lifecycle_backend_hooks": {},
             "boot_order": [],
             "errors": [f"安装态整组 smoke 超时: {exc}"],
         }
@@ -1007,6 +1067,8 @@ print(json.dumps(payload, ensure_ascii=False))
             "discovered_sources": {},
             "discovered_migration_modules": {},
             "applied_migration_files": {},
+            "lifecycle_states": {},
+            "lifecycle_backend_hooks": {},
             "boot_order": [],
             "errors": [f"无法启动安装态整组 smoke: {exc}"],
         }
@@ -1020,6 +1082,8 @@ print(json.dumps(payload, ensure_ascii=False))
             "discovered_sources": {},
             "discovered_migration_modules": {},
             "applied_migration_files": {},
+            "lifecycle_states": {},
+            "lifecycle_backend_hooks": {},
             "boot_order": [],
             "errors": [f"安装态整组 smoke 失败: {detail or result.returncode}"],
         }
@@ -1031,6 +1095,8 @@ print(json.dumps(payload, ensure_ascii=False))
             "discovered_sources": {},
             "discovered_migration_modules": {},
             "applied_migration_files": {},
+            "lifecycle_states": {},
+            "lifecycle_backend_hooks": {},
             "boot_order": [],
             "errors": [f"安装态整组 smoke 输出不是有效 JSON: {exc}"],
         }
@@ -1047,6 +1113,16 @@ print(json.dumps(payload, ensure_ascii=False))
         "applied_migration_files": {
             str(key): [str(item) for item in value if str(item)]
             for key, value in dict(payload.get("applied_migration_files") or {}).items()
+        },
+        "lifecycle_states": {
+            str(key): dict(value)
+            for key, value in dict(payload.get("lifecycle_states") or {}).items()
+            if isinstance(value, dict)
+        },
+        "lifecycle_backend_hooks": {
+            str(key): dict(value)
+            for key, value in dict(payload.get("lifecycle_backend_hooks") or {}).items()
+            if isinstance(value, dict)
         },
         "boot_order": [str(item) for item in payload.get("boot_order", []) if str(item)],
         "errors": [str(item) for item in payload.get("errors", []) if str(item)],

@@ -882,6 +882,45 @@ class ExtensionManagementCommandTests(TestCase):
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
+    def test_inspect_extension_packages_command_smokes_installed_wheel_lifecycle(self):
+        temp_dir = make_workspace_temp_dir()
+        try:
+            with override_settings(BASE_DIR=Path(temp_dir)):
+                call_command_quietly("create_extension", "alpha-tools")
+
+                output = StringIO()
+                call_command(
+                    "inspect_extension_packages",
+                    "--extensions-path",
+                    str(Path(temp_dir) / "extensions"),
+                    "--extension-id",
+                    "alpha-tools",
+                    "--build",
+                    "--install-set-smoke",
+                    "--lifecycle-smoke",
+                    "--format",
+                    "json",
+                    stdout=output,
+                )
+
+            payload = json.loads(output.getvalue())
+            self.assertTrue(payload["summary"]["ok"])
+            install_set = payload["install_set"]
+            self.assertTrue(install_set["lifecycle_smoke"])
+            self.assertEqual(install_set["discovered_sources"]["alpha-tools"], "python-package")
+            self.assertEqual(
+                install_set["lifecycle_states"]["alpha-tools"],
+                {"installed": True, "enabled": True, "booted": True},
+            )
+            hooks = install_set["lifecycle_backend_hooks"]["alpha-tools"]
+            self.assertIn(hooks["install"], {"ok", "skipped"})
+            self.assertIn(hooks["install_enable"], {"ok", "skipped"})
+            self.assertIn(hooks["disable"], {"ok", "skipped"})
+            self.assertIn(hooks["enable"], {"ok", "skipped"})
+            self.assertEqual(install_set["errors"], [])
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
     def test_inspect_extension_packages_migration_smoke_requires_install_set_smoke(self):
         with self.assertRaisesMessage(CommandError, "--migration-smoke 必须配合 --install-set-smoke 使用"):
             call_command(
@@ -889,6 +928,15 @@ class ExtensionManagementCommandTests(TestCase):
                 "--extensions-path",
                 str(Path(settings.BASE_DIR) / "extensions"),
                 "--migration-smoke",
+            )
+
+    def test_inspect_extension_packages_lifecycle_smoke_requires_install_set_smoke(self):
+        with self.assertRaisesMessage(CommandError, "--lifecycle-smoke 必须配合 --install-set-smoke 使用"):
+            call_command(
+                "inspect_extension_packages",
+                "--extensions-path",
+                str(Path(settings.BASE_DIR) / "extensions"),
+                "--lifecycle-smoke",
             )
 
     def test_manifest_loader_can_scan_only_installed_distribution_path(self):
