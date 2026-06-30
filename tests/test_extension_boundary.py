@@ -169,6 +169,39 @@ class ExtensionPublicApiBoundaryTests(TestCase):
         self.assertTrue(callable(runtime.get_runtime_resource_registry))
         self.assertTrue(callable(runtime.notify_runtime_notification))
 
+    def test_runtime_facade_contracts_cover_public_runtime_exports(self):
+        from bias_core.extensions import runtime
+        from bias_core.extensions.runtime_contracts import RUNTIME_FACADE_CONTRACTS
+
+        exported_names = set(runtime.__all__)
+
+        self.assertEqual(set(RUNTIME_FACADE_CONTRACTS), exported_names)
+        for name, contract in RUNTIME_FACADE_CONTRACTS.items():
+            with self.subTest(name=name):
+                self.assertEqual(contract.name, name)
+                self.assertTrue(contract.domain)
+                self.assertTrue(contract.stability)
+                self.assertTrue(contract.missing_service)
+
+    def test_runtime_facade_dependency_map_is_derived_from_contracts(self):
+        from bias_core.extensions.runtime_contracts import (
+            RUNTIME_FACADE_CONTRACTS,
+            RUNTIME_FACADE_EXTENSION_DEPENDENCIES,
+        )
+
+        derived = {
+            name: contract.provider_extension
+            for name, contract in RUNTIME_FACADE_CONTRACTS.items()
+            if contract.provider_extension
+        }
+
+        self.assertEqual(RUNTIME_FACADE_EXTENSION_DEPENDENCIES, derived)
+        self.assertEqual(RUNTIME_FACADE_EXTENSION_DEPENDENCIES["get_runtime_user_by_id"], "users")
+        self.assertEqual(RUNTIME_FACADE_EXTENSION_DEPENDENCIES["create_runtime_discussion"], "content")
+        self.assertEqual(RUNTIME_FACADE_EXTENSION_DEPENDENCIES["can_runtime_add_to_discussion"], "tags")
+        self.assertNotIn("has_runtime_model_visibility", RUNTIME_FACADE_EXTENSION_DEPENDENCIES)
+        self.assertEqual(RUNTIME_FACADE_CONTRACTS["has_runtime_model_visibility"].provider_extension, "")
+
     def test_platform_sdk_exports_auth_and_cookie_helpers(self):
         from bias_core.extensions import platform
 
