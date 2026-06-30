@@ -80,6 +80,7 @@ from bias_core.extensions.product import (
 )
 from bias_core.extensions.runtime_contracts import RUNTIME_FACADE_CONTRACTS
 from bias_core.extensions.runtime_service_contracts import (
+    inspect_runtime_service_contract_sources,
     inspect_runtime_service_contracts,
     snapshot_runtime_service_contracts,
 )
@@ -199,6 +200,7 @@ def _serialize_admin_extension(
         capability_summary=capability_summary,
     )
     runtime_service_contract_issues = _build_runtime_service_contract_issues(extension)
+    runtime_service_contract_warnings = _build_runtime_service_contract_warnings(extension)
 
     payload = {
         "id": extension.id,
@@ -269,6 +271,7 @@ def _serialize_admin_extension(
         "lifecycle_plan": _build_lifecycle_plan_for_extension_view(extension),
         "runtime_issues": list(extension.runtime.runtime_issues),
         "runtime_service_contract_issues": runtime_service_contract_issues,
+        "runtime_service_contract_warnings": runtime_service_contract_warnings,
         "delivery_checks": [
             {
                 "key": check.key,
@@ -386,6 +389,14 @@ def _build_runtime_service_contract_issues(extension) -> list[dict]:
     if host is None:
         return []
     return inspect_runtime_service_contracts(host, provider_extension=extension.id)
+
+
+def _build_runtime_service_contract_warnings(extension) -> list[dict]:
+    host = get_extension_host()
+    if host is None:
+        return []
+    return inspect_runtime_service_contract_sources(host, provider_extension=extension.id)
+
 
 def _build_readonly_lifecycle_plan_for_extension_view(extension) -> dict:
     installed = bool(getattr(getattr(extension, "runtime", None), "installed", False))

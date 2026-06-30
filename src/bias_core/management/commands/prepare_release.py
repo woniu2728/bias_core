@@ -491,7 +491,7 @@ _CONTRACT_OBJECT_LIST_PATHS = (
     (
         ("runtime", "service_contracts"),
         ("service_key",),
-        ("provider_extension", "required_methods", "required_values", "optional_methods"),
+        ("provider_extension", "required_methods", "required_values", "optional_methods", "callable_service", "source"),
     ),
     (("presentation", "view_namespaces"), ("namespace",), ("hints", "module_id", "prepend")),
     (("presentation", "formatter_callbacks"), ("phase", "callback", "module_id"), ()),

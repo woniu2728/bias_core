@@ -319,6 +319,7 @@ class ExtensionPublicApiBoundaryTests(TestCase):
     def test_runtime_service_contracts_prefer_host_declared_contracts(self):
         from bias_core.extensions.runtime_service_contracts import (
             RuntimeServiceContract,
+            inspect_runtime_service_contract_sources,
             inspect_runtime_service_contracts,
             snapshot_runtime_service_contracts,
         )
@@ -347,6 +348,7 @@ class ExtensionPublicApiBoundaryTests(TestCase):
                 return ["users.service"] if extension_id == "users" else []
 
         self.assertEqual(inspect_runtime_service_contracts(Host(), provider_extension="users"), [])
+        self.assertEqual(inspect_runtime_service_contract_sources(Host(), provider_extension="users"), [])
         users_contract = next(
             item
             for item in snapshot_runtime_service_contracts(host=Host())
@@ -354,6 +356,37 @@ class ExtensionPublicApiBoundaryTests(TestCase):
         )
         self.assertEqual(users_contract["provider_extension"], "users")
         self.assertEqual(users_contract["required_methods"], ["custom"])
+        self.assertEqual(users_contract["source"], "declared")
+
+    def test_runtime_service_contracts_report_core_fallback_source(self):
+        from bias_core.extensions.runtime_service_contracts import (
+            inspect_runtime_service_contract_sources,
+            snapshot_runtime_service_contracts,
+        )
+
+        class Host:
+            def get_runtime_views(self):
+                return []
+
+            def make(self, key, default=None):
+                return default
+
+            def get_service_provider_keys(self, *, extension_id=None):
+                return []
+
+        self.assertIn({
+            "code": "runtime_service_contract_uses_core_fallback",
+            "service_key": "users.service",
+            "provider_extension": "users",
+            "member": "users.service",
+            "severity": "warning",
+        }, inspect_runtime_service_contract_sources(Host(), provider_extension="users"))
+        users_contract = next(
+            item
+            for item in snapshot_runtime_service_contracts(host=Host())
+            if item["service_key"] == "users.service"
+        )
+        self.assertEqual(users_contract["source"], "core_fallback")
 
     def test_runtime_service_contracts_detect_non_callable_service(self):
         from bias_core.extensions.runtime_service_contracts import (

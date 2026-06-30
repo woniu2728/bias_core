@@ -2266,6 +2266,25 @@ class ExtensionManagementCommandTests(TestCase):
         self.assertTrue(diagnostics["blocking"])
         self.assertIn("运行时服务契约不完整", diagnostics["blocking_reasons"])
 
+    def test_extension_diagnostics_report_runtime_service_contract_fallback_as_warning(self):
+        from bias_core.extension_diagnostics import classify_extension_diagnostics
+
+        diagnostics = classify_extension_diagnostics({
+            "healthy": True,
+            "runtime_service_contract_warnings": [{
+                "code": "runtime_service_contract_uses_core_fallback",
+                "service_key": "users.service",
+                "provider_extension": "users",
+                "member": "users.service",
+                "severity": "warning",
+            }],
+            "dependency_state": "healthy",
+        })
+
+        self.assertFalse(diagnostics["blocking"])
+        self.assertTrue(diagnostics["warning"])
+        self.assertIn("运行时服务契约仍依赖 core fallback", diagnostics["warning_reasons"])
+
     def test_inspect_extensions_command_can_focus_single_extension_with_permissions(self):
         stdout = StringIO()
         call_command(
@@ -2395,10 +2414,12 @@ class ExtensionManagementCommandTests(TestCase):
         service_contracts = snapshot["runtime"]["service_contracts"]
 
         self.assertEqual(extension["runtime_service_contract_issues"], [])
+        self.assertEqual(extension["runtime_service_contract_warnings"], [])
         self.assertEqual(snapshot["summary"]["runtime_service_contract_count"], len(service_contracts))
         self.assertTrue(any(
             item["service_key"] == "users.service"
             and item["provider_extension"] == "users"
+            and item["source"] == "declared"
             and "get_by_id" in item["required_methods"]
             and "model" in item["required_values"]
             for item in service_contracts

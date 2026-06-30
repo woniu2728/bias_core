@@ -14,6 +14,12 @@ class RuntimeServiceContract:
     callable_service: bool = False
 
 
+@dataclass(frozen=True)
+class ResolvedRuntimeServiceContract:
+    contract: RuntimeServiceContract
+    source: str
+
+
 RUNTIME_SERVICE_CONTRACTS = {
     "content.discussions": RuntimeServiceContract(
         service_key="content.discussions",
@@ -258,20 +264,48 @@ def get_runtime_service_contracts(
     host: Any | None = None,
     provider_extension: str | None = None,
 ) -> tuple[RuntimeServiceContract, ...]:
+    return tuple(
+        resolved.contract
+        for resolved in get_resolved_runtime_service_contracts(
+            host=host,
+            provider_extension=provider_extension,
+        )
+    )
+
+
+def get_resolved_runtime_service_contracts(
+    *,
+    host: Any | None = None,
+    provider_extension: str | None = None,
+) -> tuple[ResolvedRuntimeServiceContract, ...]:
     normalized_provider = str(provider_extension or "").strip()
-    contracts_by_key = dict(RUNTIME_SERVICE_CONTRACTS)
+    contracts_by_key = {
+        key: ResolvedRuntimeServiceContract(contract=contract, source="core_fallback")
+        for key, contract in RUNTIME_SERVICE_CONTRACTS.items()
+    }
     contracts_by_key.update({
-        contract.service_key: contract
+        contract.service_key: ResolvedRuntimeServiceContract(contract=contract, source="declared")
         for contract in get_declared_runtime_service_contracts(host)
     })
     contracts = tuple(contracts_by_key[key] for key in sorted(contracts_by_key))
     if not normalized_provider:
         return contracts
     return tuple(
-        contract
-        for contract in contracts
-        if contract.provider_extension == normalized_provider
+        resolved
+        for resolved in contracts
+        if resolved.contract.provider_extension == normalized_provider
     )
+
+
+def inspect_runtime_service_contract_sources(host: Any, *, provider_extension: str | None = None) -> list[dict]:
+    return [
+        _source_issue(resolved.contract, "runtime_service_contract_uses_core_fallback")
+        for resolved in get_resolved_runtime_service_contracts(
+            host=host,
+            provider_extension=provider_extension,
+        )
+        if resolved.source == "core_fallback"
+    ]
 
 
 def inspect_runtime_service_contracts(host: Any, *, provider_extension: str | None = None) -> list[dict]:
@@ -305,8 +339,10 @@ def snapshot_runtime_service_contracts(*, host: Any | None = None) -> list[dict]
             "required_values": sorted(contract.required_values),
             "optional_methods": sorted(contract.optional_methods),
             "callable_service": bool(contract.callable_service),
+            "source": resolved.source,
         }
-        for contract in get_runtime_service_contracts(host=host)
+        for resolved in get_resolved_runtime_service_contracts(host=host)
+        for contract in (resolved.contract,)
     ]
 
 
@@ -349,6 +385,12 @@ def _issue(contract: RuntimeServiceContract, code: str, member: str) -> dict:
         "provider_extension": contract.provider_extension,
         "member": member,
     }
+
+
+def _source_issue(contract: RuntimeServiceContract, code: str) -> dict:
+    payload = _issue(contract, code, contract.service_key)
+    payload["severity"] = "warning"
+    return payload
 
 
 def _normalize_runtime_service_contract(
@@ -409,9 +451,12 @@ _validate_runtime_service_contracts()
 
 __all__ = [
     "RUNTIME_SERVICE_CONTRACTS",
+    "ResolvedRuntimeServiceContract",
     "RuntimeServiceContract",
     "get_declared_runtime_service_contracts",
+    "get_resolved_runtime_service_contracts",
     "get_runtime_service_contracts",
+    "inspect_runtime_service_contract_sources",
     "inspect_runtime_service_contracts",
     "snapshot_runtime_service_contracts",
 ]
