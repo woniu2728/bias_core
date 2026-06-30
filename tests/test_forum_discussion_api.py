@@ -24,6 +24,13 @@ class ForumDiscussionApiTests(TestCase):
             password="password123",
             is_email_confirmed=True,
         )
+        self.moderator = get_user_model().objects.create_user(
+            username="forum-moderator",
+            email="forum-moderator@example.com",
+            password="password123",
+            is_email_confirmed=True,
+            is_staff=True,
+        )
         from bias_ext_tags.backend.models import Tag
 
         self.tag = Tag.objects.create(
@@ -32,10 +39,32 @@ class ForumDiscussionApiTests(TestCase):
             position=1,
             is_primary=True,
         )
+        self.grant_permissions(
+            self.moderator,
+            "viewForum",
+            "discussion.reply",
+            "discussion.edit",
+            "discussion.rename",
+            "discussion.hide",
+            "discussion.delete",
+            "post.edit",
+            "post.hide",
+            "post.delete",
+        )
 
     def auth_header(self, user=None):
         token = RefreshToken.for_user(user or self.user).access_token
         return {"HTTP_AUTHORIZATION": f"Bearer {token}"}
+
+    def grant_permissions(self, user, *permissions):
+        from bias_ext_users.backend.models import Group, Permission
+
+        group = Group.objects.create(name=f"group-{user.username}")
+        for permission in permissions:
+            Permission.objects.create(group=group, permission=permission)
+        user.user_groups.add(group)
+        if hasattr(user, "_forum_permission_cache"):
+            delattr(user, "_forum_permission_cache")
 
     def create_discussion(self, title="First discussion", content="First post body", user=None):
         from bias_ext_discussions.backend.services import DiscussionService
@@ -178,3 +207,124 @@ class ForumDiscussionApiTests(TestCase):
         self.assertEqual(reply["number"], 2)
         self.assertEqual(reply["content"], "Reply through API")
         self.assertEqual(reply["user"]["username"], self.other_user.username)
+
+    def test_discussion_lifecycle_endpoints_cover_update_pin_lock_hide_and_delete(self):
+        discussion = self.create_discussion(title="Lifecycle topic", content="Original body", user=self.user)
+
+        forbidden_response = self.client.post(
+            f"/api/discussions/{discussion.id}/lock",
+            **self.auth_header(self.other_user),
+        )
+
+        self.assertEqual(forbidden_response.status_code, 403, forbidden_response.content)
+
+        update_response = self.client.patch(
+            f"/api/discussions/{discussion.id}",
+            data=json.dumps({
+                "data": {
+                    "attributes": {
+                        "title": "Renamed topic",
+                        "content": "Edited first post",
+                    }
+                }
+            }),
+            content_type="application/json",
+            **self.auth_header(self.moderator),
+        )
+        pin_response = self.client.post(
+            f"/api/discussions/{discussion.id}/pin",
+            **self.auth_header(self.moderator),
+        )
+        lock_response = self.client.post(
+            f"/api/discussions/{discussion.id}/lock",
+            **self.auth_header(self.moderator),
+        )
+        hide_response = self.client.post(
+            f"/api/discussions/{discussion.id}/hide",
+            **self.auth_header(self.moderator),
+        )
+
+        self.assertEqual(update_response.status_code, 200, update_response.content)
+        self.assertEqual(update_response.json()["title"], "Renamed topic")
+        self.assertEqual(pin_response.status_code, 200, pin_response.content)
+        self.assertTrue(pin_response.json()["is_sticky"])
+        self.assertEqual(lock_response.status_code, 200, lock_response.content)
+        self.assertTrue(lock_response.json()["is_locked"])
+        self.assertEqual(hide_response.status_code, 200, hide_response.content)
+        self.assertTrue(hide_response.json()["is_hidden"])
+
+        hidden_list_response = self.client.get("/api/discussions/")
+        moderator_list_response = self.client.get("/api/discussions/", **self.auth_header(self.moderator))
+
+        self.assertEqual(hidden_list_response.status_code, 200, hidden_list_response.content)
+        self.assertEqual(hidden_list_response.json()["data"], [])
+        self.assertEqual(moderator_list_response.status_code, 200, moderator_list_response.content)
+        self.assertEqual([item["id"] for item in moderator_list_response.json()["data"]], [discussion.id])
+
+        restore_response = self.client.post(
+            f"/api/discussions/{discussion.id}/hide",
+            **self.auth_header(self.moderator),
+        )
+        delete_response = self.client.delete(
+            f"/api/discussions/{discussion.id}",
+            **self.auth_header(self.moderator),
+        )
+        deleted_show_response = self.client.get(f"/api/discussions/{discussion.id}", **self.auth_header(self.moderator))
+
+        self.assertEqual(restore_response.status_code, 200, restore_response.content)
+        self.assertFalse(restore_response.json()["is_hidden"])
+        self.assertEqual(delete_response.status_code, 200, delete_response.content)
+        self.assertEqual(deleted_show_response.status_code, 404, deleted_show_response.content)
+
+    def test_post_lifecycle_endpoints_cover_update_hide_restore_and_delete(self):
+        discussion = self.create_discussion(title="Post lifecycle", content="Original", user=self.user)
+        post = self.create_reply(discussion, content="Reply to manage", user=self.other_user)
+
+        forbidden_response = self.client.patch(
+            f"/api/posts/{post.id}",
+            data=json.dumps({"content": "Unauthorized edit"}),
+            content_type="application/json",
+            **self.auth_header(self.user),
+        )
+
+        self.assertEqual(forbidden_response.status_code, 403, forbidden_response.content)
+
+        update_response = self.client.patch(
+            f"/api/posts/{post.id}",
+            data=json.dumps({"content": "Moderator edit"}),
+            content_type="application/json",
+            **self.auth_header(self.moderator),
+        )
+        hide_response = self.client.post(
+            f"/api/posts/{post.id}/hide",
+            **self.auth_header(self.moderator),
+        )
+        hidden_stream_response = self.client.get(f"/api/discussions/{discussion.id}/posts")
+        moderator_stream_response = self.client.get(
+            f"/api/discussions/{discussion.id}/posts",
+            **self.auth_header(self.moderator),
+        )
+
+        self.assertEqual(update_response.status_code, 200, update_response.content)
+        self.assertEqual(update_response.json()["content"], "Moderator edit")
+        self.assertEqual(hide_response.status_code, 200, hide_response.content)
+        self.assertTrue(hide_response.json()["is_hidden"])
+        self.assertEqual(hidden_stream_response.status_code, 200, hidden_stream_response.content)
+        self.assertEqual([item["number"] for item in hidden_stream_response.json()["data"]], [1])
+        self.assertEqual(moderator_stream_response.status_code, 200, moderator_stream_response.content)
+        self.assertEqual([item["number"] for item in moderator_stream_response.json()["data"]], [1, 2])
+
+        restore_response = self.client.post(
+            f"/api/posts/{post.id}/hide",
+            **self.auth_header(self.moderator),
+        )
+        delete_response = self.client.delete(
+            f"/api/posts/{post.id}",
+            **self.auth_header(self.moderator),
+        )
+        deleted_show_response = self.client.get(f"/api/posts/{post.id}", **self.auth_header(self.moderator))
+
+        self.assertEqual(restore_response.status_code, 200, restore_response.content)
+        self.assertFalse(restore_response.json()["is_hidden"])
+        self.assertEqual(delete_response.status_code, 200, delete_response.content)
+        self.assertEqual(deleted_show_response.status_code, 404, deleted_show_response.content)
