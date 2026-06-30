@@ -4,8 +4,11 @@ Runtime queue dispatch helpers.
 import logging
 import os
 from unittest.mock import Mock
+from django.conf import settings
 from django.core.cache import cache
+from django.core.exceptions import ImproperlyConfigured
 from django.utils import timezone
+from django.utils.module_loading import import_string
 from typing import Callable, Optional
 
 from bias_core.conf.bootstrap import _is_test_process
@@ -74,9 +77,15 @@ class QueueService:
 
     @staticmethod
     def _get_celery_app():
-        from config.celery import app as celery_app
+        app_path = str(getattr(settings, "BIAS_CELERY_APP", "") or "").strip()
+        if not app_path:
+            raise ImproperlyConfigured("BIAS_CELERY_APP must be configured to use the redis queue driver.")
 
-        return celery_app
+        normalized_path = app_path.replace(":", ".", 1)
+        try:
+            return import_string(normalized_path)
+        except ImportError as exc:
+            raise ImproperlyConfigured(f"Could not import BIAS_CELERY_APP '{app_path}'.") from exc
 
     @staticmethod
     def get_runtime_config() -> dict:

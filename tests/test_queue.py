@@ -1,9 +1,25 @@
 from tests.common import *
 
+QUEUE_TEST_CELERY_APP = object()
+
+
 class QueueServiceTests(TestCase):
     def tearDown(self):
         clear_runtime_setting_caches()
         super().tearDown()
+
+    @override_settings(BIAS_CELERY_APP="tests.test_queue:QUEUE_TEST_CELERY_APP")
+    def test_queue_celery_app_is_loaded_from_settings(self):
+        from bias_core.queue_service import QueueService
+
+        self.assertIs(QueueService._get_celery_app(), QUEUE_TEST_CELERY_APP)
+
+    @override_settings(BIAS_CELERY_APP="")
+    def test_queue_celery_app_requires_setting(self):
+        from bias_core.queue_service import QueueService
+
+        with self.assertRaises(ImproperlyConfigured):
+            QueueService._get_celery_app()
 
     def test_queue_worker_status_reports_disabled_when_queue_is_off(self):
         from bias_core.queue_service import QueueService
