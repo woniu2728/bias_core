@@ -167,6 +167,53 @@ class ForumDiscussionApiTests(TestCase):
         self.assertGreaterEqual(payload["current_end"], post_two.number)
         self.assertGreaterEqual(post_three.number, post_two.number)
 
+        before_response = self.client.get(f"/api/discussions/{discussion.id}/posts?before={post_three.number}&limit=1")
+        after_response = self.client.get(f"/api/discussions/{discussion.id}/posts?after={post_two.number}&limit=1")
+
+        self.assertEqual(before_response.status_code, 200, before_response.content)
+        self.assertEqual([item["number"] for item in before_response.json()["data"]], [post_two.number])
+        self.assertTrue(before_response.json()["has_previous"])
+        self.assertTrue(before_response.json()["has_more"])
+        self.assertEqual(after_response.status_code, 200, after_response.content)
+        self.assertEqual([item["number"] for item in after_response.json()["data"]], [post_three.number])
+        self.assertTrue(after_response.json()["has_previous"])
+        self.assertFalse(after_response.json()["has_more"])
+
+    def test_discussion_read_state_endpoints_mark_single_and_all_discussions_read(self):
+        first_discussion = self.create_discussion(title="Read state one", content="Opening", user=self.user)
+        second_discussion = self.create_discussion(title="Read state two", content="Opening", user=self.other_user)
+        from bias_ext_discussions.backend.services import DiscussionService
+
+        DiscussionService.update_read_state(
+            discussion_id=second_discussion.id,
+            user=self.user,
+            last_read_post_number=1,
+        )
+        first_reply = self.create_reply(first_discussion, content="Unread first", user=self.other_user)
+        second_reply = self.create_reply(second_discussion, content="Unread second", user=self.other_user)
+
+        read_response = self.client.post(
+            f"/api/discussions/{first_discussion.id}/read",
+            data=json.dumps({"last_read_post_number": first_reply.number}),
+            content_type="application/json",
+            **self.auth_header(self.user),
+        )
+        unread_response = self.client.get("/api/discussions/?filter=unread", **self.auth_header(self.user))
+
+        self.assertEqual(read_response.status_code, 200, read_response.content)
+        self.assertEqual(read_response.json()["last_read_post_number"], first_reply.number)
+        self.assertEqual(unread_response.status_code, 200, unread_response.content)
+        self.assertEqual([item["id"] for item in unread_response.json()["data"]], [second_discussion.id])
+
+        mark_all_response = self.client.post("/api/discussions/read-all", **self.auth_header(self.user))
+        unread_after_mark_all_response = self.client.get("/api/discussions/?filter=unread", **self.auth_header(self.user))
+
+        self.assertEqual(mark_all_response.status_code, 200, mark_all_response.content)
+        self.assertIn("marked_all_as_read_at", mark_all_response.json())
+        self.assertEqual(unread_after_mark_all_response.status_code, 200, unread_after_mark_all_response.content)
+        self.assertEqual(unread_after_mark_all_response.json()["data"], [])
+        self.assertEqual(second_reply.number, 2)
+
     def test_authenticated_user_can_create_discussion_and_reply(self):
         create_response = self.client.post(
             "/api/discussions/",
