@@ -238,7 +238,10 @@ RUNTIME_SERVICE_CONTRACTS = {
 
 def get_runtime_service_contracts(*, provider_extension: str | None = None) -> tuple[RuntimeServiceContract, ...]:
     normalized_provider = str(provider_extension or "").strip()
-    contracts = tuple(RUNTIME_SERVICE_CONTRACTS.values())
+    contracts = tuple(
+        RUNTIME_SERVICE_CONTRACTS[key]
+        for key in sorted(RUNTIME_SERVICE_CONTRACTS)
+    )
     if not normalized_provider:
         return contracts
     return tuple(
@@ -253,6 +256,8 @@ def inspect_runtime_service_contracts(host: Any, *, provider_extension: str | No
     if host is None:
         return issues
     for contract in get_runtime_service_contracts(provider_extension=provider_extension):
+        if not _host_provider_registered(host, contract):
+            issues.append(_issue(contract, "missing_provider_registration", contract.service_key))
         service = _resolve_host_service(host, contract.service_key)
         if service is None:
             issues.append(_issue(contract, "missing_service", contract.service_key))
@@ -271,9 +276,9 @@ def snapshot_runtime_service_contracts() -> list[dict]:
         {
             "service_key": contract.service_key,
             "provider_extension": contract.provider_extension,
-            "required_methods": list(contract.required_methods),
-            "required_values": list(contract.required_values),
-            "optional_methods": list(contract.optional_methods),
+            "required_methods": sorted(contract.required_methods),
+            "required_values": sorted(contract.required_values),
+            "optional_methods": sorted(contract.optional_methods),
         }
         for contract in get_runtime_service_contracts()
     ]
@@ -294,6 +299,17 @@ def _resolve_host_service(host: Any, key: str):
         return None
 
 
+def _host_provider_registered(host: Any, contract: RuntimeServiceContract) -> bool:
+    getter = getattr(host, "get_service_provider_keys", None)
+    if not callable(getter):
+        return True
+    try:
+        keys = getter(extension_id=contract.provider_extension)
+    except TypeError:
+        return True
+    return contract.service_key in {str(item or "").strip() for item in keys or ()}
+
+
 def _service_value(service: Any, name: str, default: Any = None):
     if isinstance(service, dict):
         return service.get(name, default)
@@ -309,7 +325,33 @@ def _issue(contract: RuntimeServiceContract, code: str, member: str) -> dict:
     }
 
 
+def _validate_runtime_service_contracts() -> None:
+    for service_key, contract in RUNTIME_SERVICE_CONTRACTS.items():
+        if service_key != contract.service_key:
+            raise RuntimeError(f"runtime service contract key mismatch: {service_key} != {contract.service_key}")
+        if not contract.provider_extension:
+            raise RuntimeError(f"runtime service contract is missing provider extension: {service_key}")
+        for field in ("required_methods", "required_values", "optional_methods"):
+            values = tuple(getattr(contract, field))
+            normalized_values = tuple(str(item or "").strip() for item in values)
+            if values != normalized_values:
+                raise RuntimeError(f"runtime service contract {service_key}.{field} contains unnormalized names")
+            if any(not item for item in normalized_values):
+                raise RuntimeError(f"runtime service contract {service_key}.{field} contains empty names")
+            if tuple(sorted(normalized_values)) != normalized_values:
+                raise RuntimeError(f"runtime service contract {service_key}.{field} must be sorted")
+            if len(set(normalized_values)) != len(normalized_values):
+                raise RuntimeError(f"runtime service contract {service_key}.{field} contains duplicate names")
+        overlap = set(contract.required_methods) & set(contract.optional_methods)
+        if overlap:
+            names = ", ".join(sorted(overlap))
+            raise RuntimeError(f"runtime service contract {service_key} has required/optional overlap: {names}")
+
+
 _MISSING = object()
+
+
+_validate_runtime_service_contracts()
 
 
 __all__ = [

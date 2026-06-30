@@ -236,8 +236,17 @@ class ExtensionPublicApiBoundaryTests(TestCase):
                     }
                 return default
 
+            def get_service_provider_keys(self, *, extension_id=None):
+                return []
+
         issues = inspect_runtime_service_contracts(Host(), provider_extension="users")
 
+        self.assertIn({
+            "code": "missing_provider_registration",
+            "service_key": "users.service",
+            "provider_extension": "users",
+            "member": "users.service",
+        }, issues)
         self.assertIn({
             "code": "missing_value",
             "service_key": "users.service",
@@ -250,6 +259,39 @@ class ExtensionPublicApiBoundaryTests(TestCase):
             "provider_extension": "users",
             "member": "get_by_username",
         }, issues)
+
+    def test_runtime_service_contracts_accept_registered_complete_service(self):
+        from bias_core.extensions.runtime_service_contracts import inspect_runtime_service_contracts
+
+        class Host:
+            def make(self, key, default=None):
+                if key != "users.service":
+                    return default
+                return {
+                    "model": object(),
+                    "group_model": object(),
+                    "permission_model": object(),
+                    "apply_comment_count_deltas": lambda deltas: 0,
+                    "ensure_admin": lambda **kwargs: {},
+                    "ensure_email_confirmed": lambda user, action_label="": None,
+                    "ensure_forum_permission": lambda user, permission_names, message="": None,
+                    "ensure_not_suspended": lambda user, action_label="": None,
+                    "get_by_id": lambda user_id: None,
+                    "get_by_username": lambda username: None,
+                    "get_forum_permissions": lambda user: set(),
+                    "get_preference": lambda user, key, fallback=None: fallback,
+                    "increment_comment_count": lambda user_id, delta: 0,
+                    "increment_discussion_count": lambda user_id, delta: 0,
+                    "list_by_usernames": lambda usernames: [],
+                    "requires_content_approval": lambda user, bypass_permission: False,
+                    "serialize_many_by_ids": lambda user_ids, limit=50: [],
+                    "username_id_map": lambda usernames: {},
+                }
+
+            def get_service_provider_keys(self, *, extension_id=None):
+                return ["users.service"] if extension_id == "users" else []
+
+        self.assertEqual(inspect_runtime_service_contracts(Host(), provider_extension="users"), [])
 
     def test_platform_sdk_exports_auth_and_cookie_helpers(self):
         from bias_core.extensions import platform
