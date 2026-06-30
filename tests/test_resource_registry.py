@@ -925,6 +925,27 @@ class ResourceRegistryTests(TestCase):
 
         self.assertEqual(mutated.default_include, ("flags",))
 
+    def test_api_resource_extender_endpoint_helpers_ignore_plain_objects(self):
+        app = ExtensionApplication()
+        extension = SimpleNamespace(extension_id="alpha-tools")
+
+        ApiResourceExtender("post").add_default_include("index", ("flags",)).extend(app, extension)
+        resources = app.make("resources")
+
+        self.assertEqual(resources.apply_endpoint_mutators("post", "index", "base"), "base")
+
+    def test_api_resource_extender_endpoint_helpers_update_dict_endpoints(self):
+        app = ExtensionApplication()
+        extension = SimpleNamespace(extension_id="alpha-tools")
+
+        ApiResourceExtender("post").add_default_include("index", ("flags",)).default_sort("index", "-created_at").extend(app, extension)
+        resources = app.make("resources")
+
+        mutated = resources.apply_endpoint_mutators("post", "index", {"name": "index"})
+
+        self.assertEqual(mutated["default_include"], ("flags",))
+        self.assertEqual(mutated["default_sort"], "-created_at")
+
     def test_resource_endpoint_runner_applies_hooks_to_custom_handlers(self):
         from bias_core.resource_endpoint_runner import ResourceEndpointRunner
 

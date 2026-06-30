@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, is_dataclass, replace
 from typing import TYPE_CHECKING, Any, Callable
 
 from bias_core.extensions.container import resolve_container_value, wrap_callback
@@ -410,19 +410,22 @@ class ApiResourceExtender:
 
         def mutate(endpoint):
             current = list(getattr(endpoint, "default_include", ()) or ())
+            if isinstance(endpoint, dict):
+                current = list(endpoint.get("default_include", ()) or ())
             seen = set(current)
             for include in normalized_includes:
                 if include and include not in seen:
                     seen.add(include)
                     current.append(include)
-            return replace(endpoint, default_include=tuple(current))
+            return _replace_endpoint_attrs(endpoint, default_include=tuple(current))
 
         return self.endpoint(endpoints, mutate)
 
     def eager_load(self, endpoints, *items: Any) -> "ApiResourceExtender":
         def mutate(endpoint):
-            return replace(endpoint, eager_load=tuple([
-                *(getattr(endpoint, "eager_load", ()) or ()),
+            current = endpoint.get("eager_load", ()) if isinstance(endpoint, dict) else getattr(endpoint, "eager_load", ())
+            return _replace_endpoint_attrs(endpoint, eager_load=tuple([
+                *(current or ()),
                 *items,
             ]))
 
@@ -434,8 +437,13 @@ class ApiResourceExtender:
             return self
 
         def mutate(endpoint):
-            return replace(endpoint, eager_load_when_included_rules=tuple([
-                *(getattr(endpoint, "eager_load_when_included_rules", ()) or ()),
+            current = (
+                endpoint.get("eager_load_when_included_rules", ())
+                if isinstance(endpoint, dict)
+                else getattr(endpoint, "eager_load_when_included_rules", ())
+            )
+            return _replace_endpoint_attrs(endpoint, eager_load_when_included_rules=tuple([
+                *(current or ()),
                 (normalized_include, tuple(items or ())),
             ]))
 
@@ -447,8 +455,13 @@ class ApiResourceExtender:
             return self
 
         def mutate(endpoint):
-            return replace(endpoint, eager_load_where_rules=tuple([
-                *(getattr(endpoint, "eager_load_where_rules", ()) or ()),
+            current = (
+                endpoint.get("eager_load_where_rules", ())
+                if isinstance(endpoint, dict)
+                else getattr(endpoint, "eager_load_where_rules", ())
+            )
+            return _replace_endpoint_attrs(endpoint, eager_load_where_rules=tuple([
+                *(current or ()),
                 (normalized_relation, callback),
             ]))
 
@@ -458,7 +471,7 @@ class ApiResourceExtender:
         normalized_sort = str(sort or "").strip()
 
         def mutate(endpoint):
-            return replace(endpoint, default_sort=normalized_sort)
+            return _replace_endpoint_attrs(endpoint, default_sort=normalized_sort)
 
         return self.endpoint(endpoints, mutate)
 
@@ -732,6 +745,21 @@ class ApiResourceExtender:
             return all(isinstance(name, str) for name in names)
         return False
 
+    @staticmethod
+    def _resource_object_name(resource) -> str:
+        if resource is None:
+            return ""
+        resource_object = resource
+        if isinstance(resource, type):
+            try:
+                resource_object = resource()
+            except TypeError:
+                return ""
+        type_method = getattr(resource_object, "type", None)
+        if callable(type_method):
+            return str(type_method() or "").strip()
+        return ""
+
     def extend(self, app: "ExtensionHost", extension: "ExtensionRuntimeView") -> None:
         resources = () if isinstance(self.resource, str) else ((self.resource,) if self.resource is not None else ())
         fields = normalize_resource_fields(self.resource_name, resolve_definition_groups(self._fields, app))
@@ -749,18 +777,14 @@ class ApiResourceExtender:
             filters=filters,
         ).extend(app, extension)
 
-    @staticmethod
-    def _resource_object_name(resource) -> str:
-        if resource is None:
-            return ""
-        resource_object = resource
-        if isinstance(resource, type):
-            try:
-                resource_object = resource()
-            except TypeError:
-                return ""
-        type_method = getattr(resource_object, "type", None)
-        if callable(type_method):
-            return str(type_method() or "").strip()
-        return ""
+
+def _replace_endpoint_attrs(endpoint: Any, **attrs: Any):
+    if is_dataclass(endpoint) and not isinstance(endpoint, type):
+        return replace(endpoint, **attrs)
+    if isinstance(endpoint, dict):
+        return {**endpoint, **attrs}
+    try:
+        return replace(endpoint, **attrs)
+    except TypeError:
+        return endpoint
 
