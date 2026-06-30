@@ -36,6 +36,12 @@ class ForumDiscussionApiTests(TestCase):
             password="password123",
             is_email_confirmed=True,
         )
+        self.permission_moderator = get_user_model().objects.create_user(
+            username="permission-moderator",
+            email="permission-moderator@example.com",
+            password="password123",
+            is_email_confirmed=True,
+        )
         self.moderator = get_user_model().objects.create_user(
             username="forum-moderator",
             email="forum-moderator@example.com",
@@ -96,6 +102,14 @@ class ForumDiscussionApiTests(TestCase):
         )
         self.grant_permissions(self.pending_author, "viewForum", "startDiscussion", "discussion.reply")
         self.grant_permissions(self.pending_replier, "viewForum", "startDiscussion", "discussion.reply")
+        self.grant_permissions(
+            self.permission_moderator,
+            "viewForum",
+            "discussion.reply",
+            "replyWithoutApproval",
+            "discussion.lock",
+            "discussion.sticky",
+        )
         self.grant_permissions_for_approval_gate()
 
     def auth_header(self, user=None):
@@ -459,6 +473,53 @@ class ForumDiscussionApiTests(TestCase):
         self.assertEqual(reader_rejected_post_response.status_code, 404, reader_rejected_post_response.content)
         self.assertEqual(author_rejected_post_response.status_code, 200, author_rejected_post_response.content)
         self.assertEqual(author_rejected_post_response.json()["approval_note"], "Reply rejected")
+
+    def test_permission_moderator_can_pin_lock_patch_and_reply_to_locked_discussion(self):
+        discussion = self.create_discussion(
+            title="Permission moderator controls",
+            content="Original body",
+            user=self.user,
+        )
+
+        pin_response = self.client.post(
+            f"/api/discussions/{discussion.id}/pin",
+            **self.auth_header(self.permission_moderator),
+        )
+        lock_response = self.client.post(
+            f"/api/discussions/{discussion.id}/lock",
+            **self.auth_header(self.permission_moderator),
+        )
+        reply_response = self.client.post(
+            f"/api/discussions/{discussion.id}/posts",
+            data=json.dumps({"content": "Moderator reply while locked"}),
+            content_type="application/json",
+            **self.auth_header(self.permission_moderator),
+        )
+
+        self.assertEqual(pin_response.status_code, 200, pin_response.content)
+        self.assertTrue(pin_response.json()["is_sticky"])
+        self.assertEqual(lock_response.status_code, 200, lock_response.content)
+        self.assertTrue(lock_response.json()["is_locked"])
+        self.assertEqual(reply_response.status_code, 200, reply_response.content)
+        self.assertEqual(reply_response.json()["content"], "Moderator reply while locked")
+
+        update_response = self.client.patch(
+            f"/api/discussions/{discussion.id}",
+            data=json.dumps({
+                "data": {
+                    "attributes": {
+                        "is_locked": False,
+                        "is_sticky": False,
+                    }
+                }
+            }),
+            content_type="application/json",
+            **self.auth_header(self.permission_moderator),
+        )
+
+        self.assertEqual(update_response.status_code, 200, update_response.content)
+        self.assertFalse(update_response.json()["is_locked"])
+        self.assertFalse(update_response.json()["is_sticky"])
 
     def test_approval_visibility_matrix_for_pending_and_rejected_discussions(self):
         pending_response = self.create_discussion_via_api(
