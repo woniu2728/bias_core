@@ -32,6 +32,7 @@ from bias_core.visibility import can_view_model_instance
 from bias_core.testing import (
     ExtensionRuntimeTestMixin,
     ResourceRegistry,
+    assert_runtime_service_contracts,
     build_extension_test_api,
     build_extension_test_host,
     build_extension_test_urlpatterns,
@@ -55,6 +56,7 @@ __all__ = [
     "ResourceRegistry",
     "Setting",
     "apply_extension_formatter_render",
+    "assert_runtime_service_contracts",
     "build_extension_test_api",
     "build_extension_test_host",
     "build_extension_test_urlpatterns",

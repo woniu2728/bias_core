@@ -25,6 +25,7 @@ from bias_core.resource_registry import ResourceRegistry, get_resource_registry
 __all__ = [
     "ExtensionRuntimeTestMixin",
     "ResourceRegistry",
+    "assert_runtime_service_contracts",
     "build_extension_test_api",
     "build_extension_test_host",
     "build_extension_test_urlpatterns",
@@ -142,6 +143,52 @@ def build_runtime_event(event_alias: str, **payload):
     if event_type is None:
         raise RuntimeError(f"扩展事件别名未注册: {event_alias}")
     return event_type(**payload)
+
+
+def assert_runtime_service_contracts(host, extension_id: str, *service_keys: str) -> None:
+    """Assert an extension owns complete declared runtime service contracts."""
+    from bias_core.extensions.runtime_service_contracts import (
+        inspect_runtime_service_contract_sources,
+        inspect_runtime_service_contracts,
+        snapshot_runtime_service_contracts,
+    )
+
+    normalized_extension = str(extension_id or "").strip()
+    expected_keys = {
+        str(service_key or "").strip()
+        for service_key in service_keys
+        if str(service_key or "").strip()
+    }
+    snapshot = [
+        item
+        for item in snapshot_runtime_service_contracts(host=host)
+        if item.get("provider_extension") == normalized_extension
+    ]
+    declared_keys = {
+        str(item.get("service_key") or "").strip()
+        for item in snapshot
+        if item.get("source") == "declared"
+    }
+    missing = sorted(expected_keys - declared_keys)
+    if missing:
+        raise AssertionError(
+            f"{normalized_extension} missing declared runtime service contracts: {', '.join(missing)}"
+        )
+    fallback_contracts = sorted(
+        str(item.get("service_key") or "").strip()
+        for item in snapshot
+        if item.get("source") != "declared"
+    )
+    if fallback_contracts:
+        raise AssertionError(
+            f"{normalized_extension} runtime service contracts use fallback: {', '.join(fallback_contracts)}"
+        )
+    source_warnings = inspect_runtime_service_contract_sources(host, provider_extension=normalized_extension)
+    if source_warnings:
+        raise AssertionError(f"{normalized_extension} runtime service contract source warnings: {source_warnings!r}")
+    issues = inspect_runtime_service_contracts(host, provider_extension=normalized_extension)
+    if issues:
+        raise AssertionError(f"{normalized_extension} runtime service contract issues: {issues!r}")
 
 
 def capture_runtime_events():
