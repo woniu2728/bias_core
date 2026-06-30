@@ -23,14 +23,6 @@ def _default_bias_version_range() -> str:
 from bias_core.extensions.validation import EXTENSION_ID_PATTERN
 
 
-def _path_is_relative_to(path: Path, parent: Path) -> bool:
-    try:
-        path.resolve().relative_to(parent.resolve())
-        return True
-    except (OSError, ValueError):
-        return False
-
-
 class Command(BaseCommand):
     help = "创建 Bias 扩展脚手架，生成 manifest、后台入口与基础目录。"
     requires_system_checks = []
@@ -42,6 +34,7 @@ class Command(BaseCommand):
         parser.add_argument("--author", default="Bias", help="扩展作者")
         parser.add_argument("--category", default="feature", help="扩展分类，默认 feature")
         parser.add_argument("--extension-version", default="0.1.0", help="扩展版本，默认 0.1.0")
+        parser.add_argument("--target", help="扩展工作区根目录；扩展会创建到该目录下的 bias-ext-<id>")
         parser.add_argument("--force", action="store_true", help="若目录已存在则覆盖可生成文件")
 
     def handle(self, *args, **options):
@@ -54,12 +47,13 @@ class Command(BaseCommand):
         author = str(options.get("author") or "Bias").strip() or "Bias"
         category = str(options.get("category") or "feature").strip() or "feature"
         version = str(options.get("extension_version") or "0.1.0").strip() or "0.1.0"
+        target = str(options.get("target") or "").strip()
         force = bool(options.get("force"))
         extension_package = self._build_extension_package(extension_id)
         python_package = extension_python_package(extension_id)
         app_config_class = self._build_app_config_class(extension_package)
 
-        workspace_root = self._resolve_workspace_root()
+        workspace_root = Path(target).expanduser() if target else self._resolve_workspace_root()
         extension_dir = workspace_root / extension_workspace_dir_name(extension_id)
         if extension_dir.exists() and not force:
             raise CommandError(f"扩展目录已存在: {extension_dir}。如需覆盖，请传 --force")
@@ -205,7 +199,7 @@ class Command(BaseCommand):
         if configured:
             root = Path(configured)
             base_dir = Path(settings.BASE_DIR)
-            if root == base_dir.parent or _path_is_relative_to(base_dir, root):
+            if root == base_dir.parent:
                 return root
 
         base_dir = Path(settings.BASE_DIR)

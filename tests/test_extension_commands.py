@@ -366,6 +366,24 @@ class ExtensionManagementCommandTests(TestCase):
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
+    def test_create_extension_command_accepts_explicit_target_workspace(self):
+        temp_dir = make_workspace_temp_dir()
+        try:
+            target = Path(temp_dir) / "generated-extensions"
+            with override_settings(BASE_DIR=Path(temp_dir) / "bias"):
+                call_command_quietly(
+                    "create_extension",
+                    "alpha-tools",
+                    "--target",
+                    str(target),
+                )
+
+            self.assertTrue((target / "bias-ext-alpha-tools" / "extension.json").exists())
+            self.assertTrue((target / "bias-ext-alpha-tools" / "pyproject.toml").exists())
+            self.assertFalse((Path(temp_dir) / "bias-ext-alpha-tools").exists())
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
     def test_create_extension_command_frontend_entries_use_public_sdks(self):
         temp_dir = make_workspace_temp_dir()
         try:
@@ -719,6 +737,42 @@ class ExtensionManagementCommandTests(TestCase):
             self.assertGreater(payload["results"][0]["source_file_count"], 0)
             self.assertGreater(payload["results"][0]["packaged_file_count"], 0)
             self.assertEqual(payload["results"][0]["errors"], [])
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_inspect_extension_packages_counts_resources_under_hidden_temp_parent(self):
+        temp_dir = make_workspace_temp_dir()
+        try:
+            target = Path(temp_dir) / ".tmp-extension-dx"
+            with override_settings(BASE_DIR=Path(temp_dir) / "bias"):
+                call_command_quietly(
+                    "create_extension",
+                    "alpha-tools",
+                    "--target",
+                    str(target),
+                )
+
+                output = StringIO()
+                call_command(
+                    "inspect_extension_packages",
+                    "--extensions-path",
+                    str(target),
+                    "--extension-id",
+                    "alpha-tools",
+                    "--build",
+                    "--install-smoke",
+                    "--format",
+                    "json",
+                    stdout=output,
+                )
+
+            payload = json.loads(output.getvalue())
+            result = payload["results"][0]
+            self.assertTrue(payload["summary"]["ok"])
+            self.assertGreaterEqual(result["source_file_count"], 3)
+            self.assertEqual(result["discovered_extension_id"], "alpha-tools")
+            self.assertEqual(result["discovered_source"], "python-package")
+            self.assertEqual(result["errors"], [])
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 

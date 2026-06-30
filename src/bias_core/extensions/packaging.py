@@ -1116,8 +1116,9 @@ def _iter_package_source_files(root: Path) -> tuple[str, ...]:
         if not directory.exists():
             continue
         for path in sorted(directory.rglob("*")):
-            if path.is_file() and not _is_ignored_package_resource(path):
-                files.append(path.relative_to(root).as_posix())
+            relative_path = path.relative_to(root)
+            if path.is_file() and not _is_ignored_package_resource(relative_path):
+                files.append(relative_path.as_posix())
     return tuple(files)
 
 
