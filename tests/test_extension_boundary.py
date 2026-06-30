@@ -223,6 +223,34 @@ class ExtensionPublicApiBoundaryTests(TestCase):
             with self.subTest(name=name):
                 self.assertEqual(RUNTIME_FACADE_CONTRACTS[name].missing_service, behavior)
 
+    def test_runtime_service_contracts_detect_missing_members(self):
+        from bias_core.extensions.runtime_service_contracts import inspect_runtime_service_contracts
+
+        class Host:
+            def make(self, key, default=None):
+                if key == "users.service":
+                    return {
+                        "model": object(),
+                        "group_model": object(),
+                        "get_by_id": lambda user_id: None,
+                    }
+                return default
+
+        issues = inspect_runtime_service_contracts(Host(), provider_extension="users")
+
+        self.assertIn({
+            "code": "missing_value",
+            "service_key": "users.service",
+            "provider_extension": "users",
+            "member": "permission_model",
+        }, issues)
+        self.assertIn({
+            "code": "missing_method",
+            "service_key": "users.service",
+            "provider_extension": "users",
+            "member": "get_by_username",
+        }, issues)
+
     def test_platform_sdk_exports_auth_and_cookie_helpers(self):
         from bias_core.extensions import platform
 

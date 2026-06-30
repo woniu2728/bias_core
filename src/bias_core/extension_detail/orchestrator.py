@@ -79,6 +79,10 @@ from bias_core.extensions.product import (
     is_product_visible_extension,
 )
 from bias_core.extensions.runtime_contracts import RUNTIME_FACADE_CONTRACTS
+from bias_core.extensions.runtime_service_contracts import (
+    inspect_runtime_service_contracts,
+    snapshot_runtime_service_contracts,
+)
 from bias_core.extensions.recovery import (
     get_extension_bisect_state,
     get_extension_safe_mode_extension_ids,
@@ -194,6 +198,7 @@ def _serialize_admin_extension(
         language_packs=language_packs,
         capability_summary=capability_summary,
     )
+    runtime_service_contract_issues = _build_runtime_service_contract_issues(extension)
 
     payload = {
         "id": extension.id,
@@ -263,6 +268,7 @@ def _serialize_admin_extension(
         "dependency_state_label": extension.runtime.dependency_state_label,
         "lifecycle_plan": _build_lifecycle_plan_for_extension_view(extension),
         "runtime_issues": list(extension.runtime.runtime_issues),
+        "runtime_service_contract_issues": runtime_service_contract_issues,
         "delivery_checks": [
             {
                 "key": check.key,
@@ -373,6 +379,13 @@ def _build_lifecycle_plan_for_extension_view(extension) -> dict:
         return ExtensionService.build_extension_lifecycle_plan(extension.id)
     except ExtensionNotFoundError:
         return _build_readonly_lifecycle_plan_for_extension_view(extension)
+
+
+def _build_runtime_service_contract_issues(extension) -> list[dict]:
+    host = get_extension_host()
+    if host is None:
+        return []
+    return inspect_runtime_service_contracts(host, provider_extension=extension.id)
 
 def _build_readonly_lifecycle_plan_for_extension_view(extension) -> dict:
     installed = bool(getattr(getattr(extension, "runtime", None), "installed", False))
@@ -1043,6 +1056,7 @@ def _snapshot_formatter_pipeline(items):
 def _snapshot_runtime_contracts(runtime_view):
     return {
         "facades": _snapshot_runtime_facades(),
+        "service_contracts": snapshot_runtime_service_contracts(),
         "validators": _snapshot_objects(_runtime_items(runtime_view, "validators"), ("target", "key", "module_id", "description")),
         "mailers": _snapshot_objects(_runtime_items(runtime_view, "mailers"), ("key", "module_id", "description")),
         "error_handlers": _snapshot_objects(_runtime_items(runtime_view, "error_handlers"), ("key", "module_id", "description", "order")),
@@ -1066,6 +1080,7 @@ def _snapshot_runtime_contracts(runtime_view):
 def _snapshot_runtime_summary(runtime):
     return {
         "runtime_facade_count": len(runtime["facades"]),
+        "runtime_service_contract_count": len(runtime["service_contracts"]),
         "validator_count": len(runtime["validators"]),
         "mailer_count": len(runtime["mailers"]),
         "error_handler_count": len(runtime["error_handlers"]),

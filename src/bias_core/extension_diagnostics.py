@@ -11,6 +11,9 @@ def classify_extension_diagnostics(item: dict) -> dict:
     if item.get("runtime_issues"):
         blocking_reasons.append("存在运行时问题")
 
+    if item.get("runtime_service_contract_issues"):
+        blocking_reasons.append("运行时服务契约不完整")
+
     if item.get("dependency_state") not in {"", "healthy"}:
         blocking_reasons.append("依赖状态异常")
 

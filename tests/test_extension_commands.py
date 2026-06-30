@@ -2249,6 +2249,23 @@ class ExtensionManagementCommandTests(TestCase):
         self.assertTrue(diagnostics["warning"])
         self.assertIn("可选依赖未启用：realtime", diagnostics["warning_reasons"])
 
+    def test_extension_diagnostics_report_runtime_service_contract_issues_as_blocking(self):
+        from bias_core.extension_diagnostics import classify_extension_diagnostics
+
+        diagnostics = classify_extension_diagnostics({
+            "healthy": True,
+            "runtime_service_contract_issues": [{
+                "code": "missing_method",
+                "service_key": "users.service",
+                "provider_extension": "users",
+                "member": "get_by_id",
+            }],
+            "dependency_state": "healthy",
+        })
+
+        self.assertTrue(diagnostics["blocking"])
+        self.assertIn("运行时服务契约不完整", diagnostics["blocking_reasons"])
+
     def test_inspect_extensions_command_can_focus_single_extension_with_permissions(self):
         stdout = StringIO()
         call_command(
@@ -2363,6 +2380,29 @@ class ExtensionManagementCommandTests(TestCase):
             "stability": "public",
             "missing_service": "returns_false",
         }, facades)
+
+    def test_inspect_extensions_command_reports_runtime_service_contracts(self):
+        stdout = StringIO()
+        call_command(
+            "inspect_extensions",
+            "--extension-id",
+            "users",
+            stdout=stdout,
+        )
+        payload = json.loads(stdout.getvalue())
+        extension = payload["extensions"][0]
+        snapshot = extension["contract_snapshot"]
+        service_contracts = snapshot["runtime"]["service_contracts"]
+
+        self.assertEqual(extension["runtime_service_contract_issues"], [])
+        self.assertEqual(snapshot["summary"]["runtime_service_contract_count"], len(service_contracts))
+        self.assertTrue(any(
+            item["service_key"] == "users.service"
+            and item["provider_extension"] == "users"
+            and "get_by_id" in item["required_methods"]
+            and "model" in item["required_values"]
+            for item in service_contracts
+        ))
 
     def test_inspect_extensions_command_reports_runtime_contract_snapshot(self):
         stdout = StringIO()
