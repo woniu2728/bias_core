@@ -3428,6 +3428,139 @@ class ExtensionManagementCommandTests(TestCase):
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
+    def test_smoke_install_upgrade_can_run_from_built_wheel_target(self):
+        temp_dir = make_workspace_temp_dir()
+        source_root = Path(temp_dir) / "workspace"
+        wheel_target = Path(temp_dir) / "site" / "site-packages"
+        for package_name in ("bias_core", "bias-content", "bias-ext-users"):
+            package_root = source_root / package_name
+            package_root.mkdir(parents=True, exist_ok=True)
+            (package_root / "pyproject.toml").write_text("[project]\nname = 'fixture'\nversion = '0.1.0'\n", encoding="utf-8")
+        calls = []
+        state_payloads = [
+            {
+                "admin_exists": True,
+                "admin_username": "smoke-admin",
+                "admin_email": "smoke-admin@example.com",
+                "installed_extensions": ["users"],
+                "enabled_extensions": ["users"],
+                "settings": {"system.version": "\"1.2.3\""},
+                "bias_core_file": str(wheel_target / "bias_core" / "__init__.py"),
+                "wheel_target": str(wheel_target),
+            },
+            {
+                "admin_exists": True,
+                "admin_username": "smoke-admin",
+                "admin_email": "smoke-admin@example.com",
+                "installed_extensions": ["users"],
+                "enabled_extensions": ["users"],
+                "settings": {"system.version": "\"1.2.3\""},
+                "bias_core_file": str(wheel_target / "bias_core" / "__init__.py"),
+                "wheel_target": str(wheel_target),
+            },
+        ]
+
+        def fake_build_and_install_wheels(workdir, *, source_root, timeout):
+            return {
+                "source_root": str(source_root),
+                "target": str(wheel_target),
+                "wheelhouse": str(Path(workdir) / "wheelhouse"),
+                "package_roots": [],
+                "wheels": [],
+            }
+
+        def fake_run_manage_py(args, env):
+            calls.append((list(args), dict(env)))
+            if args[:2] == ["shell", "-c"]:
+                return SimpleNamespace(stdout=json.dumps(state_payloads.pop(0)), stderr="", returncode=0)
+            return SimpleNamespace(stdout="", stderr="", returncode=0)
+
+        try:
+            stdout = StringIO()
+            with patch(
+                "bias_core.management.commands.smoke_install_upgrade.Command._build_and_install_wheels",
+                side_effect=fake_build_and_install_wheels,
+            ):
+                with patch("bias_core.management.commands.smoke_install_upgrade.run_manage_py", side_effect=fake_run_manage_py):
+                    call_command(
+                        "smoke_install_upgrade",
+                        "--workdir",
+                        str(Path(temp_dir) / "site"),
+                        "--from-wheels",
+                        "--wheel-source-root",
+                        str(source_root),
+                        "--skip-collectstatic",
+                        "--skip-extension-frontend",
+                        "--format",
+                        "json",
+                        stdout=stdout,
+                    )
+
+            payload = json.loads(stdout.getvalue())
+            self.assertTrue(payload["summary"]["ok"])
+            self.assertEqual(payload["wheel_install"]["target"], str(wheel_target))
+            self.assertEqual(calls[0][1]["BIAS_SMOKE_WHEEL_TARGET"], str(wheel_target))
+            self.assertTrue(calls[0][1]["PYTHONPATH"].startswith(str(wheel_target)))
+            self.assertEqual(payload["install"]["bias_core_file"], str(wheel_target / "bias_core" / "__init__.py"))
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_smoke_install_upgrade_from_wheels_rejects_source_import(self):
+        temp_dir = make_workspace_temp_dir()
+        wheel_target = Path(temp_dir) / "site-packages"
+        state_payloads = [
+            {
+                "admin_exists": True,
+                "admin_username": "smoke-admin",
+                "admin_email": "smoke-admin@example.com",
+                "installed_extensions": ["users"],
+                "enabled_extensions": ["users"],
+                "settings": {"system.version": "\"1.2.3\""},
+                "bias_core_file": str(Path(temp_dir) / "bias_core" / "src" / "bias_core" / "__init__.py"),
+                "wheel_target": str(wheel_target),
+            },
+            {
+                "admin_exists": True,
+                "admin_username": "smoke-admin",
+                "admin_email": "smoke-admin@example.com",
+                "installed_extensions": ["users"],
+                "enabled_extensions": ["users"],
+                "settings": {"system.version": "\"1.2.3\""},
+                "bias_core_file": str(Path(temp_dir) / "bias_core" / "src" / "bias_core" / "__init__.py"),
+                "wheel_target": str(wheel_target),
+            },
+        ]
+
+        def fake_build_and_install_wheels(workdir, *, source_root, timeout):
+            return {
+                "source_root": str(source_root),
+                "target": str(wheel_target),
+                "wheelhouse": str(Path(workdir) / "wheelhouse"),
+                "package_roots": [],
+                "wheels": [],
+            }
+
+        def fake_run_manage_py(args, env):
+            if args[:2] == ["shell", "-c"]:
+                return SimpleNamespace(stdout=json.dumps(state_payloads.pop(0)), stderr="", returncode=0)
+            return SimpleNamespace(stdout="", stderr="", returncode=0)
+
+        try:
+            with patch(
+                "bias_core.management.commands.smoke_install_upgrade.Command._build_and_install_wheels",
+                side_effect=fake_build_and_install_wheels,
+            ):
+                with patch("bias_core.management.commands.smoke_install_upgrade.run_manage_py", side_effect=fake_run_manage_py):
+                    with self.assertRaisesMessage(CommandError, "未从 wheel target 导入 bias_core"):
+                        call_command_quietly(
+                            "smoke_install_upgrade",
+                            "--workdir",
+                            str(Path(temp_dir) / "site"),
+                            "--from-wheels",
+                        )
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
     def test_smoke_install_upgrade_blocks_when_upgrade_drops_enabled_extensions(self):
         temp_dir = make_workspace_temp_dir()
         state_payloads = [

@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
+import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -24,6 +27,9 @@ class Command(BaseCommand):
         parser.add_argument("--admin-password", default="smoke-admin-password", help="冒烟管理员密码")
         parser.add_argument("--skip-collectstatic", action="store_true", help="传递给 install_forum / upgrade_forum，跳过 collectstatic")
         parser.add_argument("--skip-extension-frontend", action="store_true", help="传递给 install_forum / upgrade_forum，跳过扩展前端清单生成")
+        parser.add_argument("--from-wheels", action="store_true", help="先构建并安装本地 wheel 到临时 target，再从该安装态运行安装升级冒烟")
+        parser.add_argument("--wheel-source-root", help="拆分仓库根目录，默认使用 settings.BASE_DIR.parent")
+        parser.add_argument("--wheel-build-timeout", type=int, default=120, help="单个 wheel 构建/安装超时时间，默认 120 秒")
         parser.add_argument("--format", choices=("text", "json"), default="text", help="输出格式")
 
     def handle(self, *args, **options):
@@ -69,6 +75,7 @@ class Command(BaseCommand):
             "config_path": str(config_path),
             "install": None,
             "upgrade": None,
+            "wheel_install": None,
             "summary": {
                 "ok": False,
                 "error_count": 0,
@@ -78,6 +85,14 @@ class Command(BaseCommand):
         try:
             workdir.mkdir(parents=True, exist_ok=True)
             env = build_manage_env(config_path=config_path)
+            if options["from_wheels"]:
+                wheel_payload = self._build_and_install_wheels(
+                    workdir,
+                    source_root=Path(options.get("wheel_source_root") or Path(settings.BASE_DIR).parent),
+                    timeout=int(options.get("wheel_build_timeout") or 120),
+                )
+                payload["wheel_install"] = wheel_payload
+                env = self._with_wheel_pythonpath(env, wheel_payload["target"])
             self._run_step("install", install_args, env, payload)
             payload["install"] = self._inspect_site_state(env)
             self._run_step("upgrade", upgrade_args, env, payload)
@@ -99,8 +114,97 @@ class Command(BaseCommand):
         else:
             self.stdout.write(self.style.SUCCESS("[OK] install_forum / upgrade_forum 冒烟通过"))
             self.stdout.write(f"- 临时站点: {workdir}")
+            if payload.get("wheel_install"):
+                self.stdout.write(f"- wheel target: {payload['wheel_install']['target']}")
             self.stdout.write(f"- 已启用扩展: {len(payload['upgrade']['enabled_extensions'])}")
             self.stdout.write(f"- 管理员: {payload['upgrade']['admin_username']}")
+
+    def _build_and_install_wheels(self, workdir: Path, *, source_root: Path, timeout: int) -> dict:
+        wheelhouse = workdir / "wheelhouse"
+        target = workdir / "site-packages"
+        wheelhouse.mkdir(parents=True, exist_ok=True)
+        target.mkdir(parents=True, exist_ok=True)
+        package_roots = self._resolve_package_roots(source_root)
+        built_wheels: list[str] = []
+        for package_root in package_roots:
+            self._run_subprocess(
+                [
+                    sys.executable,
+                    "-m",
+                    "build",
+                    "--wheel",
+                    "--no-isolation",
+                    "--outdir",
+                    str(wheelhouse),
+                ],
+                cwd=package_root,
+                timeout=timeout,
+                label=f"构建 wheel: {package_root.name}",
+            )
+        built_wheels = [str(path) for path in sorted(wheelhouse.glob("*.whl"))]
+        if not built_wheels:
+            raise CommandError("未构建出任何 wheel")
+        self._run_subprocess(
+            [
+                sys.executable,
+                "-m",
+                "pip",
+                "install",
+                "--no-deps",
+                "--disable-pip-version-check",
+                "--target",
+                str(target),
+                *built_wheels,
+            ],
+            cwd=source_root,
+            timeout=timeout,
+            label="安装 wheel 到临时 target",
+        )
+        return {
+            "source_root": str(source_root),
+            "target": str(target),
+            "wheelhouse": str(wheelhouse),
+            "package_roots": [str(path) for path in package_roots],
+            "wheels": built_wheels,
+        }
+
+    def _resolve_package_roots(self, source_root: Path) -> list[Path]:
+        candidates = [
+            source_root / "bias_core",
+            source_root / "bias-content",
+            *sorted(source_root.glob("bias-ext-*")),
+        ]
+        roots = []
+        for candidate in candidates:
+            if (candidate / "pyproject.toml").exists():
+                roots.append(candidate)
+        if not roots:
+            raise CommandError(f"未在 {source_root} 找到可构建 package")
+        return roots
+
+    def _run_subprocess(self, args: list[str], *, cwd: Path, timeout: int, label: str) -> None:
+        try:
+            result = subprocess.run(
+                args,
+                cwd=str(cwd),
+                text=True,
+                capture_output=True,
+                timeout=timeout,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise CommandError(f"{label} 超时: {exc}") from exc
+        if result.returncode != 0:
+            detail = "\n".join(part.strip() for part in (result.stderr, result.stdout) if part.strip())
+            if len(detail) > 2000:
+                detail = detail[:2000] + "...[truncated]"
+            raise CommandError(f"{label} 失败: {detail or result.returncode}")
+
+    def _with_wheel_pythonpath(self, env: dict[str, str], target: str) -> dict[str, str]:
+        updated = dict(env)
+        existing = updated.get("PYTHONPATH", "")
+        updated["PYTHONPATH"] = str(target) if not existing else str(target) + os.pathsep + existing
+        updated["BIAS_SMOKE_WHEEL_TARGET"] = str(target)
+        return updated
 
     def _run_step(self, key: str, args: list[str], env: dict[str, str], payload: dict) -> None:
         try:
@@ -123,8 +227,10 @@ class Command(BaseCommand):
     def _inspect_site_state(self, env: dict[str, str]) -> dict:
         script = r"""
 import json
+import os
 from django.contrib.auth import get_user_model
 from bias_core.models import ExtensionInstallation, Setting
+import bias_core
 
 User = get_user_model()
 admin = User.objects.filter(is_superuser=True).order_by("id").first()
@@ -153,6 +259,8 @@ print(json.dumps({
     "installed_extensions": installed,
     "enabled_extensions": enabled,
     "settings": settings,
+    "bias_core_file": getattr(bias_core, "__file__", ""),
+    "wheel_target": os.environ.get("BIAS_SMOKE_WHEEL_TARGET", ""),
 }, ensure_ascii=False))
 """
         try:
@@ -182,3 +290,10 @@ print(json.dumps({
 
         if install_state.get("admin_username") != upgrade_state.get("admin_username"):
             raise CommandError("upgrade 后管理员账号未保持")
+
+        wheel_target = str((payload.get("wheel_install") or {}).get("target") or "")
+        if wheel_target:
+            for label, state in (("install", install_state), ("upgrade", upgrade_state)):
+                core_file = str(state.get("bias_core_file") or "")
+                if wheel_target not in core_file:
+                    raise CommandError(f"{label} 未从 wheel target 导入 bias_core: {core_file}")
