@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 from hashlib import sha256
@@ -105,12 +106,14 @@ def recompile_extension_frontend_assets(
     command: tuple[str, ...] = ()
     completed = None
     if run_build:
-        command = tuple(npm_command)
+        command = _resolve_frontend_build_command(tuple(npm_command))
         try:
             completed = subprocess.run(
                 list(command),
                 cwd=str(get_frontend_root()),
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 capture_output=True,
                 check=False,
             )
@@ -185,6 +188,18 @@ def recompile_extension_frontend_assets(
         stderr=completed.stderr if completed is not None else "",
         output_manifest=output_manifest,
     )
+
+
+def _resolve_frontend_build_command(command: tuple[str, ...]) -> tuple[str, ...]:
+    if not command:
+        return command
+    executable = command[0]
+    if executable.lower() != "npm":
+        return command
+    resolved = shutil.which("npm.cmd" if os.name == "nt" else "npm") or shutil.which("npm")
+    if not resolved:
+        return command
+    return (resolved, *command[1:])
 
 
 def flush_extension_frontend_assets(*, include_published: bool = False, remove_import_map: bool = False) -> dict:

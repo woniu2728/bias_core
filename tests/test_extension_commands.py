@@ -3379,10 +3379,19 @@ class ExtensionManagementCommandTests(TestCase):
                 "settings": {"system.version": "\"1.2.3\""},
             },
         ]
+        static_payload = {
+            "static_root_exists": False,
+            "frontend_root_exists": False,
+            "frontend_file_count": 0,
+            "build_manifest_exists": False,
+            "output_manifest_exists": False,
+        }
 
         def fake_run_manage_py(args, env):
             calls.append((list(args), dict(env)))
             if args[:2] == ["shell", "-c"]:
+                if "static_root = Path(settings.STATIC_ROOT)" in args[2]:
+                    return SimpleNamespace(stdout=json.dumps(static_payload), stderr="", returncode=0)
                 payload = state_payloads.pop(0)
                 return SimpleNamespace(stdout=json.dumps(payload), stderr="", returncode=0)
             return SimpleNamespace(stdout="", stderr="", returncode=0)
@@ -3417,6 +3426,7 @@ class ExtensionManagementCommandTests(TestCase):
             install_env = calls[0][1]
             config_path = temp_dir / "instance" / "site.json"
             self.assertEqual(install_env["BIAS_SITE_CONFIG"], str(config_path))
+            self.assertEqual(install_env["BIAS_STATIC_ROOT"], str(temp_dir / "staticfiles"))
 
             upgrade_args = calls[2][0]
             self.assertEqual(upgrade_args[0], "upgrade_forum")
@@ -3425,6 +3435,7 @@ class ExtensionManagementCommandTests(TestCase):
             self.assertIn("--skip-extension-frontend", upgrade_args)
             self.assertEqual(calls[1][0][:2], ["shell", "-c"])
             self.assertEqual(calls[3][0][:2], ["shell", "-c"])
+            self.assertEqual(calls[4][0][:2], ["shell", "-c"])
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
@@ -3459,6 +3470,13 @@ class ExtensionManagementCommandTests(TestCase):
                 "wheel_target": str(wheel_target),
             },
         ]
+        static_payload = {
+            "static_root_exists": False,
+            "frontend_root_exists": False,
+            "frontend_file_count": 0,
+            "build_manifest_exists": False,
+            "output_manifest_exists": False,
+        }
 
         def fake_build_and_install_wheels(workdir, *, source_root, timeout):
             return {
@@ -3472,6 +3490,8 @@ class ExtensionManagementCommandTests(TestCase):
         def fake_run_manage_py(args, env):
             calls.append((list(args), dict(env)))
             if args[:2] == ["shell", "-c"]:
+                if "static_root = Path(settings.STATIC_ROOT)" in args[2]:
+                    return SimpleNamespace(stdout=json.dumps(static_payload), stderr="", returncode=0)
                 return SimpleNamespace(stdout=json.dumps(state_payloads.pop(0)), stderr="", returncode=0)
             return SimpleNamespace(stdout="", stderr="", returncode=0)
 
@@ -3505,6 +3525,62 @@ class ExtensionManagementCommandTests(TestCase):
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
+    def test_smoke_install_upgrade_rebuild_publish_requires_collected_frontend_dist(self):
+        temp_dir = make_workspace_temp_dir()
+        calls = []
+        state_payloads = [
+            {
+                "admin_exists": True,
+                "admin_username": "smoke-admin",
+                "admin_email": "smoke-admin@example.com",
+                "installed_extensions": ["users"],
+                "enabled_extensions": ["users"],
+                "settings": {"system.version": "\"1.2.3\""},
+            },
+            {
+                "admin_exists": True,
+                "admin_username": "smoke-admin",
+                "admin_email": "smoke-admin@example.com",
+                "installed_extensions": ["users"],
+                "enabled_extensions": ["users"],
+                "settings": {"system.version": "\"1.2.3\""},
+            },
+        ]
+        static_payload = {
+            "static_root_exists": True,
+            "frontend_root_exists": False,
+            "frontend_file_count": 0,
+            "build_manifest_exists": True,
+            "output_manifest_exists": True,
+        }
+
+        def fake_run_manage_py(args, env):
+            calls.append((list(args), dict(env)))
+            if args[:2] == ["shell", "-c"]:
+                if "static_root = Path(settings.STATIC_ROOT)" in args[2]:
+                    return SimpleNamespace(stdout=json.dumps(static_payload), stderr="", returncode=0)
+                return SimpleNamespace(stdout=json.dumps(state_payloads.pop(0)), stderr="", returncode=0)
+            return SimpleNamespace(stdout="", stderr="", returncode=0)
+
+        try:
+            with patch("bias_core.management.commands.smoke_install_upgrade.run_manage_py", side_effect=fake_run_manage_py):
+                with self.assertRaisesMessage(CommandError, "collectstatic 后未发现已发布 frontend dist"):
+                    call_command_quietly(
+                        "smoke_install_upgrade",
+                        "--workdir",
+                        str(temp_dir),
+                        "--publish-frontend-dist",
+                    )
+
+            install_args = calls[0][0]
+            self.assertIn("--publish-frontend-dist", install_args)
+            self.assertIn("--rebuild-extension-frontend", install_args)
+            upgrade_args = calls[2][0]
+            self.assertIn("--publish-frontend-dist", upgrade_args)
+            self.assertIn("--rebuild-extension-frontend", upgrade_args)
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
     def test_smoke_install_upgrade_from_wheels_rejects_source_import(self):
         temp_dir = make_workspace_temp_dir()
         wheel_target = Path(temp_dir) / "site-packages"
@@ -3530,6 +3606,13 @@ class ExtensionManagementCommandTests(TestCase):
                 "wheel_target": str(wheel_target),
             },
         ]
+        static_payload = {
+            "static_root_exists": False,
+            "frontend_root_exists": False,
+            "frontend_file_count": 0,
+            "build_manifest_exists": False,
+            "output_manifest_exists": False,
+        }
 
         def fake_build_and_install_wheels(workdir, *, source_root, timeout):
             return {
@@ -3542,6 +3625,8 @@ class ExtensionManagementCommandTests(TestCase):
 
         def fake_run_manage_py(args, env):
             if args[:2] == ["shell", "-c"]:
+                if "static_root = Path(settings.STATIC_ROOT)" in args[2]:
+                    return SimpleNamespace(stdout=json.dumps(static_payload), stderr="", returncode=0)
                 return SimpleNamespace(stdout=json.dumps(state_payloads.pop(0)), stderr="", returncode=0)
             return SimpleNamespace(stdout="", stderr="", returncode=0)
 
@@ -3557,6 +3642,7 @@ class ExtensionManagementCommandTests(TestCase):
                             "--workdir",
                             str(Path(temp_dir) / "site"),
                             "--from-wheels",
+                            "--skip-collectstatic",
                         )
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
@@ -3581,9 +3667,18 @@ class ExtensionManagementCommandTests(TestCase):
                 "settings": {"system.version": "\"1.2.3\""},
             },
         ]
+        static_payload = {
+            "static_root_exists": True,
+            "frontend_root_exists": True,
+            "frontend_file_count": 1,
+            "build_manifest_exists": True,
+            "output_manifest_exists": True,
+        }
 
         def fake_run_manage_py(args, env):
             if args[:2] == ["shell", "-c"]:
+                if "static_root = Path(settings.STATIC_ROOT)" in args[2]:
+                    return SimpleNamespace(stdout=json.dumps(static_payload), stderr="", returncode=0)
                 return SimpleNamespace(stdout=json.dumps(state_payloads.pop(0)), stderr="", returncode=0)
             return SimpleNamespace(stdout="", stderr="", returncode=0)
 
@@ -3595,6 +3690,46 @@ class ExtensionManagementCommandTests(TestCase):
                         "--workdir",
                         str(temp_dir),
                     )
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_install_forum_publish_frontend_dist_runs_rebuild_before_collectstatic(self):
+        temp_dir = make_workspace_temp_dir()
+        try:
+            config_path = Path(temp_dir) / "instance" / "site.json"
+            calls = []
+
+            def fake_run_manage_py(args, env):
+                calls.append(list(args))
+                return SimpleNamespace(stdout="", stderr="", returncode=0)
+
+            with override_settings(BASE_DIR=Path(temp_dir)):
+                with patch("bias_core.management.commands.install_forum.assert_database_connection"):
+                    with patch("bias_core.management.commands.install_forum.run_manage_py", side_effect=fake_run_manage_py):
+                        call_command_quietly(
+                            "install_forum",
+                            "--database",
+                            "sqlite",
+                            "--config",
+                            str(config_path),
+                            "--overwrite",
+                            "--non-interactive",
+                            "--admin-username",
+                            "smoke-admin",
+                            "--admin-email",
+                            "smoke-admin@example.com",
+                            "--admin-password",
+                            "smoke-admin-password",
+                            "--sqlite-name",
+                            str(Path(temp_dir) / "db.sqlite3"),
+                            "--publish-frontend-dist",
+                        )
+
+            frontend_call = next(args for args in calls if args and args[0] == "build_extension_frontend")
+            collectstatic_index = calls.index(["collectstatic", "--noinput"])
+            self.assertLess(calls.index(frontend_call), collectstatic_index)
+            self.assertIn("--rebuild", frontend_call)
+            self.assertIn("--publish", frontend_call)
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
@@ -3635,6 +3770,47 @@ class ExtensionManagementCommandTests(TestCase):
             self.assertFalse((Path(temp_dir) / "VERSION").exists())
             self.assertIn(["check"], calls)
             self.assertIn(["sync_forum_version"], calls)
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_upgrade_forum_publish_frontend_dist_runs_rebuild_before_collectstatic(self):
+        temp_dir = make_workspace_temp_dir()
+        try:
+            config_path = Path(temp_dir) / "instance" / "site.json"
+            config_path.parent.mkdir(parents=True, exist_ok=True)
+            config_path.write_text(json.dumps({
+                "installed": True,
+                "source": "file",
+                "debug": True,
+                "secret_key": "x" * 50,
+                "jwt_secret_key": "y" * 50,
+                "site_scheme": "http",
+                "frontend_url": "http://localhost:5173",
+                "database_mode": "sqlite",
+                "sqlite_name": str(Path(temp_dir) / "db.sqlite3"),
+                "use_redis": False,
+            }), encoding="utf-8")
+            calls = []
+
+            def fake_run_manage_py(args, env):
+                calls.append(list(args))
+                return SimpleNamespace(stdout="", stderr="", returncode=0)
+
+            with override_settings(BASE_DIR=Path(temp_dir)):
+                with patch("bias_core.management.commands.upgrade_forum.run_manage_py", side_effect=fake_run_manage_py):
+                    call_command_quietly(
+                        "upgrade_forum",
+                        "--config",
+                        str(config_path),
+                        "--non-interactive",
+                        "--publish-frontend-dist",
+                    )
+
+            frontend_call = next(args for args in calls if args and args[0] == "build_extension_frontend")
+            collectstatic_index = calls.index(["collectstatic", "--noinput"])
+            self.assertLess(calls.index(frontend_call), collectstatic_index)
+            self.assertIn("--rebuild", frontend_call)
+            self.assertIn("--publish", frontend_call)
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 

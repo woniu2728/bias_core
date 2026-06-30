@@ -37,6 +37,8 @@ class Command(BaseCommand):
         parser.add_argument("--skip-sync-extensions", action="store_true", help="跳过同步扩展安装记录")
         parser.add_argument("--skip-extension-migrations", action="store_true", help="跳过同步扩展迁移摘要")
         parser.add_argument("--skip-extension-frontend", action="store_true", help="跳过生成扩展前端构建清单")
+        parser.add_argument("--rebuild-extension-frontend", action="store_true", help="生成扩展前端清单后执行 npm run build")
+        parser.add_argument("--publish-frontend-dist", action="store_true", help="扩展前端 rebuild 成功后发布 frontend/dist 到 static/frontend")
         parser.add_argument("--skip-init-groups", action="store_true", help="跳过默认用户组与权限同步")
         parser.add_argument("--skip-clear-cache", action="store_true", help="跳过运行时缓存清理")
         parser.add_argument("--skip-collectstatic", action="store_true", help="跳过静态资源收集")
@@ -72,7 +74,12 @@ class Command(BaseCommand):
         if not options["skip_clear_cache"]:
             steps.append(("运行时缓存清理", ["clear_runtime_cache"]))
         if not options["skip_extension_frontend"]:
-            steps.append(("扩展前端构建清单生成", ["build_extension_frontend"]))
+            frontend_args = ["build_extension_frontend"]
+            if options["rebuild_extension_frontend"] or options["publish_frontend_dist"]:
+                frontend_args.append("--rebuild")
+            if options["publish_frontend_dist"]:
+                frontend_args.append("--publish")
+            steps.append(("扩展前端构建清单生成", frontend_args))
         if not options["skip_collectstatic"]:
             steps.append(("静态资源收集", ["collectstatic", "--noinput"]))
 

@@ -4066,6 +4066,68 @@ class ExtensionManifestLoaderTests(TestCase):
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
+    def test_recompile_extension_frontend_assets_resolves_npm_executable(self):
+        temp_dir = make_workspace_temp_dir()
+        try:
+            with override_settings(BASE_DIR=Path(temp_dir)):
+                frontend_dir = Path(temp_dir) / "frontend"
+                frontend_dir.mkdir(parents=True, exist_ok=True)
+                (frontend_dir / "dist" / ".vite").mkdir(parents=True, exist_ok=True)
+                (frontend_dir / "dist" / ".vite" / "manifest.json").write_text("{}", encoding="utf-8")
+                extension = SimpleNamespace(
+                    id="alpha-tools",
+                    source="filesystem",
+                    frontend_admin_entry="",
+                    frontend_forum_entry="",
+                    manifest=SimpleNamespace(path=str(Path(temp_dir) / "extensions" / "alpha-tools")),
+                    runtime=SimpleNamespace(enabled=True),
+                    frontend_routes=(),
+                    discover=lambda: SimpleNamespace(
+                        frontend_css=(),
+                        frontend_js_directories=(),
+                        frontend_preloads=(),
+                        frontend_document_attributes=(),
+                        frontend_title_driver=None,
+                        frontend_routes=(),
+                    ),
+                )
+
+                completed = SimpleNamespace(returncode=0, stdout="", stderr="")
+                with patch("bias_core.extensions.frontend_compiler.shutil.which", return_value="C:/node/npm.cmd"):
+                    with patch("bias_core.extensions.frontend_compiler.subprocess.run", return_value=completed) as run:
+                        result = recompile_extension_frontend_assets([extension], run_build=True)
+
+                self.assertEqual(result.status, "ok")
+                self.assertEqual(result.command[0], "C:/node/npm.cmd")
+                self.assertEqual(run.call_args.args[0][0], "C:/node/npm.cmd")
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_build_extension_frontend_command_fails_when_rebuild_fails(self):
+        temp_dir = make_workspace_temp_dir()
+        try:
+            with override_settings(BASE_DIR=Path(temp_dir)):
+                class CompileResult:
+                    status = "error"
+                    message = "扩展前端资产编译失败。"
+                    returncode = 1
+
+                    def to_dict(self):
+                        return {
+                            "status": self.status,
+                            "message": self.message,
+                            "returncode": self.returncode,
+                        }
+
+                with patch(
+                    "bias_core.management.commands.build_extension_frontend.recompile_extension_frontend_assets",
+                    return_value=CompileResult(),
+                ):
+                    with self.assertRaisesMessage(CommandError, "扩展前端资产编译失败"):
+                        call_command_quietly("build_extension_frontend", "--rebuild")
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
     def test_extension_frontend_output_manifest_maps_route_only_components(self):
         temp_dir = make_workspace_temp_dir()
         try:

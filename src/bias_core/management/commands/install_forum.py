@@ -138,6 +138,8 @@ class Command(BaseCommand):
         parser.add_argument("--skip-sync-extensions", action="store_true", help="跳过同步扩展安装记录")
         parser.add_argument("--skip-extension-migrations", action="store_true", help="跳过同步扩展迁移摘要")
         parser.add_argument("--skip-extension-frontend", action="store_true", help="跳过生成扩展前端构建清单")
+        parser.add_argument("--rebuild-extension-frontend", action="store_true", help="生成扩展前端清单后执行 npm run build")
+        parser.add_argument("--publish-frontend-dist", action="store_true", help="扩展前端 rebuild 成功后发布 frontend/dist 到 static/frontend")
         parser.add_argument("--skip-admin", action="store_true", help="跳过创建或更新管理员账号")
         parser.add_argument("--skip-collectstatic", action="store_true", help="跳过执行 collectstatic")
         parser.add_argument("--admin-username", help="管理员用户名")
@@ -221,7 +223,12 @@ class Command(BaseCommand):
             self._run_manage_step("写入安装版本", ["sync_forum_version"], command_env)
 
             if not options["skip_extension_frontend"]:
-                self._run_manage_step("扩展前端构建清单生成", ["build_extension_frontend"], command_env)
+                frontend_args = ["build_extension_frontend"]
+                if options["rebuild_extension_frontend"] or options["publish_frontend_dist"]:
+                    frontend_args.append("--rebuild")
+                if options["publish_frontend_dist"]:
+                    frontend_args.append("--publish")
+                self._run_manage_step("扩展前端构建清单生成", frontend_args, command_env)
             else:
                 self.stdout.write("[SKIP] 已跳过 build_extension_frontend")
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from django.core.management import BaseCommand
+from django.core.management import BaseCommand, CommandError
 from django.core.management.base import CommandParser
 
 from bias_core.extensions.frontend_compiler import (
@@ -90,10 +90,7 @@ class Command(BaseCommand):
             return
 
         if result.status == "error":
-            self.stdout.write(self.style.ERROR(
-                f"[ERROR] {result.message} returncode={result.returncode}"
-            ))
-            return
+            raise CommandError(f"{result.message} returncode={result.returncode}")
 
         path = Path(result.manifest_path)
         suffix = "并完成 Vite 编译" if rebuild else "，未执行 Vite 编译"
