@@ -178,6 +178,10 @@ class ForumDiscussionApiTests(TestCase):
             user=user or self.other_user,
         )
 
+    def search_result_ids(self, response, key):
+        self.assertEqual(response.status_code, 200, response.content)
+        return {item["id"] for item in response.json()[key]}
+
     def test_discussion_list_endpoint_returns_visible_discussions_with_default_relationships(self):
         discussion = self.create_discussion(title="Visible topic", content="Opening post")
         self.create_reply(discussion, content="Follow-up reply")
@@ -700,6 +704,227 @@ class ForumDiscussionApiTests(TestCase):
                 self.assertEqual(rejected_id in visible_post_ids, can_see_rejected)
                 self.assertEqual(pending_detail_response.status_code, 200 if can_see_pending else 404)
                 self.assertEqual(rejected_detail_response.status_code, 200 if can_see_rejected else 404)
+
+    def test_search_results_follow_discussion_and_post_visibility_matrix(self):
+        from bias_ext_discussions.backend.models import Discussion
+        from bias_ext_discussions.backend.services import DiscussionService
+        from bias_ext_posts.backend.models import Post
+
+        public_discussion = self.create_discussion(
+            title="Search public vismatrix",
+            content="Search public vismatrix opening",
+            user=self.user,
+        )
+        public_reply = self.create_reply(
+            public_discussion,
+            content="Search public vismatrix reply",
+            user=self.other_user,
+        )
+        hidden_discussion = self.create_discussion(
+            title="Search hidden vismatrix",
+            content="Search hidden vismatrix opening",
+            user=self.user,
+        )
+        hidden_reply = self.create_reply(
+            hidden_discussion,
+            content="Search hidden vismatrix reply",
+            user=self.user,
+        )
+        DiscussionService.set_hidden_state(hidden_discussion, self.moderator, True)
+        private_discussion = self.create_discussion(
+            title="Search private vismatrix",
+            content="Search private vismatrix opening",
+            user=self.user,
+        )
+        private_reply = self.create_reply(
+            private_discussion,
+            content="Search private vismatrix reply",
+            user=self.user,
+        )
+        Discussion.objects.filter(id=private_discussion.id).update(is_private=True)
+        Post.objects.filter(discussion_id=private_discussion.id).update(is_private=True)
+
+        pending_discussion_response = self.create_discussion_via_api(
+            title="Search pending vismatrix",
+            content="Search pending vismatrix opening",
+            user=self.pending_author,
+        )
+        rejected_discussion_response = self.create_discussion_via_api(
+            title="Search rejected vismatrix",
+            content="Search rejected vismatrix opening",
+            user=self.pending_author,
+        )
+        rejected_discussion_id = rejected_discussion_response.json()["id"]
+        reject_discussion_response = self.client.post(
+            f"/api/admin/approval-queue/discussion/{rejected_discussion_id}/reject",
+            data=json.dumps({"note": "Rejected search visibility"}),
+            content_type="application/json",
+            **self.auth_header(self.admin),
+        )
+
+        post_discussion = self.create_discussion(
+            title="Search post approval vismatrix",
+            content="Search post approval vismatrix visible opening",
+            user=self.admin,
+        )
+        pending_post_response = self.client.post(
+            f"/api/discussions/{post_discussion.id}/posts",
+            data=json.dumps({"content": "Search pending post vismatrix"}),
+            content_type="application/json",
+            **self.auth_header(self.pending_replier),
+        )
+        rejected_post_response = self.client.post(
+            f"/api/discussions/{post_discussion.id}/posts",
+            data=json.dumps({"content": "Search rejected post vismatrix"}),
+            content_type="application/json",
+            **self.auth_header(self.pending_replier),
+        )
+        rejected_post_id = rejected_post_response.json()["id"]
+        reject_post_response = self.client.post(
+            f"/api/admin/approval-queue/post/{rejected_post_id}/reject",
+            data=json.dumps({"note": "Rejected post search visibility"}),
+            content_type="application/json",
+            **self.auth_header(self.admin),
+        )
+
+        self.assertEqual(pending_discussion_response.status_code, 200, pending_discussion_response.content)
+        self.assertEqual(rejected_discussion_response.status_code, 200, rejected_discussion_response.content)
+        self.assertEqual(reject_discussion_response.status_code, 200, reject_discussion_response.content)
+        self.assertEqual(pending_post_response.status_code, 200, pending_post_response.content)
+        self.assertEqual(rejected_post_response.status_code, 200, rejected_post_response.content)
+        self.assertEqual(reject_post_response.status_code, 200, reject_post_response.content)
+
+        pending_discussion_id = pending_discussion_response.json()["id"]
+        pending_discussion_first_post_id = Discussion.objects.get(id=pending_discussion_id).first_post_id
+        rejected_discussion_first_post_id = Discussion.objects.get(id=rejected_discussion_id).first_post_id
+        pending_post_id = pending_post_response.json()["id"]
+        expected_discussions = {
+            "guest": {public_discussion.id, post_discussion.id},
+            "registered": {public_discussion.id, post_discussion.id},
+            "discussion_author": {
+                public_discussion.id,
+                hidden_discussion.id,
+                post_discussion.id,
+            },
+            "approval_author": {
+                public_discussion.id,
+                pending_discussion_id,
+                rejected_discussion_id,
+                post_discussion.id,
+            },
+            "post_author": {public_discussion.id, post_discussion.id},
+            "moderator": {
+                public_discussion.id,
+                hidden_discussion.id,
+                private_discussion.id,
+                pending_discussion_id,
+                rejected_discussion_id,
+                post_discussion.id,
+            },
+            "admin": {
+                public_discussion.id,
+                hidden_discussion.id,
+                private_discussion.id,
+                pending_discussion_id,
+                rejected_discussion_id,
+                post_discussion.id,
+            },
+        }
+        expected_posts = {
+            "guest": {public_discussion.first_post_id, public_reply.id, post_discussion.first_post_id},
+            "registered": {public_discussion.first_post_id, public_reply.id, post_discussion.first_post_id},
+            "discussion_author": {
+                public_discussion.first_post_id,
+                public_reply.id,
+                hidden_discussion.first_post_id,
+                hidden_reply.id,
+                post_discussion.first_post_id,
+            },
+            "approval_author": {
+                public_discussion.first_post_id,
+                public_reply.id,
+                pending_discussion_first_post_id,
+                rejected_discussion_first_post_id,
+                post_discussion.first_post_id,
+            },
+            "post_author": {
+                public_discussion.first_post_id,
+                public_reply.id,
+                post_discussion.first_post_id,
+                pending_post_id,
+                rejected_post_id,
+            },
+            "moderator": {
+                public_discussion.first_post_id,
+                public_reply.id,
+                hidden_discussion.first_post_id,
+                hidden_reply.id,
+                private_discussion.first_post_id,
+                private_reply.id,
+                pending_discussion_first_post_id,
+                rejected_discussion_first_post_id,
+                post_discussion.first_post_id,
+                pending_post_id,
+                rejected_post_id,
+            },
+            "admin": {
+                public_discussion.first_post_id,
+                public_reply.id,
+                hidden_discussion.first_post_id,
+                hidden_reply.id,
+                private_discussion.first_post_id,
+                private_reply.id,
+                pending_discussion_first_post_id,
+                rejected_discussion_first_post_id,
+                post_discussion.first_post_id,
+                pending_post_id,
+                rejected_post_id,
+            },
+        }
+        cases = [
+            ("guest", {}),
+            ("registered", self.auth_header(self.other_user)),
+            ("discussion_author", self.auth_header(self.user)),
+            ("approval_author", self.auth_header(self.pending_author)),
+            ("post_author", self.auth_header(self.pending_replier)),
+            ("moderator", self.auth_header(self.moderator)),
+            ("admin", self.auth_header(self.admin)),
+        ]
+
+        for role, headers in cases:
+            with self.subTest(role=role):
+                all_response = self.client.get("/api/search", {"q": "vismatrix", "type": "all"}, **headers)
+                discussions_response = self.client.get(
+                    "/api/search",
+                    {"q": "vismatrix", "type": "discussions", "limit": 20},
+                    **headers,
+                )
+                posts_response = self.client.get(
+                    "/api/search",
+                    {"q": "vismatrix", "type": "posts", "limit": 20},
+                    **headers,
+                )
+
+                self.assertEqual(
+                    self.search_result_ids(all_response, "discussions") - expected_discussions[role],
+                    set(),
+                    role,
+                )
+                self.assertEqual(
+                    self.search_result_ids(discussions_response, "discussions"),
+                    expected_discussions[role],
+                    role,
+                )
+                self.assertEqual(
+                    self.search_result_ids(all_response, "posts") - expected_posts[role],
+                    set(),
+                    role,
+                )
+                self.assertEqual(
+                    self.search_result_ids(posts_response, "posts"),
+                    expected_posts[role],
+                    role,
+                )
 
     def test_author_can_resubmit_rejected_post_over_http(self):
         discussion = self.create_discussion(
