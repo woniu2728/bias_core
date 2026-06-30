@@ -566,6 +566,64 @@ class ForumDiscussionApiTests(TestCase):
                 self.assertEqual(pending_detail_response.status_code, 200 if can_see_pending else 404)
                 self.assertEqual(rejected_detail_response.status_code, 200 if can_see_rejected else 404)
 
+    def test_author_can_resubmit_rejected_discussion_over_http(self):
+        rejected_response = self.create_discussion_via_api(
+            title="Rejected discussion resubmit",
+            content="Rejected discussion body",
+            user=self.pending_author,
+        )
+        rejected_id = rejected_response.json()["id"]
+        reject_response = self.client.post(
+            f"/api/admin/approval-queue/discussion/{rejected_id}/reject",
+            data=json.dumps({"note": "Add more context"}),
+            content_type="application/json",
+            **self.auth_header(self.admin),
+        )
+
+        self.assertEqual(rejected_response.status_code, 200, rejected_response.content)
+        self.assertEqual(reject_response.status_code, 200, reject_response.content)
+        self.assertEqual(reject_response.json()["approval_status"], "rejected")
+
+        with self.captureOnCommitCallbacks(execute=True):
+            resubmit_response = self.client.patch(
+                f"/api/discussions/{rejected_id}",
+                data=json.dumps({
+                    "data": {
+                        "attributes": {
+                            "title": "Rejected discussion resubmitted",
+                            "content": "Updated discussion body for review",
+                        }
+                    }
+                }),
+                content_type="application/json",
+                **self.auth_header(self.pending_author),
+            )
+        author_detail_response = self.client.get(
+            f"/api/discussions/{rejected_id}",
+            **self.auth_header(self.pending_author),
+        )
+        reader_detail_response = self.client.get(
+            f"/api/discussions/{rejected_id}",
+            **self.auth_header(self.other_user),
+        )
+        author_stream_response = self.client.get(
+            f"/api/discussions/{rejected_id}/posts",
+            **self.auth_header(self.pending_author),
+        )
+
+        self.assertEqual(resubmit_response.status_code, 200, resubmit_response.content)
+        self.assertEqual(resubmit_response.json()["approval_status"], "pending")
+        self.assertEqual(resubmit_response.json()["approval_note"], "")
+        self.assertEqual(resubmit_response.json()["title"], "Rejected discussion resubmitted")
+        self.assertEqual(author_detail_response.status_code, 200, author_detail_response.content)
+        self.assertEqual(author_detail_response.json()["first_post"]["content"], "Updated discussion body for review")
+        self.assertEqual(author_detail_response.json()["first_post"]["approval_status"], "pending")
+        self.assertEqual(reader_detail_response.status_code, 404, reader_detail_response.content)
+        self.assertEqual(author_stream_response.status_code, 200, author_stream_response.content)
+        self.assertTrue(
+            any(item["type"] == "discussionResubmitted" for item in author_stream_response.json()["data"])
+        )
+
     def test_approval_visibility_matrix_for_pending_and_rejected_posts(self):
         discussion = self.create_discussion(
             title="Post approval visibility matrix",
@@ -617,6 +675,62 @@ class ForumDiscussionApiTests(TestCase):
                 self.assertEqual(rejected_id in visible_post_ids, can_see_rejected)
                 self.assertEqual(pending_detail_response.status_code, 200 if can_see_pending else 404)
                 self.assertEqual(rejected_detail_response.status_code, 200 if can_see_rejected else 404)
+
+    def test_author_can_resubmit_rejected_post_over_http(self):
+        discussion = self.create_discussion(
+            title="Rejected post resubmit",
+            content="Visible first post",
+            user=self.admin,
+        )
+        rejected_response = self.client.post(
+            f"/api/discussions/{discussion.id}/posts",
+            data=json.dumps({"content": "Rejected post body"}),
+            content_type="application/json",
+            **self.auth_header(self.pending_replier),
+        )
+        rejected_id = rejected_response.json()["id"]
+        reject_response = self.client.post(
+            f"/api/admin/approval-queue/post/{rejected_id}/reject",
+            data=json.dumps({"note": "Add more detail"}),
+            content_type="application/json",
+            **self.auth_header(self.admin),
+        )
+
+        self.assertEqual(rejected_response.status_code, 200, rejected_response.content)
+        self.assertEqual(reject_response.status_code, 200, reject_response.content)
+        self.assertEqual(reject_response.json()["approval_status"], "rejected")
+
+        with self.captureOnCommitCallbacks(execute=True):
+            resubmit_response = self.client.patch(
+                f"/api/posts/{rejected_id}",
+                data=json.dumps({"content": "Updated post body for review"}),
+                content_type="application/json",
+                **self.auth_header(self.pending_replier),
+            )
+        author_detail_response = self.client.get(
+            f"/api/posts/{rejected_id}",
+            **self.auth_header(self.pending_replier),
+        )
+        reader_detail_response = self.client.get(
+            f"/api/posts/{rejected_id}",
+            **self.auth_header(self.other_user),
+        )
+        author_stream_response = self.client.get(
+            f"/api/discussions/{discussion.id}/posts",
+            **self.auth_header(self.pending_replier),
+        )
+
+        self.assertEqual(resubmit_response.status_code, 200, resubmit_response.content)
+        self.assertEqual(resubmit_response.json()["approval_status"], "pending")
+        self.assertEqual(resubmit_response.json()["approval_note"], "")
+        self.assertEqual(resubmit_response.json()["content"], "Updated post body for review")
+        self.assertEqual(author_detail_response.status_code, 200, author_detail_response.content)
+        self.assertEqual(author_detail_response.json()["approval_status"], "pending")
+        self.assertEqual(reader_detail_response.status_code, 404, reader_detail_response.content)
+        self.assertEqual(author_stream_response.status_code, 200, author_stream_response.content)
+        self.assertTrue(
+            any(item["type"] == "postResubmitted" for item in author_stream_response.json()["data"])
+        )
 
     def test_post_lifecycle_endpoints_cover_update_hide_restore_and_delete(self):
         discussion = self.create_discussion(title="Post lifecycle", content="Original", user=self.user)
