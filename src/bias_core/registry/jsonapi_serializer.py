@@ -68,8 +68,9 @@ class JsonApiSerializer:
         nested_include = tuple(self._flatten_include_tree(include_tree or ()))
         related_fields = context.get("plain_related_fields") or {}
         only = related_fields.get(rt) if isinstance(related_fields, dict) else None
-        child_context = dict(context)
-        if "plain_children_depth" in child_context:
+        child_context = context
+        if "plain_children_depth" in context:
+            child_context = dict(context)
             child_context["plain_children_depth"] = max(0, int(child_context.get("plain_children_depth") or 0) - 1)
         return self.serialize(rt, value, child_context, only=only, include=nested_include)
 

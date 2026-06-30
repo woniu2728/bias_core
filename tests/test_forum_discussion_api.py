@@ -1,5 +1,6 @@
 from tests.common import *
 from django.contrib.auth import get_user_model
+from django.test.utils import CaptureQueriesContext
 
 
 class ForumDiscussionApiTests(TestCase):
@@ -196,6 +197,30 @@ class ForumDiscussionApiTests(TestCase):
         self.assertEqual(row["last_posted_user"]["username"], self.other_user.username)
         self.assertEqual(row["most_relevant_post"]["number"], 1)
         self.assertEqual(row["most_relevant_post"]["user"]["username"], self.user.username)
+
+    def test_discussion_list_endpoint_keeps_query_count_within_budget(self):
+        for index in range(6):
+            discussion = self.create_discussion(
+                title=f"Budget topic {index}",
+                content=f"Budget opening {index}",
+                user=self.user if index % 2 == 0 else self.other_user,
+            )
+            self.create_reply(
+                discussion,
+                content=f"Budget reply {index}",
+                user=self.other_user if index % 2 == 0 else self.user,
+            )
+
+        with CaptureQueriesContext(connection) as context:
+            response = self.client.get("/api/discussions/?limit=6", **self.auth_header(self.user))
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(len(response.json()["data"]), 6)
+        self.assertLessEqual(
+            len(context.captured_queries),
+            24,
+            "\n".join(query["sql"] for query in context.captured_queries),
+        )
 
     def test_discussion_list_endpoint_supports_core_sorts_and_filters(self):
         own_discussion = self.create_discussion(title="Own topic", user=self.user)
