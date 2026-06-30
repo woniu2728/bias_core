@@ -28,6 +28,7 @@ class ExtensionManagementCommandTests(TestCase):
         from bias_core.management.commands.inspect_extensions import Command as InspectExtensionsCommand
         from bias_core.management.commands.inspect_extension_imports import Command as InspectExtensionImportsCommand
         from bias_core.management.commands.inspect_extension_packages import Command as InspectExtensionPackagesCommand
+        from bias_core.management.commands.smoke_install_upgrade import Command as SmokeInstallUpgradeCommand
         from bias_core.management.commands.sync_extension_package_metadata import Command as SyncPackageMetadataCommand
         from bias_core.management.commands.validate_extensions import Command as ValidateExtensionsCommand
 
@@ -37,6 +38,7 @@ class ExtensionManagementCommandTests(TestCase):
         self.assertEqual(InspectExtensionsCommand.requires_system_checks, [])
         self.assertEqual(InspectExtensionImportsCommand.requires_system_checks, [])
         self.assertEqual(InspectExtensionPackagesCommand.requires_system_checks, [])
+        self.assertEqual(SmokeInstallUpgradeCommand.requires_system_checks, [])
         self.assertEqual(SyncPackageMetadataCommand.requires_system_checks, [])
         self.assertEqual(ValidateExtensionsCommand.requires_system_checks, [])
 
@@ -3353,6 +3355,153 @@ class ExtensionManagementCommandTests(TestCase):
             inspect_call = next((args for name, args in calls if name == "inspect_extensions"), None)
             self.assertIsNotNone(inspect_call)
             self.assertIn("--fail-on-runtime-service-fallback", inspect_call)
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_smoke_install_upgrade_runs_install_and_upgrade_and_validates_state(self):
+        temp_dir = make_workspace_temp_dir()
+        calls = []
+        state_payloads = [
+            {
+                "admin_exists": True,
+                "admin_username": "smoke-admin",
+                "admin_email": "smoke-admin@example.com",
+                "installed_extensions": ["users", "discussions"],
+                "enabled_extensions": ["users", "discussions"],
+                "settings": {"system.version": "\"1.2.3\""},
+            },
+            {
+                "admin_exists": True,
+                "admin_username": "smoke-admin",
+                "admin_email": "smoke-admin@example.com",
+                "installed_extensions": ["users", "discussions"],
+                "enabled_extensions": ["users", "discussions"],
+                "settings": {"system.version": "\"1.2.3\""},
+            },
+        ]
+
+        def fake_run_manage_py(args, env):
+            calls.append((list(args), dict(env)))
+            if args[:2] == ["shell", "-c"]:
+                payload = state_payloads.pop(0)
+                return SimpleNamespace(stdout=json.dumps(payload), stderr="", returncode=0)
+            return SimpleNamespace(stdout="", stderr="", returncode=0)
+
+        try:
+            stdout = StringIO()
+            with patch("bias_core.management.commands.smoke_install_upgrade.run_manage_py", side_effect=fake_run_manage_py):
+                call_command(
+                    "smoke_install_upgrade",
+                    "--workdir",
+                    str(temp_dir),
+                    "--skip-collectstatic",
+                    "--skip-extension-frontend",
+                    "--format",
+                    "json",
+                    stdout=stdout,
+                )
+
+            payload = json.loads(stdout.getvalue())
+            self.assertTrue(payload["summary"]["ok"])
+            self.assertEqual(payload["install"]["enabled_extensions"], ["users", "discussions"])
+            self.assertEqual(payload["upgrade"]["enabled_extensions"], ["users", "discussions"])
+
+            install_args = calls[0][0]
+            self.assertEqual(install_args[0], "install_forum")
+            self.assertIn("--database", install_args)
+            self.assertEqual(install_args[install_args.index("--database") + 1], "sqlite")
+            self.assertIn("--non-interactive", install_args)
+            self.assertIn("--skip-collectstatic", install_args)
+            self.assertIn("--skip-extension-frontend", install_args)
+
+            install_env = calls[0][1]
+            config_path = temp_dir / "instance" / "site.json"
+            self.assertEqual(install_env["BIAS_SITE_CONFIG"], str(config_path))
+
+            upgrade_args = calls[2][0]
+            self.assertEqual(upgrade_args[0], "upgrade_forum")
+            self.assertIn("--non-interactive", upgrade_args)
+            self.assertIn("--skip-collectstatic", upgrade_args)
+            self.assertIn("--skip-extension-frontend", upgrade_args)
+            self.assertEqual(calls[1][0][:2], ["shell", "-c"])
+            self.assertEqual(calls[3][0][:2], ["shell", "-c"])
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_smoke_install_upgrade_blocks_when_upgrade_drops_enabled_extensions(self):
+        temp_dir = make_workspace_temp_dir()
+        state_payloads = [
+            {
+                "admin_exists": True,
+                "admin_username": "smoke-admin",
+                "admin_email": "smoke-admin@example.com",
+                "installed_extensions": ["users", "discussions"],
+                "enabled_extensions": ["users", "discussions"],
+                "settings": {"system.version": "\"1.2.3\""},
+            },
+            {
+                "admin_exists": True,
+                "admin_username": "smoke-admin",
+                "admin_email": "smoke-admin@example.com",
+                "installed_extensions": ["users", "discussions"],
+                "enabled_extensions": ["users"],
+                "settings": {"system.version": "\"1.2.3\""},
+            },
+        ]
+
+        def fake_run_manage_py(args, env):
+            if args[:2] == ["shell", "-c"]:
+                return SimpleNamespace(stdout=json.dumps(state_payloads.pop(0)), stderr="", returncode=0)
+            return SimpleNamespace(stdout="", stderr="", returncode=0)
+
+        try:
+            with patch("bias_core.management.commands.smoke_install_upgrade.run_manage_py", side_effect=fake_run_manage_py):
+                with self.assertRaisesMessage(CommandError, "upgrade 后已启用扩展状态未保持"):
+                    call_command_quietly(
+                        "smoke_install_upgrade",
+                        "--workdir",
+                        str(temp_dir),
+                    )
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_upgrade_forum_allows_split_site_without_version_file(self):
+        temp_dir = make_workspace_temp_dir()
+        try:
+            config_path = Path(temp_dir) / "instance" / "site.json"
+            config_path.parent.mkdir(parents=True, exist_ok=True)
+            config_path.write_text(json.dumps({
+                "installed": True,
+                "source": "file",
+                "debug": True,
+                "secret_key": "x" * 50,
+                "jwt_secret_key": "y" * 50,
+                "site_scheme": "http",
+                "frontend_url": "http://localhost:5173",
+                "database_mode": "sqlite",
+                "sqlite_name": str(Path(temp_dir) / "db.sqlite3"),
+                "use_redis": False,
+            }), encoding="utf-8")
+            calls = []
+
+            def fake_run_manage_py(args, env):
+                calls.append(list(args))
+                return SimpleNamespace(stdout="", stderr="", returncode=0)
+
+            with override_settings(BASE_DIR=Path(temp_dir)):
+                with patch("bias_core.management.commands.upgrade_forum.run_manage_py", side_effect=fake_run_manage_py):
+                    call_command_quietly(
+                        "upgrade_forum",
+                        "--config",
+                        str(config_path),
+                        "--non-interactive",
+                        "--skip-collectstatic",
+                        "--skip-extension-frontend",
+                    )
+
+            self.assertFalse((Path(temp_dir) / "VERSION").exists())
+            self.assertIn(["check"], calls)
+            self.assertIn(["sync_forum_version"], calls)
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 

@@ -12,7 +12,9 @@ from bias_core.conf.bootstrap import (
     read_site_config,
 )
 from bias_core.management.command_utils import build_manage_env, run_manage_py
+from bias_core.version import APP_VERSION
 from bias_core.release import ensure_release_versions_aligned
+from bias_core.release import validate_semver
 
 
 def _env_flag(value: str | None, default: bool = False) -> bool:
@@ -101,6 +103,14 @@ class Command(BaseCommand):
         raise CommandError(f"站点配置不存在: {config_path}。请先执行 python manage.py install_forum")
 
     def _validate_release_versions(self) -> None:
+        try:
+            validate_semver(APP_VERSION, field_name="bias_core.APP_VERSION")
+        except ValueError as exc:
+            raise CommandError(f"版本校验失败: {exc}") from exc
+
+        if not (settings.BASE_DIR / "VERSION").exists():
+            return
+
         try:
             ensure_release_versions_aligned(settings.BASE_DIR)
         except ValueError as exc:
