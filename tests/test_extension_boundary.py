@@ -171,7 +171,7 @@ class ExtensionPublicApiBoundaryTests(TestCase):
 
     def test_runtime_facade_contracts_cover_public_runtime_exports(self):
         from bias_core.extensions import runtime
-        from bias_core.extensions.runtime_contracts import RUNTIME_FACADE_CONTRACTS
+        from bias_core.extensions.runtime_contracts import MISSING_SERVICE_BEHAVIORS, RUNTIME_FACADE_CONTRACTS
 
         exported_names = set(runtime.__all__)
 
@@ -181,7 +181,8 @@ class ExtensionPublicApiBoundaryTests(TestCase):
                 self.assertEqual(contract.name, name)
                 self.assertTrue(contract.domain)
                 self.assertTrue(contract.stability)
-                self.assertTrue(contract.missing_service)
+                self.assertIn(contract.missing_service, MISSING_SERVICE_BEHAVIORS)
+                self.assertNotEqual(contract.missing_service, "see facade implementation")
 
     def test_runtime_facade_dependency_map_is_derived_from_contracts(self):
         from bias_core.extensions.runtime_contracts import (
@@ -201,6 +202,26 @@ class ExtensionPublicApiBoundaryTests(TestCase):
         self.assertEqual(RUNTIME_FACADE_EXTENSION_DEPENDENCIES["can_runtime_add_to_discussion"], "tags")
         self.assertNotIn("has_runtime_model_visibility", RUNTIME_FACADE_EXTENSION_DEPENDENCIES)
         self.assertEqual(RUNTIME_FACADE_CONTRACTS["has_runtime_model_visibility"].provider_extension, "")
+
+    def test_runtime_facade_contracts_document_missing_service_behavior(self):
+        from bias_core.extensions.runtime_contracts import RUNTIME_FACADE_CONTRACTS
+
+        expected_behaviors = {
+            "get_runtime_user_by_id": "raises_runtime_error",
+            "get_runtime_user_preference": "returns_default",
+            "serialize_runtime_users_by_ids": "returns_empty_collection",
+            "get_runtime_tag_summaries_by_slugs": "returns_empty_mapping",
+            "can_runtime_like_post": "returns_false",
+            "apply_runtime_discussion_search": "returns_input",
+            "notify_runtime_notification": "returns_none",
+            "delete_runtime_notifications": "returns_zero",
+            "can_view_runtime_model_private": "delegates_to_policy_runtime",
+            "verify_runtime_human_verification": "noops",
+        }
+
+        for name, behavior in expected_behaviors.items():
+            with self.subTest(name=name):
+                self.assertEqual(RUNTIME_FACADE_CONTRACTS[name].missing_service, behavior)
 
     def test_platform_sdk_exports_auth_and_cookie_helpers(self):
         from bias_core.extensions import platform

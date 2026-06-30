@@ -9,7 +9,25 @@ class RuntimeFacadeContract:
     domain: str
     provider_extension: str = ""
     stability: str = "public"
-    missing_service: str = "see facade implementation"
+    missing_service: str = "raises_runtime_error"
+
+
+MISSING_SERVICE_BEHAVIORS = frozenset({
+    "delegates_to_policy_runtime",
+    "noops",
+    "not_applicable",
+    "returns_core_fallback",
+    "returns_default",
+    "returns_empty_collection",
+    "returns_empty_mapping",
+    "returns_false",
+    "returns_input",
+    "returns_instance_state",
+    "returns_none",
+    "returns_true_for_public_or_staff_else_policy",
+    "returns_zero",
+    "raises_runtime_error",
+})
 
 
 _CORE_FACADES = (
@@ -364,6 +382,103 @@ _PROVIDER_FACADE_GROUPS = {
     ),
 }
 
+_MISSING_SERVICE_BEHAVIOR_GROUPS = {
+    "delegates_to_policy_runtime": (
+        "can_view_runtime_model_private",
+        "evaluate_runtime_extension_policy",
+        "evaluate_runtime_model_policy",
+        "evaluate_runtime_query_model_policy",
+    ),
+    "noops": (
+        "refresh_runtime_discussion_tag_stats",
+        "refresh_runtime_tag_stats",
+        "verify_runtime_human_verification",
+    ),
+    "not_applicable": (
+        "RuntimeHumanVerificationError",
+        "RuntimeHumanVerificationUnavailableError",
+    ),
+    "returns_core_fallback": (
+        "get_runtime_resource_registry",
+        "has_runtime_forum_permission",
+    ),
+    "returns_default": (
+        "get_extension_host_service",
+        "get_runtime_approval_service",
+        "get_runtime_content_posts_service",
+        "get_runtime_discussion_service",
+        "get_runtime_flag_service",
+        "get_runtime_like_service",
+        "get_runtime_notification_service",
+        "get_runtime_post_service",
+        "get_runtime_search_extension_service",
+        "get_runtime_tag_service",
+        "get_runtime_user_preference",
+        "get_runtime_user_service",
+        "is_runtime_model_private",
+        "require_runtime_notification_service",
+        "resolve_runtime_model_relation",
+    ),
+    "returns_empty_collection": (
+        "get_runtime_forum_permissions",
+        "resolve_runtime_model_slugs",
+        "serialize_runtime_users_by_ids",
+    ),
+    "returns_empty_mapping": (
+        "get_runtime_human_verification_handlers",
+        "get_runtime_tag_summaries_by_slugs",
+        "get_runtime_user_preference_transformers",
+    ),
+    "returns_false": (
+        "can_runtime_like_post",
+        "has_runtime_discussion_visibility",
+        "has_runtime_model_visibility",
+        "is_runtime_discussion_not_found",
+        "is_runtime_post_not_found",
+        "verify_runtime_user_password",
+    ),
+    "returns_input": (
+        "apply_runtime_discussion_search",
+        "apply_runtime_model_visibility",
+        "apply_runtime_user_group_processors",
+    ),
+    "returns_instance_state": (
+        "refresh_runtime_model_private",
+    ),
+    "returns_none": (
+        "create_runtime_notification",
+        "create_runtime_timeline_from_builder",
+        "generate_runtime_model_slug",
+        "get_runtime_discussion_lifecycle_service",
+        "get_runtime_formatter_service",
+        "get_runtime_locale_service",
+        "get_runtime_model_relation",
+        "get_runtime_model_service",
+        "get_runtime_model_url_service",
+        "get_runtime_post_event_data_service",
+        "get_runtime_post_lifecycle_service",
+        "get_runtime_post_model_or_none",
+        "get_runtime_search_service",
+        "get_runtime_timeline_service",
+        "get_runtime_view_service",
+        "notify_runtime_notification",
+        "resolve_runtime_model_slug",
+        "serialize_runtime_post_by_id",
+        "serialize_runtime_realtime_post_by_id",
+        "serialize_runtime_user",
+        "sync_runtime_notifications",
+        "to_runtime_model_slug",
+    ),
+    "returns_true_for_public_or_staff_else_policy": (
+        "can_view_runtime_private_instance",
+    ),
+    "returns_zero": (
+        "delete_runtime_discussion_reply_notifications_for_post",
+        "delete_runtime_notifications",
+        "delete_runtime_user_mentioned_notifications_for_post",
+    ),
+}
+
 
 def _build_provider_index() -> dict[str, str]:
     provider_index: dict[str, str] = {}
@@ -375,8 +490,21 @@ def _build_provider_index() -> dict[str, str]:
     return provider_index
 
 
+def _build_missing_service_index() -> dict[str, str]:
+    missing_service_index: dict[str, str] = {}
+    for behavior, names in _MISSING_SERVICE_BEHAVIOR_GROUPS.items():
+        if behavior not in MISSING_SERVICE_BEHAVIORS:
+            raise RuntimeError(f"unknown runtime facade missing service behavior: {behavior}")
+        for name in names:
+            if name in missing_service_index:
+                raise RuntimeError(f"runtime facade missing service behavior is duplicated: {name}")
+            missing_service_index[name] = behavior
+    return missing_service_index
+
+
 def _build_contracts() -> dict[str, RuntimeFacadeContract]:
     provider_index = _build_provider_index()
+    missing_service_index = _build_missing_service_index()
     contracts: dict[str, RuntimeFacadeContract] = {}
     for domain, names in _FACADE_DOMAINS.items():
         for name in names:
@@ -386,11 +514,16 @@ def _build_contracts() -> dict[str, RuntimeFacadeContract]:
                 name=name,
                 domain=domain,
                 provider_extension=provider_index.get(name, ""),
+                missing_service=missing_service_index.get(name, "raises_runtime_error"),
             )
     unknown_provider_facades = sorted(set(provider_index) - set(contracts))
     if unknown_provider_facades:
         names = ", ".join(unknown_provider_facades)
         raise RuntimeError(f"runtime facade providers reference unknown facades: {names}")
+    unknown_missing_service_facades = sorted(set(missing_service_index) - set(contracts))
+    if unknown_missing_service_facades:
+        names = ", ".join(unknown_missing_service_facades)
+        raise RuntimeError(f"runtime facade missing service behaviors reference unknown facades: {names}")
     return contracts
 
 
@@ -404,5 +537,6 @@ RUNTIME_FACADE_EXTENSION_DEPENDENCIES = {
 __all__ = [
     "RUNTIME_FACADE_CONTRACTS",
     "RUNTIME_FACADE_EXTENSION_DEPENDENCIES",
+    "MISSING_SERVICE_BEHAVIORS",
     "RuntimeFacadeContract",
 ]
