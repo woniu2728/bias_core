@@ -82,6 +82,48 @@ def require_extension_host_service(key: str) -> Any:
     return service
 
 
+def get_runtime_service(key: str, default: Any = None) -> Any:
+    """Return a registered extension runtime service."""
+    return get_extension_host_service(key, default)
+
+
+def require_runtime_service(key: str) -> Any:
+    """Return a registered extension runtime service or raise."""
+    return require_extension_host_service(key)
+
+
+def get_runtime_service_value(
+    service_key: str,
+    name: str,
+    default: Any = None,
+    *,
+    required_message: str = "",
+) -> Any:
+    """Read a value exposed by a registered runtime service."""
+    return runtime_service_value(
+        require_runtime_service(service_key),
+        name,
+        default,
+        required_message=required_message,
+    )
+
+
+def call_runtime_service(service_key: str, method_name: str, *args, **kwargs) -> Any:
+    """Call a method exposed by a registered runtime service."""
+    method = runtime_service_method(require_runtime_service(service_key), method_name)
+    return method(*args, **kwargs)
+
+
+def get_runtime_model(service_key: str, default: Any = None, *, required_message: str = "") -> Any:
+    """Read the conventional ``model`` value exposed by a runtime service."""
+    return get_runtime_service_value(
+        service_key,
+        "model",
+        default,
+        required_message=required_message,
+    )
+
+
 def runtime_service_method(service: Any, name: str):
     if isinstance(service, dict):
         method = service.get(name)

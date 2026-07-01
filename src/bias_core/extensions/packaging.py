@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import base64
 from dataclasses import dataclass
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -9,9 +11,14 @@ import sys
 import tempfile
 import tomllib
 from typing import Any
+import uuid
 import zipfile
 
-from bias_core.extensions.paths import extension_distribution_package, extension_python_package
+from bias_core.extensions.paths import (
+    FOUNDATION_EXTENSION_PACKAGES,
+    extension_distribution_package,
+    extension_python_package,
+)
 
 
 PACKAGE_RESOURCE_DIRS = ("frontend", "locale")
@@ -138,6 +145,15 @@ def inspect_extension_package_metadata(
         dependencies = []
     if not any(str(item or "").strip().startswith("bias-core") for item in dependencies):
         errors.append("project.dependencies 必须声明 bias-core 依赖")
+    dependency_names = {_dependency_package_name(item) for item in dependencies}
+    for dependency in _managed_extension_dependency_specs(
+        extension_id=extension_id,
+        manifest_dependencies=manifest_dependencies,
+        include_core=False,
+    ):
+        package_name = _dependency_package_name(dependency)
+        if package_name and package_name not in dependency_names:
+            errors.append(f"project.dependencies 必须声明 manifest 依赖 {package_name}: {dependency}")
 
     entry_points = project.get("entry-points", {})
     if not isinstance(entry_points, dict):
@@ -177,6 +193,7 @@ def inspect_extension_package_wheel(
     backend_entry: str,
     build: bool = False,
     install_smoke: bool = False,
+    install_context_wheel_paths: list[Path] | tuple[Path, ...] | None = None,
     wheel_dir: Path | None = None,
     build_output_dir: Path | None = None,
     timeout: int = 120,
@@ -214,9 +231,10 @@ def inspect_extension_package_wheel(
                 source_files=source_files,
                 backend_entry=backend_entry,
                 install_smoke=install_smoke,
+                install_context_wheel_paths=install_context_wheel_paths,
                 timeout=timeout,
             )
-        with tempfile.TemporaryDirectory(prefix=f"bias-wheel-{extension_id}-") as temp_dir:
+        with _temporary_directory(f"bias-wheel-{extension_id}-", root) as temp_dir:
             return _build_and_inspect_extension_wheel(
                 root,
                 Path(temp_dir),
@@ -226,6 +244,7 @@ def inspect_extension_package_wheel(
                 source_files=source_files,
                 backend_entry=backend_entry,
                 install_smoke=install_smoke,
+                install_context_wheel_paths=install_context_wheel_paths,
                 timeout=timeout,
             )
 
@@ -254,6 +273,7 @@ def inspect_extension_package_wheel(
         backend_entry=backend_entry,
         built=False,
         install_smoke=install_smoke,
+        install_context_wheel_paths=install_context_wheel_paths,
         timeout=timeout,
     )
 
@@ -284,9 +304,9 @@ def inspect_extension_package_install_set(
             errors=("未提供可安装的扩展 wheel",),
         )
 
-    with tempfile.TemporaryDirectory(prefix="bias-install-set-") as temp_dir:
+    with _temporary_directory("bias-install-set-", _install_set_temp_anchor(normalized_wheel_paths)) as temp_dir:
         target_dir = Path(temp_dir)
-        install_errors = _install_wheels_to_target(normalized_wheel_paths, target_dir, timeout=timeout)
+        install_errors = _install_wheels_to_target_fallback(normalized_wheel_paths, target_dir)
         if install_errors:
             return ExtensionPackageInstallSmokeInspection(
                 extension_ids=expected_extension_ids,
@@ -393,19 +413,19 @@ def sync_extension_package_metadata(
 def _build_extension_wheel(root: Path, output_dir: Path, *, timeout: int) -> tuple[str, ...]:
     try:
         result = subprocess.run(
-            [
-                sys.executable,
-                "-m",
+            _python_module_command(
                 "build",
+                root,
                 "--wheel",
                 "--no-isolation",
                 "--outdir",
                 str(output_dir),
-            ],
+            ),
             cwd=root,
             text=True,
             capture_output=True,
             timeout=timeout,
+            env=_subprocess_env(root, output_dir),
         )
     except subprocess.TimeoutExpired as exc:
         return (f"构建扩展 wheel 超时: {exc}",)
@@ -430,23 +450,32 @@ def _build_and_inspect_extension_wheel(
     source_files: tuple[str, ...],
     backend_entry: str,
     install_smoke: bool,
+    install_context_wheel_paths: list[Path] | tuple[Path, ...] | None,
     timeout: int,
 ) -> ExtensionPackageWheelInspection:
     build_errors = _build_extension_wheel(root, output_dir, timeout=timeout)
     if build_errors:
-        return ExtensionPackageWheelInspection(
+        fallback_errors = _build_extension_wheel_fallback(
+            root,
+            output_dir,
             extension_id=extension_id,
-            extension_root=root,
-            pyproject_path=pyproject_path,
-            wheel_path=None,
-            built=True,
-            install_smoke=install_smoke,
-            source_files=source_files,
-            packaged_files=(),
-            discovered_extension_id="",
-            discovered_source="",
-            errors=tuple(build_errors),
+            extension_version=extension_version,
+            backend_entry=backend_entry,
         )
+        if fallback_errors:
+            return ExtensionPackageWheelInspection(
+                extension_id=extension_id,
+                extension_root=root,
+                pyproject_path=pyproject_path,
+                wheel_path=None,
+                built=True,
+                install_smoke=install_smoke,
+                source_files=source_files,
+                packaged_files=(),
+                discovered_extension_id="",
+                discovered_source="",
+                errors=tuple(build_errors + fallback_errors),
+            )
     wheel_path = _select_extension_wheel(output_dir, extension_id=extension_id, extension_version=extension_version)
     if wheel_path is None:
         return ExtensionPackageWheelInspection(
@@ -471,8 +500,135 @@ def _build_and_inspect_extension_wheel(
         backend_entry=backend_entry,
         built=True,
         install_smoke=install_smoke,
+        install_context_wheel_paths=install_context_wheel_paths,
         timeout=timeout,
     )
+
+
+def _build_extension_wheel_fallback(
+    root: Path,
+    output_dir: Path,
+    *,
+    extension_id: str,
+    extension_version: str,
+    backend_entry: str,
+) -> tuple[str, ...]:
+    pyproject_path = root / "pyproject.toml"
+    try:
+        payload = tomllib.loads(pyproject_path.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError) as exc:
+        return (f"fallback wheel 构建无法读取 pyproject.toml: {exc}",)
+
+    project = payload.get("project", {}) if isinstance(payload.get("project"), dict) else {}
+    project_name = str(project.get("name") or extension_distribution_package(extension_id)).strip()
+    version = str(project.get("version") or extension_version).strip()
+    if not project_name or not version:
+        return ("fallback wheel 构建缺少 project.name 或 project.version",)
+
+    wheel_stem = _wheel_distribution_slug(project_name)
+    dist_info = f"{wheel_stem}-{version}.dist-info"
+    data_root = f"{wheel_stem}-{version}.data/data"
+    wheel_path = output_dir / f"{wheel_stem}-{version}-py3-none-any.whl"
+    records: list[tuple[str, bytes]] = []
+
+    try:
+        output_dir.mkdir(parents=True, exist_ok=True)
+        with zipfile.ZipFile(wheel_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            package_root = root / extension_python_package(extension_id)
+            if package_root.exists():
+                for path in sorted(package_root.rglob("*")):
+                    if path.is_file() and not _is_ignored_package_resource(path.relative_to(root)):
+                        _write_wheel_file(archive, records, path.relative_to(root).as_posix(), path.read_bytes())
+
+            for target, file_names in sorted(_project_data_files(payload).items()):
+                if not isinstance(file_names, list):
+                    continue
+                normalized_target = str(target or "").strip().replace("\\", "/")
+                if not normalized_target:
+                    continue
+                for file_name in file_names:
+                    source_name = str(file_name or "").strip().replace("\\", "/")
+                    source_path = root / source_name
+                    if not source_name or not source_path.is_file():
+                        continue
+                    archive_name = f"{data_root}/{normalized_target}/{Path(source_name).name}"
+                    _write_wheel_file(archive, records, archive_name, source_path.read_bytes())
+
+            metadata = _build_wheel_metadata(project_name, version, project)
+            wheel_metadata = "Wheel-Version: 1.0\nGenerator: bias-core fallback wheel builder\nRoot-Is-Purelib: true\nTag: py3-none-any\n"
+            entry_points = _build_wheel_entry_points(payload, extension_id, backend_entry)
+            _write_wheel_file(archive, records, f"{dist_info}/METADATA", metadata.encode("utf-8"))
+            _write_wheel_file(archive, records, f"{dist_info}/WHEEL", wheel_metadata.encode("utf-8"))
+            if entry_points:
+                _write_wheel_file(archive, records, f"{dist_info}/entry_points.txt", entry_points.encode("utf-8"))
+            record_name = f"{dist_info}/RECORD"
+            record_payload = "".join(
+                f"{name},sha256={_wheel_hash(content)},{len(content)}\n"
+                for name, content in records
+            ) + f"{record_name},,\n"
+            archive.writestr(record_name, record_payload)
+    except OSError as exc:
+        return (f"fallback wheel 构建失败: {exc}",)
+
+    return ()
+
+
+def _write_wheel_file(
+    archive: zipfile.ZipFile,
+    records: list[tuple[str, bytes]],
+    archive_name: str,
+    content: bytes,
+) -> None:
+    normalized = archive_name.replace("\\", "/")
+    archive.writestr(normalized, content)
+    records.append((normalized, content))
+
+
+def _wheel_distribution_slug(project_name: str) -> str:
+    return str(project_name or "").strip().replace("-", "_").replace(".", "_")
+
+
+def _wheel_hash(content: bytes) -> str:
+    digest = hashlib.sha256(content).digest()
+    return base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
+
+
+def _build_wheel_metadata(project_name: str, version: str, project: dict) -> str:
+    lines = [
+        "Metadata-Version: 2.1",
+        f"Name: {project_name}",
+        f"Version: {version}",
+    ]
+    description = str(project.get("description") or "").strip()
+    if description:
+        lines.append(f"Summary: {description}")
+    dependencies = project.get("dependencies", [])
+    if isinstance(dependencies, list):
+        for dependency in dependencies:
+            text = str(dependency or "").strip()
+            if text:
+                lines.append(f"Requires-Dist: {text}")
+    return "\n".join(lines) + "\n"
+
+
+def _build_wheel_entry_points(payload: dict, extension_id: str, backend_entry: str) -> str:
+    project = payload.get("project", {}) if isinstance(payload.get("project"), dict) else {}
+    entry_points = project.get("entry-points", {}) if isinstance(project.get("entry-points"), dict) else {}
+    extension_entry_points = (
+        entry_points.get("bias.extensions", {})
+        if isinstance(entry_points.get("bias.extensions"), dict)
+        else {}
+    )
+    if not extension_entry_points:
+        expected_entry = str(backend_entry or "").strip()
+        if expected_entry and ":" not in expected_entry:
+            expected_entry = f"{expected_entry}:extend"
+        extension_entry_points = {extension_id.replace("-", "_"): expected_entry}
+    lines = ["[bias.extensions]"]
+    for key, value in sorted(extension_entry_points.items()):
+        if str(key or "").strip() and str(value or "").strip():
+            lines.append(f"{key} = {value}")
+    return "\n".join(lines) + "\n" if len(lines) > 1 else ""
 
 
 def _select_extension_wheel(
@@ -507,6 +663,7 @@ def _inspect_wheel_archive(
     backend_entry: str,
     built: bool,
     install_smoke: bool,
+    install_context_wheel_paths: list[Path] | tuple[Path, ...] | None = None,
     timeout: int,
 ) -> ExtensionPackageWheelInspection:
     errors: list[str] = []
@@ -524,6 +681,7 @@ def _inspect_wheel_archive(
                 wheel_path,
                 extension_id=extension_id,
                 backend_entry=backend_entry,
+                context_wheel_paths=install_context_wheel_paths,
                 timeout=timeout,
             )
             discovered_extension_id = smoke_result["discovered_extension_id"]
@@ -564,11 +722,13 @@ def _smoke_test_wheel_installation(
     *,
     extension_id: str,
     backend_entry: str,
+    context_wheel_paths: list[Path] | tuple[Path, ...] | None = None,
     timeout: int,
 ) -> dict[str, Any]:
-    with tempfile.TemporaryDirectory(prefix=f"bias-install-{extension_id}-") as temp_dir:
+    with _temporary_directory(f"bias-install-{extension_id}-", wheel_path) as temp_dir:
         target_dir = Path(temp_dir)
-        install_errors = _install_wheel_to_target(wheel_path, target_dir, timeout=timeout)
+        wheel_paths = _install_context_wheels(wheel_path, context_wheel_paths)
+        install_errors = _install_wheels_to_target(wheel_paths, target_dir, timeout=timeout)
         if install_errors:
             return {
                 "discovered_extension_id": "",
@@ -602,18 +762,61 @@ target_dir = Path(sys.argv[2])
 extension_id = sys.argv[3]
 expected_backend_entry = sys.argv[4]
 manifest_path = target_dir / "bias_extensions" / extension_id / "extension.json"
-django_app_config = ""
-if manifest_path.exists():
-    try:
-        manifest_payload = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except Exception:
-        manifest_payload = {}
+
+def _manifest_payloads():
+    manifests_root = target_dir / "bias_extensions"
+    if not manifests_root.exists():
+        return []
+    payloads = []
+    for path in sorted(manifests_root.glob("*/extension.json")):
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if isinstance(payload, dict):
+            payloads.append(payload)
+    return payloads
+
+installed_apps = [
+    "django.contrib.auth",
+    "django.contrib.contenttypes",
+    "bias_core",
+]
+migration_modules = {}
+auth_user_model = ""
+for manifest_payload in _manifest_payloads():
+    extension_manifest_id = str(manifest_payload.get("id") or "").strip()
     django_payload = manifest_payload.get("django") if isinstance(manifest_payload.get("django"), dict) else {}
-    django_app_config = str(
+    app_config = str(
         manifest_payload.get("django_app_config")
         or django_payload.get("app_config")
         or ""
     ).strip()
+    if app_config and app_config not in installed_apps:
+        installed_apps.append(app_config)
+    app_label = str(
+        manifest_payload.get("django_app_label")
+        or django_payload.get("app_label")
+        or extension_manifest_id.replace("-", "_")
+    ).strip()
+    migration_module = str(
+        manifest_payload.get("django_migration_module")
+        or django_payload.get("migration_module")
+        or ""
+    ).strip()
+    if not migration_module:
+        module_prefix = app_config.rsplit(".apps.", 1)[0]
+        if module_prefix and module_prefix != app_config:
+            migration_module = f"{module_prefix}.django_migrations"
+    if app_label and migration_module:
+        migration_modules[app_label] = migration_module
+    declared_auth_user_model = str(
+        manifest_payload.get("auth_user_model")
+        or django_payload.get("auth_user_model")
+        or ""
+    ).strip()
+    if declared_auth_user_model and not auth_user_model:
+        auth_user_model = declared_auth_user_model
 
 sys.path.insert(0, str(core_src))
 sys.path.insert(0, str(target_dir))
@@ -622,12 +825,8 @@ from django.conf import settings
 
 if not settings.configured:
     settings.configure(
-        INSTALLED_APPS=[
-            "django.contrib.auth",
-            "django.contrib.contenttypes",
-            "bias_core",
-            *([django_app_config] if django_app_config else []),
-        ],
+        INSTALLED_APPS=installed_apps,
+        MIGRATION_MODULES=migration_modules,
         DATABASES={
             "default": {
                 "ENGINE": "django.db.backends.sqlite3",
@@ -639,6 +838,7 @@ if not settings.configured:
         USE_TZ=True,
         DEFAULT_AUTO_FIELD="django.db.models.BigAutoField",
         BIAS_EXTENSION_PACKAGE_DISCOVERY=False,
+        **({"AUTH_USER_MODEL": auth_user_model} if auth_user_model else {}),
     )
 import django
 django.setup()
@@ -685,6 +885,7 @@ print(json.dumps(payload, ensure_ascii=False))
     env.pop("PYTHONPATH", None)
     env["PYTHONIOENCODING"] = "utf-8"
     env["PYTHONUTF8"] = "1"
+    env.update(_temp_env_values(target_dir))
     try:
         result = subprocess.run(
             [
@@ -747,23 +948,51 @@ def _install_wheel_to_target(wheel_path: Path, target_dir: Path, *, timeout: int
     return _install_wheels_to_target((wheel_path,), target_dir, timeout=timeout)
 
 
+def _install_context_wheels(
+    wheel_path: Path,
+    context_wheel_paths: list[Path] | tuple[Path, ...] | None,
+) -> tuple[Path, ...]:
+    ordered: list[Path] = []
+    seen: set[Path] = set()
+    for path in (*(context_wheel_paths or ()), wheel_path):
+        normalized = Path(path)
+        try:
+            key = normalized.resolve()
+        except OSError:
+            key = normalized
+        if key in seen:
+            continue
+        seen.add(key)
+        ordered.append(normalized)
+    return tuple(ordered)
+
+
+def _install_set_temp_anchor(wheel_paths: tuple[Path, ...]) -> Path:
+    if not wheel_paths:
+        return Path.cwd()
+    parent = wheel_paths[0].parent
+    if parent.name.startswith("bias-wheel-set-") and parent.parent.name == ".tmp-extension-packages":
+        return parent.parent.parent
+    return parent
+
+
 def _install_wheels_to_target(wheel_paths: list[Path] | tuple[Path, ...], target_dir: Path, *, timeout: int) -> tuple[str, ...]:
     try:
         result = subprocess.run(
-            [
-                sys.executable,
-                "-m",
+            _python_module_command(
                 "pip",
+                target_dir,
                 "install",
                 "--no-deps",
                 "--disable-pip-version-check",
                 "--target",
                 str(target_dir),
                 *(str(path) for path in wheel_paths),
-            ],
+            ),
             text=True,
             capture_output=True,
             timeout=timeout,
+            env=_subprocess_env(target_dir, *wheel_paths),
         )
     except subprocess.TimeoutExpired as exc:
         return (f"安装扩展 wheel 超时: {exc}",)
@@ -772,10 +1001,173 @@ def _install_wheels_to_target(wheel_paths: list[Path] | tuple[Path, ...], target
 
     if result.returncode == 0:
         return ()
+    fallback_errors = _install_wheels_to_target_fallback(wheel_paths, target_dir)
+    if not fallback_errors:
+        return ()
     detail = "\n".join(part.strip() for part in (result.stderr, result.stdout) if part.strip())
     if len(detail) > 2000:
         detail = detail[:2000] + "...[truncated]"
-    return (f"安装扩展 wheel 失败: {detail or result.returncode}",)
+    return (f"安装扩展 wheel 失败: {detail or result.returncode}", *fallback_errors)
+
+
+def _install_wheels_to_target_fallback(
+    wheel_paths: list[Path] | tuple[Path, ...],
+    target_dir: Path,
+) -> tuple[str, ...]:
+    errors: list[str] = []
+    target_dir.mkdir(parents=True, exist_ok=True)
+    for wheel_path in wheel_paths:
+        try:
+            _install_wheel_archive_to_target(Path(wheel_path), target_dir)
+        except (OSError, zipfile.BadZipFile) as exc:
+            errors.append(f"fallback 安装扩展 wheel 失败 {wheel_path}: {exc}")
+    return tuple(errors)
+
+
+def _install_wheel_archive_to_target(wheel_path: Path, target_dir: Path) -> None:
+    with zipfile.ZipFile(wheel_path) as archive:
+        names = archive.namelist()
+        data_prefixes = [
+            name.split(".data/data/", 1)[0] + ".data/data/"
+            for name in names
+            if ".data/data/" in name
+        ]
+        data_prefix = data_prefixes[0] if data_prefixes else ""
+        for name in names:
+            if name.endswith("/"):
+                continue
+            if ".data/" in name and (not data_prefix or not name.startswith(data_prefix)):
+                continue
+            if data_prefix and name.startswith(data_prefix):
+                relative_name = name.removeprefix(data_prefix)
+            else:
+                relative_name = name
+            destination = _safe_install_destination(target_dir, relative_name)
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_bytes(archive.read(name))
+
+
+def _safe_install_destination(target_dir: Path, relative_name: str) -> Path:
+    relative_path = Path(str(relative_name or "").replace("\\", "/"))
+    if relative_path.is_absolute() or any(part in {"", ".", ".."} for part in relative_path.parts):
+        raise OSError(f"wheel 包含非法路径: {relative_name}")
+    destination = target_dir / relative_path
+    try:
+        destination.resolve().relative_to(target_dir.resolve())
+    except ValueError as exc:
+        raise OSError(f"wheel 路径越界: {relative_name}") from exc
+    return destination
+
+
+class _ManagedTemporaryDirectory:
+    def __init__(self, prefix: str, *anchors: Path):
+        self.prefix = prefix
+        self.anchors = anchors
+        self.name = ""
+
+    def __enter__(self) -> str:
+        root = Path(_managed_temp_root(*self.anchors))
+        root.mkdir(parents=True, exist_ok=True)
+        for _ in range(100):
+            path = root / f"{self.prefix}{uuid.uuid4().hex}"
+            try:
+                path.mkdir(parents=False, exist_ok=False)
+            except FileExistsError:
+                continue
+            self.name = str(path)
+            return self.name
+        raise FileExistsError(f"无法创建扩展包临时目录: {root}")
+
+    def __exit__(self, exc_type, exc, traceback) -> bool:
+        return False
+
+
+def _temporary_directory(prefix: str, *anchors: Path) -> _ManagedTemporaryDirectory:
+    return _ManagedTemporaryDirectory(prefix, *anchors)
+
+
+def _managed_temp_root(*anchors: Path) -> str:
+    configured = str(os.environ.get("BIAS_EXTENSION_PACKAGE_TMPDIR") or "").strip()
+    if configured:
+        root = Path(configured)
+    else:
+        anchor = next((Path(item) for item in anchors if item is not None), None)
+        if anchor is not None:
+            base = anchor if anchor.is_dir() else anchor.parent
+            package_temp_parent = next(
+                (parent for parent in (base, *base.parents) if parent.name == ".tmp-extension-packages"),
+                None,
+            )
+            root = package_temp_parent or (base / ".tmp-extension-packages")
+        else:
+            root = Path.cwd() / ".tmp-extension-packages"
+    if len(str(root)) > 100:
+        root = Path(tempfile.gettempdir()) / "bias-extension-packages"
+    root.mkdir(parents=True, exist_ok=True)
+    return str(root)
+
+
+def _temp_env_values(*anchors: Path) -> dict[str, str]:
+    temp_root = _managed_temp_root(*anchors)
+    return {
+        "TEMP": temp_root,
+        "TMP": temp_root,
+        "TMPDIR": temp_root,
+    }
+
+
+def _subprocess_env(*anchors: Path) -> dict[str, str]:
+    env = os.environ.copy()
+    env.update(_temp_env_values(*anchors))
+    return env
+
+
+def _python_module_command(module_name: str, temp_anchor: Path, *args: str) -> list[str]:
+    script = """
+import runpy
+import sys
+import tempfile
+import uuid
+from pathlib import Path
+
+temp_root = Path(sys.argv[1])
+temp_root.mkdir(parents=True, exist_ok=True)
+
+
+def _bias_mkdtemp(suffix=None, prefix=None, dir=None):
+    base = Path(dir or temp_root)
+    base.mkdir(parents=True, exist_ok=True)
+    suffix = "" if suffix is None else str(suffix)
+    prefix = "tmp" if prefix is None else str(prefix)
+    while True:
+        path = base / f"{prefix}{uuid.uuid4().hex}{suffix}"
+        try:
+            path.mkdir()
+        except FileExistsError:
+            continue
+        return str(path.resolve())
+
+
+tempfile.tempdir = str(temp_root)
+tempfile.mkdtemp = _bias_mkdtemp
+sys.argv = [sys.argv[2], *sys.argv[3:]]
+runpy.run_module(sys.argv[0], run_name="__main__")
+"""
+    return [
+        sys.executable,
+        "-c",
+        script,
+        _subprocess_temp_root(temp_anchor),
+        module_name,
+        *args,
+    ]
+
+
+def _subprocess_temp_root(temp_anchor: Path) -> str:
+    anchor = Path(temp_anchor)
+    root = anchor if anchor.is_dir() else Path(_managed_temp_root(anchor))
+    root.mkdir(parents=True, exist_ok=True)
+    return str(root)
 
 
 def _run_isolated_install_set_smoke(
@@ -852,7 +1244,7 @@ if not settings.configured:
         DATABASES={
             "default": {
                 "ENGINE": "django.db.backends.sqlite3",
-                "NAME": str(target_dir / "migration-smoke.sqlite3"),
+                "NAME": ":memory:",
             },
         },
         SECRET_KEY="bias-install-set-smoke",
@@ -1005,13 +1397,22 @@ if (migration_smoke or lifecycle_smoke) and not payload["errors"]:
 if lifecycle_smoke and not payload["errors"]:
     try:
         from bias_core.extensions.manager import ExtensionManager
+        from bias_core.extensions.product import is_extension_protected
 
         manager = ExtensionManager(extensions_path=target_dir / "bias_extensions")
         manager.load(force=True)
         for extension_id in sorted(expected_extensions):
-            installed = manager.install_extension(extension_id)
-            disabled = manager.set_extension_enabled(extension_id, False)
-            enabled = manager.set_extension_enabled(extension_id, True)
+            current = manager.get_extension(extension_id)
+            if current.runtime.installed:
+                installed = current
+            else:
+                installed = manager.install_extension(extension_id)
+            if is_extension_protected(installed):
+                enabled = manager.get_extension(extension_id)
+                disabled = None
+            else:
+                disabled = manager.set_extension_enabled(extension_id, False)
+                enabled = manager.set_extension_enabled(extension_id, True)
             payload["lifecycle_states"][extension_id] = {
                 "installed": bool(enabled.runtime.installed),
                 "enabled": bool(enabled.runtime.enabled),
@@ -1020,7 +1421,7 @@ if lifecycle_smoke and not payload["errors"]:
             payload["lifecycle_backend_hooks"][extension_id] = {
                 "install": str((installed.runtime.backend_hooks.get("run_install") or {}).get("status") or ""),
                 "install_enable": str((installed.runtime.backend_hooks.get("run_enable") or {}).get("status") or ""),
-                "disable": str((disabled.runtime.backend_hooks.get("run_disable") or {}).get("status") or ""),
+                "disable": str((disabled.runtime.backend_hooks.get("run_disable") or {}).get("status") or "") if disabled is not None else "protected",
                 "enable": str((enabled.runtime.backend_hooks.get("run_enable") or {}).get("status") or ""),
             }
     except Exception as exc:
@@ -1320,6 +1721,14 @@ def _normalize_project_dependencies(
     preserved: list[str] = []
     seen_preserved: set[str] = set()
 
+    managed_package_names = {
+        _dependency_package_name(dependency)
+        for dependency in _managed_extension_dependency_specs(
+            extension_id=extension_id,
+            manifest_dependencies=manifest_dependencies,
+        )
+    }
+
     for item in existing:
         text = str(item or "").strip()
         if not text:
@@ -1327,15 +1736,51 @@ def _normalize_project_dependencies(
         package_name = _dependency_package_name(text)
         if package_name == extension_distribution_package(extension_id):
             continue
-        if package_name == "bias-core" or package_name.startswith("bias-ext-"):
+        if package_name in managed_package_names or _is_managed_bias_dependency_package(package_name):
             continue
         if text not in seen_preserved:
             preserved.append(text)
             seen_preserved.add(text)
 
-    managed = ["bias-core>=0.1,<0.2"]
+    managed = _managed_extension_dependency_specs(
+        extension_id=extension_id,
+        manifest_dependencies=manifest_dependencies,
+    )
 
     return managed + preserved
+
+
+def _managed_extension_dependency_specs(
+    *,
+    extension_id: str,
+    manifest_dependencies: tuple[str, ...],
+    include_core: bool = True,
+) -> list[str]:
+    dependencies: list[str] = []
+    seen: set[str] = set()
+    if include_core:
+        dependencies.append("bias-core>=0.1,<0.2")
+        seen.add("bias-core")
+    current_id = str(extension_id or "").strip()
+    for dependency_id in manifest_dependencies:
+        normalized_id = str(dependency_id or "").strip()
+        if not normalized_id or normalized_id == "core" or normalized_id == current_id:
+            continue
+        package_name = extension_distribution_package(normalized_id)
+        if not package_name or package_name in seen:
+            continue
+        dependencies.append(f"{package_name}>=0.1,<0.2")
+        seen.add(package_name)
+    return dependencies
+
+
+def _is_managed_bias_dependency_package(package_name: str) -> bool:
+    normalized = str(package_name or "").strip()
+    if not normalized:
+        return False
+    if normalized == "bias-core" or normalized.startswith("bias-ext-"):
+        return True
+    return normalized in {package for package, _module in FOUNDATION_EXTENSION_PACKAGES.values()}
 
 
 def _normalize_data_files(

@@ -3,14 +3,43 @@
 """
 import json
 import mimetypes
+import time
 from pathlib import Path
 from typing import Any, Optional
 from urllib.parse import urlsplit
 
 import httpx
 from django.conf import settings
+from django.core.cache import cache
+from django.utils import timezone
 
 from bias_core.settings_service import get_advanced_settings_defaults, get_setting_group
+
+
+STORAGE_METRICS_CACHE_KEY = "storage.runtime.metrics"
+STORAGE_METRICS_TIMEOUT = 60 * 60 * 24 * 30
+DEFAULT_STORAGE_METRICS = {
+    "upload_count": 0,
+    "upload_failure_count": 0,
+    "delete_count": 0,
+    "delete_failure_count": 0,
+    "operation_count": 0,
+    "failure_count": 0,
+    "total_duration_ms": 0.0,
+    "last_duration_ms": 0.0,
+    "max_duration_ms": 0.0,
+    "average_duration_ms": 0.0,
+    "failure_rate": 0.0,
+    "total_bytes": 0,
+    "last_bytes": 0,
+    "last_operation": "",
+    "last_key": "",
+    "last_driver": "",
+    "last_backend": "",
+    "last_error": "",
+    "last_event_at": "",
+}
+_fallback_storage_metrics = DEFAULT_STORAGE_METRICS.copy()
 
 
 def get_runtime_storage_settings() -> dict:
@@ -347,6 +376,172 @@ class ImageBedStorageBackend(BaseStorageBackend):
         return current
 
 
+class MetricsStorageBackend(BaseStorageBackend):
+    def __init__(self, backend: BaseStorageBackend, driver: str):
+        super().__init__(getattr(backend, "config", {}) or {})
+        self.backend = backend
+        self.driver = driver
+
+    def save_bytes(self, key: str, content: bytes, content_type: Optional[str] = None) -> str:
+        started_at = time.perf_counter()
+        try:
+            result = self.backend.save_bytes(key, content, content_type=content_type)
+        except Exception as exc:
+            record_storage_metric(
+                operation="upload",
+                driver=self.driver,
+                backend=self.backend.__class__.__name__,
+                key=key,
+                byte_count=len(content or b""),
+                duration_ms=(time.perf_counter() - started_at) * 1000,
+                error=str(exc),
+            )
+            raise
+        record_storage_metric(
+            operation="upload",
+            driver=self.driver,
+            backend=self.backend.__class__.__name__,
+            key=key,
+            byte_count=len(content or b""),
+            duration_ms=(time.perf_counter() - started_at) * 1000,
+        )
+        return result
+
+    def delete_key(self, key: str) -> bool:
+        started_at = time.perf_counter()
+        try:
+            result = self.backend.delete_key(key)
+        except Exception as exc:
+            record_storage_metric(
+                operation="delete",
+                driver=self.driver,
+                backend=self.backend.__class__.__name__,
+                key=key,
+                duration_ms=(time.perf_counter() - started_at) * 1000,
+                error=str(exc),
+            )
+            raise
+        record_storage_metric(
+            operation="delete",
+            driver=self.driver,
+            backend=self.backend.__class__.__name__,
+            key=key,
+            duration_ms=(time.perf_counter() - started_at) * 1000,
+            error="" if result else "not-found",
+        )
+        return result
+
+    def delete(self, file_url: str) -> bool:
+        key = self.extract_key(file_url)
+        if not key:
+            record_storage_metric(
+                operation="delete",
+                driver=self.driver,
+                backend=self.backend.__class__.__name__,
+                key=file_url,
+                error="key-not-resolved",
+            )
+            return False
+        return self.delete_key(key)
+
+    def extract_key(self, file_url: str) -> Optional[str]:
+        return self.backend.extract_key(file_url)
+
+    def build_user_key(self, category_dir: str, user_id: int, filename: str) -> str:
+        return self.backend.build_user_key(category_dir, user_id, filename)
+
+    def __getattr__(self, name: str):
+        return getattr(self.backend, name)
+
+
+def get_storage_metrics() -> dict:
+    try:
+        metrics = cache.get(STORAGE_METRICS_CACHE_KEY) or {}
+    except Exception:
+        metrics = _fallback_storage_metrics
+
+    normalized = _normalize_storage_metrics(metrics)
+    operation_count = int(normalized.get("operation_count", 0) or 0)
+    failure_count = int(normalized.get("failure_count", 0) or 0)
+    total_duration_ms = float(normalized.get("total_duration_ms", 0.0) or 0.0)
+    normalized["average_duration_ms"] = round(total_duration_ms / operation_count, 3) if operation_count else 0.0
+    normalized["failure_rate"] = round(failure_count / operation_count, 4) if operation_count else 0.0
+    return normalized
+
+
+def reset_storage_metrics() -> dict:
+    metrics = DEFAULT_STORAGE_METRICS.copy()
+    _store_storage_metrics(metrics)
+    return metrics
+
+
+def record_storage_metric(
+    *,
+    operation: str,
+    driver: str,
+    backend: str,
+    key: str = "",
+    byte_count: int = 0,
+    duration_ms: float = 0.0,
+    error: str = "",
+) -> None:
+    metrics = get_storage_metrics()
+    operation = str(operation or "").strip().lower()
+    error = str(error or "")
+    duration_ms = round(max(0.0, float(duration_ms or 0.0)), 3)
+    byte_count = max(0, int(byte_count or 0))
+
+    metrics["operation_count"] = int(metrics.get("operation_count", 0) or 0) + 1
+    if operation == "upload":
+        if error:
+            metrics["upload_failure_count"] = int(metrics.get("upload_failure_count", 0) or 0) + 1
+        else:
+            metrics["upload_count"] = int(metrics.get("upload_count", 0) or 0) + 1
+    elif operation == "delete":
+        if error:
+            metrics["delete_failure_count"] = int(metrics.get("delete_failure_count", 0) or 0) + 1
+        else:
+            metrics["delete_count"] = int(metrics.get("delete_count", 0) or 0) + 1
+
+    if error:
+        metrics["failure_count"] = int(metrics.get("failure_count", 0) or 0) + 1
+
+    metrics["last_duration_ms"] = duration_ms
+    metrics["total_duration_ms"] = round(float(metrics.get("total_duration_ms", 0.0) or 0.0) + duration_ms, 3)
+    metrics["max_duration_ms"] = round(max(float(metrics.get("max_duration_ms", 0.0) or 0.0), duration_ms), 3)
+    metrics["total_bytes"] = int(metrics.get("total_bytes", 0) or 0) + byte_count
+    metrics["last_bytes"] = byte_count
+    metrics["last_operation"] = operation
+    metrics["last_key"] = key
+    metrics["last_driver"] = driver
+    metrics["last_backend"] = backend
+    metrics["last_error"] = error
+    metrics["last_event_at"] = timezone.now().isoformat()
+    _store_storage_metrics(metrics)
+
+
+def _normalize_storage_metrics(metrics: dict) -> dict:
+    return {
+        **DEFAULT_STORAGE_METRICS,
+        **{key: metrics.get(key) for key in DEFAULT_STORAGE_METRICS.keys() if key in metrics},
+    }
+
+
+def _store_storage_metrics(metrics: dict) -> None:
+    global _fallback_storage_metrics
+    _fallback_storage_metrics = _normalize_storage_metrics(metrics)
+    try:
+        cache.set(STORAGE_METRICS_CACHE_KEY, _fallback_storage_metrics, STORAGE_METRICS_TIMEOUT)
+    except Exception:
+        return None
+
+
+def _with_metrics(backend: BaseStorageBackend, driver: str) -> BaseStorageBackend:
+    if isinstance(backend, MetricsStorageBackend):
+        return backend
+    return MetricsStorageBackend(backend, driver)
+
+
 def get_storage_backend(config: Optional[dict] = None) -> BaseStorageBackend:
     runtime_config = config or get_runtime_storage_settings()
     driver = str(runtime_config.get("storage_driver") or "local").strip().lower()
@@ -356,18 +551,20 @@ def get_storage_backend(config: Optional[dict] = None) -> BaseStorageBackend:
 
         backend = resolve_runtime_filesystem_driver(driver, runtime_config)
         if backend is not None:
+            if isinstance(backend, BaseStorageBackend):
+                return _with_metrics(backend, driver)
             return backend
 
     if driver == "local":
-        return LocalStorageBackend(runtime_config)
+        return _with_metrics(LocalStorageBackend(runtime_config), driver)
     if driver == "s3":
-        return S3CompatibleStorageBackend(runtime_config, "s3")
+        return _with_metrics(S3CompatibleStorageBackend(runtime_config, "s3"), driver)
     if driver == "r2":
-        return S3CompatibleStorageBackend(runtime_config, "r2")
+        return _with_metrics(S3CompatibleStorageBackend(runtime_config, "r2"), driver)
     if driver == "oss":
-        return AliyunOssStorageBackend(runtime_config)
+        return _with_metrics(AliyunOssStorageBackend(runtime_config), driver)
     if driver == "imagebed":
-        return ImageBedStorageBackend(runtime_config)
+        return _with_metrics(ImageBedStorageBackend(runtime_config), driver)
 
     raise ValueError("不支持的文件存储驱动")
 

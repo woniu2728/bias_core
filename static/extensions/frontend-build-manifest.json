@@ -317,18 +317,6 @@
           "removed": false,
           "requires_auth": false,
           "title": "全部标签"
-        },
-        {
-          "component": "extensions/discussions/frontend/forum/DiscussionListView.vue",
-          "description": "查看该标签下的论坛讨论。",
-          "frontend": "forum",
-          "module_id": "tags",
-          "name": "tag-detail",
-          "order": 31,
-          "path": "/t/:slug",
-          "removed": false,
-          "requires_auth": false,
-          "title": "标签讨论"
         }
       ],
       "source": "filesystem",
@@ -454,5 +442,5 @@
       "title_driver": ""
     }
   },
-  "generated_at": "2026-06-27T05:57:10.378127+00:00"
+  "generated_at": "2026-07-01T07:54:52.168336+00:00"
 }

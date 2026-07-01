@@ -1,5 +1,6 @@
 from django.test import TestCase, override_settings
-from django.contrib.auth.models import AnonymousUser, User
+from django.contrib.auth import get_user_model
+from django.contrib.auth.models import AnonymousUser
 from ninja_jwt.tokens import RefreshToken
 
 from bias_core.jwt_auth import (
@@ -11,6 +12,7 @@ from bias_core.websocket_auth import _parse_cookie_header
 
 class WebSocketJwtAuthTests(TestCase):
     def setUp(self):
+        User = get_user_model()
         self.user = User.objects.create_user(
             username="ws-user",
             email="ws-user@example.com",

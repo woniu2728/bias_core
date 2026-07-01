@@ -1,8 +1,8 @@
-import importlib
 import os
-from pathlib import Path
 from unittest.mock import Mock, patch
 
+from django.core.checks import run_checks
+from django.core.exceptions import ImproperlyConfigured
 from django.test import TestCase, override_settings
 from django.conf import settings as django_settings
 
@@ -115,12 +115,13 @@ class ProductionRuntimeCheckTests(TestCase):
         execute_from_command_line_mock,
         enforce_runtime_checks_mock,
     ):
-        import manage
+        from bias_core.startup_guard import run_django_management_with_startup_guard
 
-        manage.main()
+        argv = ["manage.py", "check"]
+        run_django_management_with_startup_guard(argv)
 
         enforce_runtime_checks_mock.assert_called_once_with()
-        execute_from_command_line_mock.assert_called_once_with(sys.argv)
+        execute_from_command_line_mock.assert_called_once_with(argv)
 
     @patch("bias_core.startup_guard.enforce_production_runtime_checks")
     @patch("django.core.management.execute_from_command_line")
@@ -129,11 +130,10 @@ class ProductionRuntimeCheckTests(TestCase):
         execute_from_command_line_mock,
         enforce_runtime_checks_mock,
     ):
-        import manage
+        from bias_core.startup_guard import run_django_management_with_startup_guard
 
         argv = ["manage.py", "validate_extensions"]
-        with patch.object(sys, "argv", argv):
-            manage.main()
+        run_django_management_with_startup_guard(argv)
 
         enforce_runtime_checks_mock.assert_not_called()
         execute_from_command_line_mock.assert_called_once_with(argv)
@@ -145,11 +145,10 @@ class ProductionRuntimeCheckTests(TestCase):
         execute_from_command_line_mock,
         enforce_runtime_checks_mock,
     ):
-        import manage
+        from bias_core.startup_guard import run_django_management_with_startup_guard
 
         argv = ["manage.py", "create_extension", "demo-tools"]
-        with patch.object(sys, "argv", argv):
-            manage.main()
+        run_django_management_with_startup_guard(argv)
 
         enforce_runtime_checks_mock.assert_not_called()
         execute_from_command_line_mock.assert_called_once_with(argv)
@@ -161,21 +160,19 @@ class ProductionRuntimeCheckTests(TestCase):
         execute_from_command_line_mock,
         enforce_runtime_checks_mock,
     ):
-        import manage
+        from bias_core.startup_guard import run_django_management_with_startup_guard
 
         argv = ["manage.py", "inspect_extensions"]
-        with patch.object(sys, "argv", argv):
-            manage.main()
+        run_django_management_with_startup_guard(argv)
 
         enforce_runtime_checks_mock.assert_not_called()
         execute_from_command_line_mock.assert_called_once_with(argv)
 
     @patch("bias_core.startup_guard.enforce_production_runtime_checks")
     def test_celery_module_enforces_production_runtime_checks(self, enforce_runtime_checks_mock):
-        import config.celery as celery_module
+        from bias_core.startup_guard import enforce_celery_runtime_checks
 
-        importlib.reload(celery_module)
-        celery_module._enforce_celery_runtime_checks()
+        enforce_celery_runtime_checks()
 
         enforce_runtime_checks_mock.assert_called_once_with()
 

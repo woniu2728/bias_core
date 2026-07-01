@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-import tempfile
 
 from django.conf import settings
 from django.core.management import BaseCommand, CommandError
@@ -11,6 +10,7 @@ from django.core.management.base import CommandParser
 from bias_core.extensions.exceptions import ExtensionManifestError
 from bias_core.extensions.manifest import ExtensionManifestLoader
 from bias_core.extensions.packaging import (
+    _temporary_directory,
     inspect_extension_package_install_set,
     inspect_extension_package_wheel,
 )
@@ -115,7 +115,11 @@ class Command(BaseCommand):
             if not manifests:
                 raise CommandError(f"未找到扩展: {extension_id}")
 
-        with tempfile.TemporaryDirectory(prefix="bias-wheel-set-") if build and install_set_smoke else _null_temp_dir() as build_temp_dir:
+        with (
+            _temporary_directory("bias-wheel-set-", extensions_path)
+            if build and install_set_smoke
+            else _null_temp_dir()
+        ) as build_temp_dir:
             build_output_dir = Path(build_temp_dir) if build_temp_dir else None
             results = [
                 inspect_extension_package_wheel(
@@ -124,13 +128,37 @@ class Command(BaseCommand):
                     extension_version=manifest.version,
                     backend_entry=manifest.backend_entry,
                     build=build,
-                    install_smoke=install_smoke,
+                    install_smoke=False,
                     wheel_dir=wheel_dir,
                     build_output_dir=build_output_dir,
                     timeout=build_timeout,
                 )
                 for manifest in manifests
             ]
+            if install_smoke:
+                context_wheel_paths = tuple(
+                    result.wheel_path
+                    for result in results
+                    if result.wheel_path is not None
+                )
+                results = [
+                    (
+                        result
+                        if result.errors or result.wheel_path is None
+                        else inspect_extension_package_wheel(
+                            Path(manifest.path),
+                            extension_id=manifest.id,
+                            extension_version=manifest.version,
+                            backend_entry=manifest.backend_entry,
+                            build=False,
+                            install_smoke=True,
+                            install_context_wheel_paths=context_wheel_paths,
+                            wheel_dir=result.wheel_path.parent,
+                            timeout=build_timeout,
+                        )
+                    )
+                    for manifest, result in zip(manifests, results, strict=True)
+                ]
             error_count = sum(1 for result in results if result.errors)
             set_smoke_result = None
             if install_set_smoke and not error_count:

@@ -1,5 +1,61 @@
 from tests.common import *
 
+
+def package_subprocess_env(temp_dir):
+    temp_root = Path(temp_dir) / ".tmp-package-subprocess"
+    temp_root.mkdir(parents=True, exist_ok=True)
+    env = os.environ.copy()
+    env.update({
+        "TEMP": str(temp_root),
+        "TMP": str(temp_root),
+        "TMPDIR": str(temp_root),
+    })
+    return env
+
+
+def package_python_module_command(temp_dir, module_name, *args):
+    temp_root = Path(temp_dir) / ".tmp-package-subprocess"
+    temp_root.mkdir(parents=True, exist_ok=True)
+    script = """
+import runpy
+import sys
+import tempfile
+import uuid
+from pathlib import Path
+
+temp_root = Path(sys.argv[1])
+temp_root.mkdir(parents=True, exist_ok=True)
+
+
+def _bias_mkdtemp(suffix=None, prefix=None, dir=None):
+    base = Path(dir or temp_root)
+    base.mkdir(parents=True, exist_ok=True)
+    suffix = "" if suffix is None else str(suffix)
+    prefix = "tmp" if prefix is None else str(prefix)
+    while True:
+        path = base / f"{prefix}{uuid.uuid4().hex}{suffix}"
+        try:
+            path.mkdir()
+        except FileExistsError:
+            continue
+        return str(path.resolve())
+
+
+tempfile.tempdir = str(temp_root)
+tempfile.mkdtemp = _bias_mkdtemp
+sys.argv = [sys.argv[2], *sys.argv[3:]]
+runpy.run_module(sys.argv[0], run_name="__main__")
+"""
+    return [
+        sys.executable,
+        "-c",
+        script,
+        str(temp_root),
+        module_name,
+        *args,
+    ]
+
+
 def build_minimal_contract_snapshot(extension_id):
     return {
         "schema_version": 1,
@@ -21,6 +77,117 @@ def build_minimal_contract_snapshot(extension_id):
 
 
 class ExtensionManagementCommandTests(TestCase):
+    def test_inspect_performance_baseline_command_reports_required_contracts(self):
+        stdout = StringIO()
+
+        call_command("inspect_performance_baseline", "--format", "json", "--strict", stdout=stdout)
+
+        payload = json.loads(stdout.getvalue())
+        self.assertTrue(payload["ok"], payload)
+        check_names = {item["name"] for item in payload["checks"]}
+        self.assertIn("discussion_query_budgets", check_names)
+        self.assertIn("tag_stats_refresh", check_names)
+        self.assertIn("notification_pagination_indexes", check_names)
+        self.assertIn("search_driver_boundary", check_names)
+        self.assertIn("queue_worker_metrics", check_names)
+        self.assertIn("realtime_metrics", check_names)
+        self.assertTrue(payload["p95_load_test_required"])
+
+    def test_inspect_performance_baseline_reads_extension_manifest_contracts(self):
+        temp_dir = make_workspace_temp_dir()
+        try:
+            extensions_dir = Path(temp_dir) / "extensions"
+            contract_payloads = {
+                "tags": {
+                    "name": "Tags",
+                    "contracts": [
+                        {
+                            "name": "tag_stats_refresh",
+                            "message": "tag stats refresh exposes batched implementation and duration metrics.",
+                            "metrics": {"batched": True},
+                        },
+                    ],
+                },
+                "notifications": {
+                    "name": "Notifications",
+                    "contracts": [
+                        {
+                            "name": "notification_pagination_indexes",
+                            "message": "notification list has pagination and required indexes.",
+                            "required_indexes": [["user"]],
+                            "missing_indexes": [],
+                        },
+                    ],
+                },
+                "search": {
+                    "name": "Search",
+                    "contracts": [
+                        {
+                            "name": "search_driver_boundary",
+                            "message": "database search uses PostgreSQL full text only when supported and keeps extension targets behind runtime services.",
+                            "database_boundary": "declared in manifest",
+                        },
+                    ],
+                },
+                "realtime": {
+                    "name": "Realtime",
+                    "contracts": [
+                        {
+                            "name": "realtime_metrics",
+                            "message": "realtime metrics include connections, subscriptions and message counters.",
+                            "required_fields": ["active_connections"],
+                            "missing_fields": [],
+                        },
+                    ],
+                },
+            }
+            for extension_id, payload in contract_payloads.items():
+                manifest_dir = extensions_dir / extension_id
+                manifest_dir.mkdir(parents=True, exist_ok=True)
+                (manifest_dir / "extension.json").write_text(json.dumps({
+                    "id": extension_id,
+                    "name": payload["name"],
+                    "version": "0.1.0",
+                    "dependencies": ["core"],
+                    "performance_contracts": payload["contracts"],
+                }), encoding="utf-8")
+
+            stdout = StringIO()
+            call_command(
+                "inspect_performance_baseline",
+                "--extensions-path",
+                str(extensions_dir),
+                "--format",
+                "json",
+                "--strict",
+                stdout=stdout,
+            )
+
+            baseline = json.loads(stdout.getvalue())
+            self.assertTrue(baseline["ok"], baseline)
+            checks = {item["name"]: item for item in baseline["checks"]}
+            self.assertEqual(checks["tag_stats_refresh"]["extension_id"], "tags")
+            self.assertEqual(checks["notification_pagination_indexes"]["missing_indexes"], [])
+            self.assertEqual(checks["search_driver_boundary"]["database_boundary"], "declared in manifest")
+            self.assertEqual(checks["realtime_metrics"]["missing_fields"], [])
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_inspect_performance_baseline_does_not_hardcode_official_extension_modules(self):
+        source = (
+            Path(settings.BASE_DIR)
+            / "src"
+            / "bias_core"
+            / "management"
+            / "commands"
+            / "inspect_performance_baseline.py"
+        ).read_text(encoding="utf-8")
+
+        self.assertNotIn("bias_ext_tags", source)
+        self.assertNotIn("bias_ext_notifications", source)
+        self.assertNotIn("bias_ext_search", source)
+        self.assertNotIn("bias_ext_realtime", source)
+
     def test_extension_management_commands_skip_django_system_checks(self):
         from bias_core.management.commands.create_extension import Command as CreateExtensionCommand
         from bias_core.management.commands.check_extension_workspace import Command as CheckExtensionWorkspaceCommand
@@ -28,7 +195,15 @@ class ExtensionManagementCommandTests(TestCase):
         from bias_core.management.commands.inspect_extensions import Command as InspectExtensionsCommand
         from bias_core.management.commands.inspect_extension_imports import Command as InspectExtensionImportsCommand
         from bias_core.management.commands.inspect_extension_packages import Command as InspectExtensionPackagesCommand
+        from bias_core.management.commands.inspect_performance_baseline import Command as InspectPerformanceBaselineCommand
+        from bias_core.management.commands.load_test_http import Command as LoadTestHttpCommand
+        from bias_core.management.commands.load_test_websocket import Command as LoadTestWebsocketCommand
+        from bias_core.management.commands.profile_read_paths import Command as ProfileReadPathsCommand
+        from bias_core.management.commands.seed_load_test_data import Command as SeedLoadTestDataCommand
+        from bias_core.management.commands.smoke_websocket_realtime import Command as SmokeWebSocketRealtimeCommand
         from bias_core.management.commands.smoke_install_upgrade import Command as SmokeInstallUpgradeCommand
+        from bias_core.management.commands.smoke_http_p95 import Command as SmokeHttpP95Command
+        from bias_core.management.commands.smoke_queue_worker import Command as SmokeQueueWorkerCommand
         from bias_core.management.commands.sync_extension_package_metadata import Command as SyncPackageMetadataCommand
         from bias_core.management.commands.validate_extensions import Command as ValidateExtensionsCommand
 
@@ -38,9 +213,920 @@ class ExtensionManagementCommandTests(TestCase):
         self.assertEqual(InspectExtensionsCommand.requires_system_checks, [])
         self.assertEqual(InspectExtensionImportsCommand.requires_system_checks, [])
         self.assertEqual(InspectExtensionPackagesCommand.requires_system_checks, [])
+        self.assertEqual(InspectPerformanceBaselineCommand.requires_system_checks, [])
+        self.assertEqual(LoadTestHttpCommand.requires_system_checks, [])
+        self.assertEqual(LoadTestWebsocketCommand.requires_system_checks, [])
+        self.assertEqual(ProfileReadPathsCommand.requires_system_checks, [])
+        self.assertEqual(SeedLoadTestDataCommand.requires_system_checks, [])
+        self.assertEqual(SmokeWebSocketRealtimeCommand.requires_system_checks, [])
+        self.assertEqual(SmokeHttpP95Command.requires_system_checks, [])
         self.assertEqual(SmokeInstallUpgradeCommand.requires_system_checks, [])
+        self.assertEqual(SmokeQueueWorkerCommand.requires_system_checks, [])
         self.assertEqual(SyncPackageMetadataCommand.requires_system_checks, [])
         self.assertEqual(ValidateExtensionsCommand.requires_system_checks, [])
+
+    def test_seed_load_test_data_creates_minimal_dataset(self):
+        stdout = StringIO()
+
+        call_command(
+            "seed_load_test_data",
+            "--users",
+            "2",
+            "--discussions",
+            "3",
+            "--posts",
+            "5",
+            "--tags",
+            "2",
+            "--notifications",
+            "4",
+            "--batch-size",
+            "2",
+            "--prefix",
+            "pytest-load",
+            "--format",
+            "json",
+            stdout=stdout,
+        )
+
+        payload = json.loads(stdout.getvalue())
+        self.assertTrue(payload["summary"]["ok"], payload)
+        self.assertEqual(payload["sections"]["users"]["created"], 2)
+        self.assertEqual(payload["sections"]["discussions"]["created"], 3)
+        self.assertEqual(payload["sections"]["posts"]["created"], 5)
+        self.assertEqual(payload["sections"]["tags"]["created"], 2)
+        self.assertEqual(payload["sections"]["notifications"]["created"], 4)
+
+        idempotent_stdout = StringIO()
+        call_command(
+            "seed_load_test_data",
+            "--users",
+            "2",
+            "--discussions",
+            "3",
+            "--posts",
+            "5",
+            "--tags",
+            "2",
+            "--notifications",
+            "4",
+            "--prefix",
+            "pytest-load",
+            "--format",
+            "json",
+            stdout=idempotent_stdout,
+        )
+        idempotent = json.loads(idempotent_stdout.getvalue())
+        self.assertEqual(idempotent["summary"]["created_total"], 0)
+
+    def test_profile_read_paths_reports_external_http_timings(self):
+        seen_urls = []
+
+        class FakeClient:
+            def __init__(self, *args, **kwargs):
+                self.headers = kwargs.get("headers") or {}
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def get(self, url):
+                seen_urls.append((url, dict(self.headers)))
+                return SimpleNamespace(status_code=200)
+
+        ticks = iter(index / 1000 for index in range(0, 200))
+        stdout = StringIO()
+        with patch("bias_core.management.commands.profile_read_paths.httpx.Client", FakeClient):
+            with patch("bias_core.management.commands.profile_read_paths.time.perf_counter", side_effect=lambda: next(ticks)):
+                call_command(
+                    "profile_read_paths",
+                    "--base-url",
+                    "http://bias.test",
+                    "--path",
+                    "/api/forum",
+                    "--repeat",
+                    "2",
+                    "--warmup",
+                    "1",
+                    "--header",
+                    "X-Test: yes",
+                    "--format",
+                    "json",
+                    stdout=stdout,
+                )
+
+        payload = json.loads(stdout.getvalue())
+        self.assertTrue(payload["summary"]["ok"], payload)
+        self.assertEqual(payload["mode"], "external-http")
+        self.assertEqual(payload["targets"][0]["path"], "/api/forum")
+        self.assertEqual(payload["targets"][0]["sample_count"], 2)
+        self.assertEqual(payload["targets"][0]["status_code_counts"], {"200": 2})
+        self.assertEqual(payload["targets"][0]["query_count_average"], 0.0)
+        self.assertEqual(seen_urls[0][0], "http://bias.test/api/forum")
+        self.assertEqual(seen_urls[0][1]["X-Test"], "yes")
+
+    def test_profile_read_paths_reports_in_process_query_counts(self):
+        stdout = StringIO()
+
+        call_command(
+            "profile_read_paths",
+            "--in-process",
+            "--path",
+            "/api/forum",
+            "--repeat",
+            "1",
+            "--warmup",
+            "0",
+            "--format",
+            "json",
+            stdout=stdout,
+        )
+
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual(payload["mode"], "in-process")
+        self.assertTrue(payload["summary"]["ok"], payload)
+        target = payload["targets"][0]
+        self.assertEqual(target["method"], "GET")
+        self.assertEqual(target["path"], "/api/forum")
+        self.assertEqual(target["sample_count"], 1)
+        self.assertIn("query_count_average", target)
+        self.assertIn("duplicate_query_count_average", target)
+        self.assertIn("db_average_ms", target)
+        self.assertIn("serialize_average_ms", target)
+        self.assertIn("slow_queries", target)
+
+    def test_profile_read_paths_explain_skips_non_select_and_normalizes_sql(self):
+        from bias_core.management.commands import profile_read_paths
+
+        self.assertEqual(
+            profile_read_paths.normalize_sql("SELECT * FROM alpha WHERE id = 123 AND name = 'Bob'"),
+            "SELECT * FROM alpha WHERE id = ? AND name = ?",
+        )
+        skipped = profile_read_paths.explain_sql("UPDATE alpha SET name = 'Bob'")
+        self.assertEqual(skipped, {"ok": False, "skipped": True, "reason": "not_select"})
+
+    def test_profile_read_paths_requires_base_url_or_in_process(self):
+        with self.assertRaisesMessage(CommandError, "缺少 --base-url"):
+            call_command_quietly("profile_read_paths", "--path", "/api/forum")
+
+    def test_load_test_http_reports_percentiles_and_error_rate(self):
+        from bias_core.management.commands import load_test_http
+
+        class FakeClient:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def request(self, method, url, json=None):
+                return SimpleNamespace(status_code=200)
+
+        ticks = iter(index / 1000 for index in range(0, 200))
+        stdout = StringIO()
+        with patch("bias_core.management.commands.load_test_http.httpx.Client", FakeClient):
+            with patch("bias_core.management.commands.load_test_http.time.perf_counter", side_effect=lambda: next(ticks)):
+                call_command(
+                    "load_test_http",
+                    "--base-url",
+                    "http://bias.test",
+                    "--path",
+                    "/api/forum=10",
+                    "--concurrency",
+                    "2",
+                    "--requests",
+                    "4",
+                    "--duration",
+                    "0",
+                    "--format",
+                    "json",
+                    "--fail-on-threshold",
+                    stdout=stdout,
+                )
+
+        payload = json.loads(stdout.getvalue())
+        self.assertTrue(payload["summary"]["ok"], payload)
+        self.assertEqual(payload["summary"]["request_count"], 4)
+        self.assertEqual(payload["summary"]["error_rate"], 0.0)
+        self.assertEqual(payload["targets"][0]["status_code_counts"], {"200": 4})
+        self.assertTrue(payload["targets"][0]["covered"])
+        self.assertIn("p50_ms", payload["targets"][0])
+        self.assertIn("p95_ms", payload["targets"][0])
+        self.assertIn("p99_ms", payload["targets"][0])
+        self.assertEqual(load_test_http.percentile([1, 2, 3, 4], 99), 3.9699999999999998)
+
+    def test_load_test_http_supports_auth_token_dynamic_path_and_post_profile(self):
+        seen_requests = []
+
+        class FakeClient:
+            def __init__(self, *args, **kwargs):
+                self.headers = kwargs.get("headers") or {}
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def request(self, method, url, json=None):
+                seen_requests.append({
+                    "method": method,
+                    "url": url,
+                    "json": json,
+                    "headers": dict(self.headers),
+                })
+                return SimpleNamespace(status_code=200)
+
+        stdout = StringIO()
+        with patch("bias_core.management.commands.load_test_http.httpx.Client", FakeClient):
+            call_command(
+                "load_test_http",
+                "--base-url",
+                "http://bias.test",
+                "--profile",
+                "forum-write",
+                "--discussion-id",
+                "42",
+                "--auth-token",
+                "token-123",
+                "--concurrency",
+                "1",
+                "--requests",
+                "1",
+                "--duration",
+                "0",
+                "--format",
+                "json",
+                stdout=stdout,
+            )
+
+        payload = json.loads(stdout.getvalue())
+        self.assertTrue(payload["summary"]["ok"], payload)
+        self.assertEqual(payload["dynamic_values"]["discussion_id"], 42)
+        self.assertEqual(payload["targets"][0]["method"], "POST")
+        self.assertEqual(payload["targets"][0]["path"], "/api/discussions/42/posts")
+        self.assertTrue(payload["targets"][0]["has_json_body"])
+        self.assertTrue(payload["targets"][0]["covered"])
+        self.assertEqual(seen_requests[0]["method"], "POST")
+        self.assertEqual(seen_requests[0]["url"], "http://bias.test/api/discussions/42/posts")
+        self.assertEqual(seen_requests[0]["json"]["content"].startswith("Load test reply "), True)
+        self.assertEqual(seen_requests[0]["headers"]["Authorization"], "Bearer token-123")
+
+    def test_load_test_http_reuses_client_per_worker(self):
+        client_count = 0
+        seen_requests = []
+
+        class FakeClient:
+            def __init__(self, *args, **kwargs):
+                nonlocal client_count
+                client_count += 1
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def request(self, method, url, **kwargs):
+                seen_requests.append((method, url))
+                return SimpleNamespace(status_code=200)
+
+        stdout = StringIO()
+        with patch("bias_core.management.commands.load_test_http.httpx.Client", FakeClient):
+            call_command(
+                "load_test_http",
+                "--base-url",
+                "http://bias.test",
+                "--path",
+                "/api/forum=300",
+                "--concurrency",
+                "2",
+                "--requests",
+                "6",
+                "--duration",
+                "0",
+                "--format",
+                "json",
+                stdout=stdout,
+            )
+
+        payload = json.loads(stdout.getvalue())
+        self.assertTrue(payload["summary"]["ok"], payload)
+        self.assertEqual(payload["summary"]["request_count"], 6)
+        self.assertEqual(len(seen_requests), 6)
+        self.assertEqual(client_count, 2)
+
+    def test_load_test_http_can_bootstrap_login_session(self):
+        seen_requests = []
+
+        class FakeCookies:
+            jar = [
+                SimpleNamespace(name="csrftoken", value="csrf-cookie"),
+                SimpleNamespace(name="bias_access_token", value="cookie-access"),
+            ]
+
+        class FakeResponse:
+            def __init__(self, status_code=200, payload=None):
+                self.status_code = status_code
+                self._payload = payload or {}
+
+            def json(self):
+                return self._payload
+
+        class FakeClient:
+            def __init__(self, *args, **kwargs):
+                self.headers = kwargs.get("headers") or {}
+                self.cookies = FakeCookies()
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def get(self, url):
+                seen_requests.append({"method": "GET", "url": url, "headers": dict(self.headers)})
+                return FakeResponse(payload={"csrfToken": "csrf-token"})
+
+            def post(self, url, json=None, headers=None):
+                seen_requests.append({"method": "POST", "url": url, "json": json, "headers": dict(headers or {})})
+                return FakeResponse(payload={"access": "access-token"})
+
+            def request(self, method, url, **kwargs):
+                seen_requests.append({
+                    "method": method,
+                    "url": url,
+                    "headers": dict(self.headers),
+                    "kwargs": kwargs,
+                })
+                return SimpleNamespace(status_code=200)
+
+        stdout = StringIO()
+        with patch("bias_core.management.commands.load_test_http.httpx.Client", FakeClient):
+            call_command(
+                "load_test_http",
+                "--base-url",
+                "http://bias.test",
+                "--profile",
+                "forum-write",
+                "--discussion-id",
+                "42",
+                "--login-username",
+                "load-user",
+                "--login-password",
+                "load-password",
+                "--concurrency",
+                "1",
+                "--requests",
+                "1",
+                "--duration",
+                "0",
+                "--format",
+                "json",
+                stdout=stdout,
+            )
+
+        payload = json.loads(stdout.getvalue())
+        self.assertTrue(payload["summary"]["ok"], payload)
+        self.assertEqual(seen_requests[0]["url"], "http://bias.test/api/csrf")
+        self.assertEqual(seen_requests[1]["url"], "http://bias.test/api/users/login")
+        self.assertEqual(seen_requests[1]["headers"]["X-CSRFToken"], "csrf-token")
+        self.assertEqual(seen_requests[1]["json"], {"identification": "load-user", "password": "load-password"})
+        load_request = seen_requests[2]
+        self.assertEqual(load_request["headers"]["Authorization"], "Bearer access-token")
+        self.assertEqual(load_request["headers"]["X-CSRFToken"], "csrf-token")
+        self.assertIn("csrftoken=csrf-cookie", load_request["headers"]["Cookie"])
+        self.assertIn("bias_access_token=cookie-access", load_request["headers"]["Cookie"])
+
+    def test_load_test_http_supports_custom_method_body_and_threshold(self):
+        from bias_core.management.commands import load_test_http
+
+        targets = load_test_http.parse_targets(
+            ['PATCH /api/posts/{post_id} {"content":"Updated {sequence}"}=500'],
+            profile="forum-main",
+            dynamic_values={"post_id": 7, "sequence": 99},
+        )
+
+        self.assertEqual(targets[0].method, "PATCH")
+        self.assertEqual(targets[0].path, "/api/posts/7")
+        self.assertEqual(targets[0].json_body, {"content": "Updated 99"})
+        self.assertEqual(targets[0].threshold_ms, 500.0)
+
+    def test_load_test_http_splits_public_and_authenticated_main_profiles(self):
+        from bias_core.management.commands import load_test_http
+
+        public_targets = load_test_http.parse_targets([], profile="forum-main", dynamic_values={})
+        auth_targets = load_test_http.parse_targets([], profile="forum-main-auth", dynamic_values={})
+
+        self.assertNotIn("GET /api/notifications", [target.label for target in public_targets])
+        self.assertIn("GET /api/notifications", [target.label for target in auth_targets])
+        self.assertIn("GET /api/search?q=loadtest-discussion-00000001", [target.label for target in public_targets])
+        self.assertNotIn("GET /api/search?q=loadtest", [target.label for target in public_targets])
+
+    def test_load_test_http_supports_mixed_write_profile(self):
+        from bias_core.management.commands import load_test_http
+
+        targets = load_test_http.parse_targets(
+            [],
+            profile="forum-write-mixed",
+            dynamic_values={
+                "discussion_id": 42,
+                "post_id": 77,
+                "tag_id": 5,
+                "sequence": 99,
+            },
+        )
+
+        self.assertEqual(
+            [target.label for target in targets],
+            [
+                "POST /api/discussions/",
+                "PATCH /api/discussions/42",
+                "POST /api/discussions/42/read",
+                "POST /api/posts/77/like",
+                "DELETE /api/posts/77/like",
+                "POST /api/discussions/42/subscribe",
+                "DELETE /api/discussions/42/subscribe",
+            ],
+        )
+        create_body = targets[0].json_body
+        self.assertEqual(create_body["data"]["attributes"]["title"], "Load test discussion 99")
+        self.assertEqual(
+            create_body["data"]["relationships"]["tags"]["data"],
+            [{"type": "tag", "id": "5"}],
+        )
+        self.assertEqual(targets[1].json_body["data"]["attributes"]["title"], "Load test update 99")
+        self.assertEqual(targets[2].json_body, {"last_read_post_number": 1})
+        self.assertEqual(targets[3].threshold_ms, 500.0)
+
+    def test_load_test_http_supports_upload_profile_multipart(self):
+        seen_requests = []
+
+        class FakeClient:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def request(self, method, url, **kwargs):
+                seen_requests.append({
+                    "method": method,
+                    "url": url,
+                    "kwargs": kwargs,
+                })
+                return SimpleNamespace(status_code=200)
+
+        stdout = StringIO()
+        with patch("bias_core.management.commands.load_test_http.httpx.Client", FakeClient):
+            call_command(
+                "load_test_http",
+                "--base-url",
+                "http://bias.test",
+                "--profile",
+                "forum-upload",
+                "--auth-token",
+                "token-123",
+                "--concurrency",
+                "1",
+                "--requests",
+                "1",
+                "--duration",
+                "0",
+                "--format",
+                "json",
+                stdout=stdout,
+            )
+
+        payload = json.loads(stdout.getvalue())
+        self.assertTrue(payload["summary"]["ok"], payload)
+        self.assertEqual(payload["targets"][0]["method"], "POST")
+        self.assertEqual(payload["targets"][0]["path"], "/api/uploads")
+        self.assertFalse(payload["targets"][0]["has_json_body"])
+        self.assertTrue(payload["targets"][0]["has_multipart_file"])
+        files = seen_requests[0]["kwargs"]["files"]
+        self.assertIn("file", files)
+        filename, content, content_type = files["file"]
+        self.assertTrue(filename.startswith("load-test-"))
+        self.assertIn(b"load test upload", content)
+        self.assertEqual(content_type, "text/plain")
+
+    def test_load_test_http_supports_custom_file_body(self):
+        from bias_core.management.commands import load_test_http
+
+        targets = load_test_http.parse_targets(
+            ["POST /api/uploads FILE file:guide.txt:text/plain:hello {sequence}=800"],
+            profile="forum-main",
+            dynamic_values={"sequence": 99},
+        )
+
+        self.assertEqual(targets[0].method, "POST")
+        self.assertEqual(targets[0].path, "/api/uploads")
+        self.assertIsNone(targets[0].json_body)
+        self.assertEqual(targets[0].multipart_file["field"], "file")
+        self.assertEqual(targets[0].multipart_file["filename"], "guide.txt")
+        self.assertEqual(targets[0].multipart_file["content"], "hello 99")
+        self.assertEqual(targets[0].threshold_ms, 800.0)
+
+    def test_load_test_http_supports_moderation_write_profile(self):
+        from bias_core.management.commands import load_test_http
+
+        targets = load_test_http.parse_targets(
+            [],
+            profile="forum-write-moderation",
+            dynamic_values={
+                "discussion_id": 42,
+                "post_id": 77,
+                "notification_id": 88,
+                "sequence": 99,
+            },
+        )
+
+        self.assertEqual(
+            [target.label for target in targets],
+            [
+                "PATCH /api/posts/77",
+                "POST /api/posts/77/report",
+                "POST /api/notifications/88/read",
+                "POST /api/posts/77/hide",
+                "POST /api/posts/77/hide",
+                "POST /api/notifications/read-filtered?type=postReply&discussion_id=42",
+                "DELETE /api/notifications/read/clear-filtered?type=postReply&discussion_id=42",
+                "DELETE /api/notifications/read/clear",
+                "DELETE /api/posts/77",
+            ],
+        )
+        self.assertEqual(targets[0].json_body, {"content": "Load test edited post 99"})
+        self.assertEqual(targets[1].json_body, {"reason": "spam", "message": "Load test report 99"})
+        self.assertEqual(targets[8].threshold_ms, 500.0)
+        self.assertIsNone(targets[7].json_body)
+
+    def test_load_test_http_can_prepare_isolated_moderation_targets(self):
+        from bias_core.management.commands import load_test_http
+
+        values = load_test_http.resolve_dynamic_values(
+            profile="forum-write-moderation",
+            prepare_isolated_targets=True,
+        )
+
+        self.assertIn("isolated_targets", values)
+        self.assertIn("discussion_id", values)
+        self.assertIn("post_id", values)
+        self.assertIn("notification_id", values)
+        self.assertTrue(values["isolated_targets"]["prefix"].startswith("loadtest-isolated-"))
+
+        Discussion = apps.get_model("content", "Discussion")
+        Post = apps.get_model("content", "Post")
+        Notification = apps.get_model("notifications", "Notification")
+
+        discussion = Discussion.objects.get(id=values["discussion_id"])
+        post = Post.objects.get(id=values["post_id"])
+        notification = Notification.objects.get(id=values["notification_id"])
+        self.assertEqual(post.discussion_id, discussion.id)
+        self.assertEqual(post.number, 2)
+        self.assertEqual(notification.subject_id, post.id)
+
+        targets = load_test_http.parse_targets([], profile="forum-write-moderation", dynamic_values=values)
+        self.assertIn(f"PATCH /api/posts/{post.id}", [target.label for target in targets])
+        self.assertIn(f"POST /api/notifications/{notification.id}/read", [target.label for target in targets])
+
+    def test_load_test_http_can_cleanup_isolated_targets(self):
+        from bias_core.management.commands import load_test_http
+
+        values = load_test_http.resolve_dynamic_values(
+            profile="forum-write-moderation",
+            prepare_isolated_targets=True,
+        )
+        prefix = values["isolated_targets"]["prefix"]
+
+        cleanup = load_test_http.cleanup_isolated_targets_for_prefix(prefix)
+
+        self.assertTrue(cleanup["ok"], cleanup)
+        self.assertEqual(cleanup["prefix"], prefix)
+        self.assertGreaterEqual(cleanup["deleted_total"], 4)
+
+        Discussion = apps.get_model("content", "Discussion")
+        Post = apps.get_model("content", "Post")
+        Notification = apps.get_model("notifications", "Notification")
+        self.assertFalse(Discussion.objects.filter(id=values["discussion_id"]).exists())
+        self.assertFalse(Post.objects.filter(id=values["post_id"]).exists())
+        self.assertFalse(Notification.objects.filter(id=values["notification_id"]).exists())
+
+    def test_load_test_http_rejects_unsafe_cleanup_prefix(self):
+        from bias_core.management.commands import load_test_http
+
+        with self.assertRaisesMessage(CommandError, "loadtest-isolated-*"):
+            load_test_http.cleanup_isolated_targets_for_prefix("pytest-load")
+
+    def test_load_test_http_cleans_up_prepared_targets_after_run(self):
+        from bias_core.management.commands import load_test_http
+
+        class FakeClient:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def request(self, method, url, **kwargs):
+                return SimpleNamespace(status_code=200)
+
+        stdout = StringIO()
+        with patch("bias_core.management.commands.load_test_http.httpx.Client", FakeClient):
+            call_command(
+                "load_test_http",
+                "--base-url",
+                "http://bias.test",
+                "--profile",
+                "forum-write-moderation",
+                "--prepare-isolated-targets",
+                "--cleanup-isolated-targets",
+                "--concurrency",
+                "1",
+                "--requests",
+                "9",
+                "--duration",
+                "0",
+                "--format",
+                "json",
+                stdout=stdout,
+            )
+
+        payload = json.loads(stdout.getvalue())
+        prefix = payload["isolated_targets"]["prefix"]
+        self.assertTrue(payload["summary"]["ok"], payload)
+        self.assertEqual(payload["cleanup"]["prefix"], prefix)
+        self.assertGreaterEqual(payload["cleanup"]["deleted_total"], 4)
+
+        Discussion = apps.get_model("content", "Discussion")
+        self.assertFalse(Discussion.objects.filter(slug=f"{prefix}-discussion").exists())
+
+    def test_smoke_websocket_realtime_reports_connect_subscribe_and_broadcast(self):
+        stdout = StringIO()
+
+        call_command(
+            "smoke_websocket_realtime",
+            "--connections",
+            "2",
+            "--discussion-id",
+            "101",
+            "--format",
+            "json",
+            stdout=stdout,
+        )
+
+        payload = json.loads(stdout.getvalue())
+        self.assertTrue(payload["summary"]["ok"], payload)
+        self.assertEqual(payload["mode"], "in_process_channels")
+        self.assertIn("workspace_fallback", payload)
+        self.assertEqual(payload["summary"]["connection_count"], 2)
+        self.assertEqual(payload["timings"]["connect_ms"]["count"], 2)
+        self.assertEqual(payload["timings"]["subscribe_ms"]["count"], 2)
+        self.assertEqual(payload["timings"]["broadcast_ms"]["count"], 2)
+        self.assertEqual(payload["issues"], [])
+
+    def test_smoke_websocket_realtime_prefers_current_extension_host(self):
+        from bias_core.management.commands import smoke_websocket_realtime
+
+        route = SimpleNamespace(name="realtime.forum", consumer=SimpleNamespace(__module__="tests.fake"))
+        host = SimpleNamespace(get_websocket_routes=lambda: [route])
+
+        with patch("bias_core.management.commands.smoke_websocket_realtime.get_extension_host", return_value=host):
+            with patch("bias_core.management.commands.smoke_websocket_realtime.build_extension_test_host") as fallback:
+                resolved_route, workspace_fallback = smoke_websocket_realtime.resolve_realtime_forum_route()
+
+        self.assertIs(resolved_route, route)
+        self.assertFalse(workspace_fallback)
+        fallback.assert_not_called()
+
+    def test_load_test_websocket_resolves_url_and_headers(self):
+        from bias_core.management.commands import load_test_websocket
+
+        self.assertEqual(
+            load_test_websocket.resolve_websocket_url(base_url="https://forum.example.com", path="/ws/forum/"),
+            "wss://forum.example.com/ws/forum/",
+        )
+        self.assertEqual(
+            load_test_websocket.resolve_websocket_url(base_url="http://127.0.0.1:8000/app/", path="ws/forum/"),
+            "ws://127.0.0.1:8000/ws/forum/",
+        )
+        headers = load_test_websocket.parse_headers(["X-Probe: yes"], auth_token="token-123")
+        self.assertEqual(headers["X-Probe"], "yes")
+        self.assertEqual(headers["Authorization"], "Bearer token-123")
+
+    def test_load_test_websocket_reports_external_connect_subscribe_and_broadcast(self):
+        from asgiref.sync import async_to_sync
+        from bias_core.management.commands import load_test_websocket
+
+        class FakeWebsocket:
+            def __init__(self):
+                self.sent = []
+                self.messages = [
+                    json.dumps({"type": "connection_established"}),
+                    json.dumps({"type": "subscribed", "discussion_ids": [101]}),
+                    json.dumps({
+                        "type": "forum_event",
+                        "event": {"event_type": "load.external.websocket"},
+                    }),
+                ]
+                self.closed = False
+
+            async def send(self, message):
+                self.sent.append(json.loads(message))
+
+            async def recv(self):
+                return self.messages.pop(0)
+
+            async def close(self):
+                self.closed = True
+
+        sockets = [FakeWebsocket(), FakeWebsocket()]
+        connected_headers = []
+
+        async def fake_connect(url, *, headers, timeout):
+            connected_headers.append((url, headers, timeout))
+            return sockets[len(connected_headers) - 1]
+
+        broadcasted = []
+
+        async def fake_broadcast(*, discussion_id):
+            broadcasted.append(discussion_id)
+
+        with patch("bias_core.management.commands.load_test_websocket._connect_websocket", side_effect=fake_connect):
+            with patch("bias_core.management.commands.load_test_websocket._broadcast_forum_event", side_effect=fake_broadcast):
+                payload = async_to_sync(load_test_websocket.run_external_websocket_load_test)(
+                    url="ws://bias.test/ws/forum/",
+                    connections=2,
+                    discussion_id=101,
+                    timeout=1.0,
+                    headers={"Authorization": "Bearer token"},
+                    p95_threshold_ms=1000.0,
+                    broadcast_p95_threshold_ms=1000.0,
+                )
+
+        self.assertTrue(payload["summary"]["ok"], payload)
+        self.assertEqual(payload["mode"], "external_websocket")
+        self.assertEqual(payload["summary"]["connection_count"], 2)
+        self.assertEqual(payload["summary"]["broadcast_count"], 2)
+        self.assertEqual(payload["timings"]["connect_ms"]["count"], 2)
+        self.assertEqual(payload["timings"]["subscribe_ms"]["count"], 2)
+        self.assertEqual(payload["timings"]["broadcast_ms"]["count"], 2)
+        self.assertEqual(broadcasted, [101])
+        self.assertEqual(connected_headers[0][0], "ws://bias.test/ws/forum/")
+        self.assertEqual(connected_headers[0][1]["Authorization"], "Bearer token")
+        self.assertEqual(sockets[0].sent[0], {"type": "subscribe_discussions", "discussion_ids": [101]})
+        self.assertTrue(all(socket.closed for socket in sockets))
+
+    def test_load_test_websocket_command_outputs_json_without_channel_broadcast(self):
+        class FakeWebsocket:
+            def __init__(self):
+                self.messages = [
+                    json.dumps({"type": "connection_established"}),
+                    json.dumps({"type": "subscribed", "discussion_ids": [101]}),
+                ]
+
+            async def send(self, message):
+                return None
+
+            async def recv(self):
+                return self.messages.pop(0)
+
+            async def close(self):
+                return None
+
+        async def fake_connect(url, *, headers, timeout):
+            return FakeWebsocket()
+
+        stdout = StringIO()
+        with patch("bias_core.management.commands.load_test_websocket._connect_websocket", side_effect=fake_connect):
+            call_command(
+                "load_test_websocket",
+                "--base-url",
+                "https://forum.example.com",
+                "--connections",
+                "1",
+                "--discussion-id",
+                "101",
+                "--skip-channel-broadcast",
+                "--format",
+                "json",
+                stdout=stdout,
+            )
+
+        payload = json.loads(stdout.getvalue())
+        self.assertTrue(payload["summary"]["ok"], payload)
+        self.assertEqual(payload["url"], "wss://forum.example.com/ws/forum/")
+        self.assertFalse(payload["channel_broadcast"])
+        self.assertEqual(payload["summary"]["expected_broadcast_count"], 0)
+
+    def test_load_test_websocket_reports_exception_class_when_message_is_empty(self):
+        from asgiref.sync import async_to_sync
+        from bias_core.management.commands import load_test_websocket
+
+        async def fake_connect(url, *, headers, timeout):
+            raise TimeoutError()
+
+        with patch("bias_core.management.commands.load_test_websocket._connect_websocket", side_effect=fake_connect):
+            payload = async_to_sync(load_test_websocket.run_external_websocket_load_test)(
+                url="ws://bias.test/ws/forum/",
+                connections=1,
+                discussion_id=101,
+                timeout=1.0,
+                headers={},
+                p95_threshold_ms=1000.0,
+                broadcast_p95_threshold_ms=1000.0,
+                channel_broadcast=False,
+            )
+
+        self.assertFalse(payload["summary"]["ok"])
+        self.assertEqual(payload["issues"], ["connection 0 failed: TimeoutError"])
+
+    def test_smoke_http_p95_reports_threshold_results(self):
+        from bias_core.management.commands import smoke_http_p95
+
+        class FakeClient:
+            def __init__(self, *args, **kwargs):
+                self.calls = []
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def get(self, url):
+                self.calls.append(url)
+                return SimpleNamespace(status_code=200)
+
+        ticks = iter([index / 1000 for index in range(0, 40)])
+        stdout = StringIO()
+        with patch("bias_core.management.commands.smoke_http_p95.httpx.Client", FakeClient):
+            with patch("bias_core.management.commands.smoke_http_p95.time.perf_counter", side_effect=lambda: next(ticks)):
+                call_command(
+                    "smoke_http_p95",
+                    "--base-url",
+                    "http://bias.test",
+                    "--path",
+                    "/api/forum=10",
+                    "--requests",
+                    "3",
+                    "--warmup",
+                    "1",
+                    "--format",
+                    "json",
+                    "--fail-on-threshold",
+                    stdout=stdout,
+                )
+
+        payload = json.loads(stdout.getvalue())
+        self.assertTrue(payload["summary"]["ok"], payload)
+        self.assertEqual(payload["targets"][0]["url"], "http://bias.test/api/forum")
+        self.assertEqual(payload["targets"][0]["status_code_counts"], {"200": 3})
+        self.assertLessEqual(payload["targets"][0]["p95_ms"], 10)
+        self.assertEqual(smoke_http_p95.percentile([1, 2, 3, 4], 95), 3.8499999999999996)
+
+    def test_smoke_http_p95_fails_when_threshold_is_exceeded(self):
+        class FakeClient:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def get(self, url):
+                return SimpleNamespace(status_code=200)
+
+        ticks = iter([0, 0.1, 0.1, 0.2])
+        with patch("bias_core.management.commands.smoke_http_p95.httpx.Client", FakeClient):
+            with patch("bias_core.management.commands.smoke_http_p95.time.perf_counter", side_effect=lambda: next(ticks)):
+                with self.assertRaises(CommandError):
+                    call_command(
+                        "smoke_http_p95",
+                        "--base-url",
+                        "http://bias.test",
+                        "--path",
+                        "/api/forum=10",
+                        "--requests",
+                        "2",
+                        "--warmup",
+                        "0",
+                        "--fail-on-threshold",
+                        stdout=StringIO(),
+                    )
 
     def test_ci_runs_extension_workspace_gate_when_split_workspace_is_available(self):
         workflow_path = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "ci.yml"
@@ -241,7 +1327,12 @@ class ExtensionManagementCommandTests(TestCase):
                 backend_source = (backend_dir / "ext.py").read_text(encoding="utf-8")
                 self.assertIn("def extend():", backend_source)
                 self.assertIn("from .frontend import frontend_extender", backend_source)
+                self.assertIn("from .resources import resource_extender", backend_source)
+                self.assertIn("from .runtime import service_contract_extender, service_provider_extender", backend_source)
                 self.assertIn("frontend_extender()", backend_source)
+                self.assertIn("service_provider_extender()", backend_source)
+                self.assertIn("service_contract_extender()", backend_source)
+                self.assertIn("resource_extender()", backend_source)
                 self.assertNotIn("FrontendExtender()", backend_source)
                 self.assertNotIn("frontend/admin/index.js", backend_source)
                 self.assertNotIn("from bias_core.", backend_source.replace("from bias_core.extensions", ""))
@@ -260,9 +1351,29 @@ class ExtensionManagementCommandTests(TestCase):
                 admin_surface_source = (backend_dir / "admin_surface.py").read_text(encoding="utf-8")
                 self.assertIn("def setting_field_definitions():", settings_source)
                 self.assertIn("def resource_definitions():", resources_source)
+                self.assertIn("from bias_core.extensions import ApiResourceExtender, ExtensionResourceEndpointDefinition", resources_source)
+                self.assertIn("def status_endpoint(context):", resources_source)
+                self.assertIn("    from bias_core.extensions.runtime import call_runtime_service", resources_source)
+                self.assertIn('return call_runtime_service(f"{EXTENSION_ID}.status", "status_payload")', resources_source)
+                self.assertIn("def resource_extender():", resources_source)
+                self.assertIn('ApiResourceExtender("forum").endpoint(', resources_source)
+                self.assertIn("ExtensionResourceEndpointDefinition(", resources_source)
+                self.assertIn('endpoint=f"{EXTENSION_ID}.status"', resources_source)
+                self.assertIn('path=f"{EXTENSION_ID}/status"', resources_source)
+                self.assertIn("handler=status_endpoint", resources_source)
+                self.assertNotIn("from bias_core.", resources_source.replace("from bias_core.extensions", ""))
                 self.assertIn("def policy_definitions():", policies_source)
                 self.assertIn("def event_listener_definitions():", listeners_source)
-                self.assertIn("def service_providers():", runtime_source)
+                self.assertIn("from bias_core.extensions import RuntimeServiceContractExtender, ServiceProviderExtender", runtime_source)
+                self.assertIn("class StatusService:", runtime_source)
+                self.assertIn("def status_payload(self):", runtime_source)
+                self.assertIn("def status_service_provider():", runtime_source)
+                self.assertIn("def service_provider_extender():", runtime_source)
+                self.assertIn("def service_contract_extender():", runtime_source)
+                self.assertIn('key=f"{EXTENSION_ID}.status"', runtime_source)
+                self.assertIn('version="1.0"', runtime_source)
+                self.assertIn('required_methods=("status_payload",)', runtime_source)
+                self.assertIn('required_values=("model",)', runtime_source)
                 self.assertIn("def admin_page_definitions():", admin_surface_source)
                 apps_source = (backend_dir / "apps.py").read_text(encoding="utf-8")
                 self.assertIn("class AlphaToolsExtensionConfig(AppConfig):", apps_source)
@@ -273,7 +1384,6 @@ class ExtensionManagementCommandTests(TestCase):
                 self.assertNotIn("def rollback_migrations(context):", backend_source)
                 self.assertNotIn("def uninstall(context):", backend_source)
                 self.assertNotIn("SettingsExtender", backend_source)
-                self.assertNotIn("ApiResourceExtender", backend_source)
                 self.assertNotIn("RuntimeActionsExtender", backend_source)
                 self.assertNotIn("AdminNavigationExtender", backend_source)
                 admin_source = (extension_dir / "frontend" / "admin" / "index.js").read_text(encoding="utf-8")
@@ -281,12 +1391,16 @@ class ExtensionManagementCommandTests(TestCase):
                 self.assertIn("from '@bias/core/admin'", admin_source)
                 self.assertIn("export const extend", admin_source)
                 self.assertIn("extendAdmin(admin => admin", admin_source)
+                self.assertIn(".page({", admin_source)
+                self.assertIn("name: 'alpha-tools.getting-started'", admin_source)
+                self.assertIn("path: '/admin/extensions/alpha-tools/getting-started'", admin_source)
                 self.assertIn("export function resolveDetailPage()", admin_source)
                 self.assertIn("return null", admin_source)
-                self.assertNotIn(".page({", admin_source)
                 self.assertIn("from '@bias/core/forum'", forum_source)
                 self.assertIn("extendForum(forum => forum", forum_source)
-                self.assertNotIn(".navItem({", forum_source)
+                self.assertIn(".navItem({", forum_source)
+                self.assertIn("key: 'alpha-tools'", forum_source)
+                self.assertIn("href: '/alpha-tools'", forum_source)
                 readme_source = (extension_dir / "README.md").read_text(encoding="utf-8")
                 self.assertIn("backend/ext.py", readme_source)
                 self.assertIn("backend/frontend.py", readme_source)
@@ -299,6 +1413,8 @@ class ExtensionManagementCommandTests(TestCase):
                 self.assertIn("validate_extensions --strict", readme_source)
                 self.assertIn("build_extension_frontend --rebuild", readme_source)
                 self.assertIn("ApiResourceExtender(...)", readme_source)
+                self.assertIn("admin page", readme_source)
+                self.assertIn("forum nav item", readme_source)
                 self.assertIn("pyproject.toml", readme_source)
                 self.assertIn("MANIFEST.in", readme_source)
                 self.assertIn("bias_core.extensions.runtime", readme_source)
@@ -323,6 +1439,35 @@ class ExtensionManagementCommandTests(TestCase):
                     discover_extension_django_migration_modules(Path(temp_dir)),
                     {"alpha_tools": "bias_ext_alpha_tools.backend.django_migrations"},
                 )
+
+                from bias_core.extensions.bootstrap import build_extension_application
+                from bias_core.extensions.manager import ExtensionManager
+                from bias_core.models import ExtensionInstallation
+
+                manager_extensions_dir = Path(temp_dir) / "runtime-extensions"
+                manager_extension_dir = manager_extensions_dir / "alpha-tools"
+                shutil.copytree(extension_dir, manager_extension_dir)
+                ExtensionInstallation.objects.create(
+                    extension_id="alpha-tools",
+                    version="0.1.0",
+                    source="filesystem",
+                    enabled=True,
+                    installed=True,
+                    booted=True,
+                )
+                application = build_extension_application(
+                    manager=ExtensionManager(extensions_path=manager_extensions_dir),
+                    force=True,
+                )
+                runtime_view = application.get_runtime_view("alpha-tools")
+                self.assertIsNotNone(runtime_view)
+                self.assertEqual(runtime_view.frontend_admin_entry, "frontend/admin/index.js")
+                self.assertEqual(runtime_view.frontend_forum_entry, "frontend/forum/index.js")
+                self.assertEqual(len(runtime_view.resource_endpoints), 1)
+                self.assertEqual(runtime_view.resource_endpoints[0].resource, "forum")
+                self.assertEqual(runtime_view.resource_endpoints[0].endpoint, "alpha-tools.status")
+                self.assertEqual(runtime_view.resource_endpoints[0].path, "alpha-tools/status")
+                self.assertEqual(runtime_view.resource_endpoints[0].methods, ("GET",))
 
                 import bias_core.extensions.manifest as manifest_module
 
@@ -398,10 +1543,13 @@ class ExtensionManagementCommandTests(TestCase):
                 self.assertNotIn("import DetailPage", entry_source)
                 self.assertNotIn("export function resolvePermissionsPage()", entry_source)
                 self.assertIn("extendAdmin(admin => admin", entry_source)
+                self.assertIn(".page({", entry_source)
+                self.assertIn("path: '/admin/extensions/alpha-tools/getting-started'", entry_source)
                 forum_entry_source = (Path(temp_dir) / "bias-ext-alpha-tools" / "frontend" / "forum" / "index.js").read_text(encoding="utf-8")
                 self.assertIn("export const extend", forum_entry_source)
                 self.assertIn("extendForum(forum => forum", forum_entry_source)
-                self.assertNotIn(".navItem({", forum_entry_source)
+                self.assertIn(".navItem({", forum_entry_source)
+                self.assertIn("key: 'alpha-tools'", forum_entry_source)
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
@@ -532,7 +1680,7 @@ class ExtensionManagementCommandTests(TestCase):
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
-    def test_validate_extensions_command_allows_manifest_dependencies_without_package_dependencies(self):
+    def test_validate_extensions_command_rejects_manifest_dependencies_without_package_dependencies(self):
         temp_dir = make_workspace_temp_dir()
         try:
             with override_settings(BASE_DIR=Path(temp_dir)):
@@ -544,20 +1692,22 @@ class ExtensionManagementCommandTests(TestCase):
                 manifest_path.write_text(json.dumps(manifest, ensure_ascii=False), encoding="utf-8")
 
                 output = StringIO()
-                call_command(
-                    "validate_extensions",
-                    "--extensions-path",
-                    str(Path(temp_dir) / "extensions"),
-                    "--format",
-                    "json",
-                    stdout=output,
-                )
+                with self.assertRaisesMessage(CommandError, "扩展校验失败"):
+                    call_command(
+                        "validate_extensions",
+                        "--extensions-path",
+                        str(Path(temp_dir) / "extensions"),
+                        "--format",
+                        "json",
+                        stdout=output,
+                    )
 
                 payload = json.loads(output.getvalue())
-                self.assertTrue(payload["summary"]["ok"])
-                self.assertFalse(any(
+                self.assertFalse(payload["summary"]["ok"])
+                self.assertTrue(any(
                     item["code"] == "extension_package_metadata_invalid"
                     and item["extension_id"] == "beta-tools"
+                    and "bias-ext-alpha-tools" in item["message"]
                     for item in payload["issues"]
                 ))
         finally:
@@ -647,10 +1797,10 @@ class ExtensionManagementCommandTests(TestCase):
                     pyproject["project"]["dependencies"],
                     [
                         "bias-core>=0.1,<0.2",
+                        "bias-ext-alpha-tools>=0.1,<0.2",
                         "httpx>=0.27,<0.28",
                     ],
                 )
-                self.assertNotIn("bias-ext-alpha-tools>=0.1,<0.2", pyproject["project"]["dependencies"])
                 self.assertNotIn("bias-ext-gamma-tools>=0.1,<0.2", pyproject["project"]["dependencies"])
                 self.assertEqual(
                     pyproject["project"]["entry-points"]["bias.extensions"]["beta_tools"],
@@ -670,8 +1820,8 @@ class ExtensionManagementCommandTests(TestCase):
             shutil.rmtree(temp_dir, ignore_errors=True)
 
     def test_extension_wheel_contains_manifest_resources_and_entry_point(self):
-        import subprocess
         import zipfile
+        from bias_core.extensions.packaging import inspect_extension_package_wheel
 
         temp_dir = make_workspace_temp_dir()
         try:
@@ -679,17 +1829,20 @@ class ExtensionManagementCommandTests(TestCase):
                 call_command_quietly("create_extension", "alpha-tools")
 
             extension_dir = Path(temp_dir) / "bias-ext-alpha-tools"
-            dist_dir = extension_dir / "dist"
-            result = subprocess.run(
-                [sys.executable, "-m", "build", "--wheel", "--no-isolation"],
-                cwd=extension_dir,
-                text=True,
-                capture_output=True,
+            output_dir = Path(temp_dir) / "wheel-output"
+            result = inspect_extension_package_wheel(
+                extension_dir,
+                extension_id="alpha-tools",
+                extension_version="0.1.0",
+                backend_entry="bias_ext_alpha_tools.backend.ext",
+                build=True,
+                build_output_dir=output_dir,
                 timeout=60,
             )
-            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            self.assertEqual(result.errors, ())
+            self.assertIsNotNone(result.wheel_path)
 
-            wheels = sorted(dist_dir.glob("*.whl"))
+            wheels = sorted(output_dir.glob("*.whl"))
             self.assertEqual(len(wheels), 1)
             with zipfile.ZipFile(wheels[0]) as archive:
                 names = set(archive.namelist())
@@ -701,6 +1854,14 @@ class ExtensionManagementCommandTests(TestCase):
                     "bias_ext_alpha_tools-0.1.0.data/data/bias_extensions/alpha-tools/frontend/forum/index.js",
                     names,
                 )
+                self.assertIn(
+                    "bias_ext_alpha_tools-0.1.0.data/data/bias_extensions/alpha-tools/frontend/admin/index.js",
+                    names,
+                )
+                self.assertIn("bias_ext_alpha_tools/backend/ext.py", names)
+                self.assertIn("bias_ext_alpha_tools/backend/resources.py", names)
+                self.assertIn("bias_ext_alpha_tools/backend/apps.py", names)
+                self.assertIn("bias_ext_alpha_tools/backend/django_migrations/__init__.py", names)
                 entry_points_name = next(
                     name
                     for name in names
@@ -923,6 +2084,78 @@ class ExtensionManagementCommandTests(TestCase):
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
+    def test_inspect_extension_packages_lifecycle_smoke_allows_auto_installed_extension(self):
+        temp_dir = make_workspace_temp_dir()
+        try:
+            with override_settings(BASE_DIR=Path(temp_dir)):
+                call_command_quietly("create_extension", "alpha-tools")
+                manifest_path = Path(temp_dir) / "bias-ext-alpha-tools" / "extension.json"
+                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+                manifest.setdefault("extra", {})
+                manifest["extra"]["auto_install"] = True
+                manifest["extra"]["auto_enable"] = True
+                manifest_path.write_text(json.dumps(manifest, ensure_ascii=False), encoding="utf-8")
+
+                output = StringIO()
+                call_command(
+                    "inspect_extension_packages",
+                    "--extensions-path",
+                    str(Path(temp_dir) / "extensions"),
+                    "--extension-id",
+                    "alpha-tools",
+                    "--build",
+                    "--install-set-smoke",
+                    "--lifecycle-smoke",
+                    "--format",
+                    "json",
+                    stdout=output,
+                )
+
+            payload = json.loads(output.getvalue())
+            self.assertTrue(payload["summary"]["ok"])
+            install_set = payload["install_set"]
+            self.assertTrue(install_set["lifecycle_states"]["alpha-tools"]["installed"])
+            self.assertTrue(install_set["lifecycle_states"]["alpha-tools"]["enabled"])
+            self.assertEqual(install_set["errors"], [])
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_inspect_extension_packages_lifecycle_smoke_allows_protected_extension(self):
+        temp_dir = make_workspace_temp_dir()
+        try:
+            with override_settings(BASE_DIR=Path(temp_dir)):
+                call_command_quietly("create_extension", "alpha-tools")
+                manifest_path = Path(temp_dir) / "bias-ext-alpha-tools" / "extension.json"
+                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+                manifest.setdefault("extra", {})
+                manifest["extra"]["auto_install"] = True
+                manifest["extra"]["auto_enable"] = True
+                manifest["extra"]["protected"] = True
+                manifest_path.write_text(json.dumps(manifest, ensure_ascii=False), encoding="utf-8")
+
+                output = StringIO()
+                call_command(
+                    "inspect_extension_packages",
+                    "--extensions-path",
+                    str(Path(temp_dir) / "extensions"),
+                    "--extension-id",
+                    "alpha-tools",
+                    "--build",
+                    "--install-set-smoke",
+                    "--lifecycle-smoke",
+                    "--format",
+                    "json",
+                    stdout=output,
+                )
+
+            payload = json.loads(output.getvalue())
+            self.assertTrue(payload["summary"]["ok"])
+            hooks = payload["install_set"]["lifecycle_backend_hooks"]["alpha-tools"]
+            self.assertEqual(hooks["disable"], "protected")
+            self.assertEqual(payload["install_set"]["errors"], [])
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
     def test_inspect_extension_packages_migration_smoke_requires_install_set_smoke(self):
         with self.assertRaisesMessage(CommandError, "--migration-smoke 必须配合 --install-set-smoke 使用"):
             call_command(
@@ -954,11 +2187,12 @@ class ExtensionManagementCommandTests(TestCase):
             extension_dir = Path(temp_dir) / "bias-ext-alpha-tools"
             dist_dir = extension_dir / "dist"
             build_result = subprocess.run(
-                [sys.executable, "-m", "build", "--wheel", "--no-isolation"],
+                package_python_module_command(temp_dir, "build", "--wheel", "--no-isolation"),
                 cwd=extension_dir,
                 text=True,
                 capture_output=True,
                 timeout=60,
+                env=package_subprocess_env(temp_dir),
             )
             self.assertEqual(build_result.returncode, 0, build_result.stderr + build_result.stdout)
             wheel_path = next(dist_dir.glob("*.whl"))
@@ -978,6 +2212,7 @@ class ExtensionManagementCommandTests(TestCase):
                 text=True,
                 capture_output=True,
                 timeout=60,
+                env=package_subprocess_env(temp_dir),
             )
             self.assertEqual(install_result.returncode, 0, install_result.stderr + install_result.stdout)
 
@@ -1113,7 +2348,7 @@ class ExtensionManagementCommandTests(TestCase):
 
             payload = json.loads(output.getvalue())
             errors = payload["results"][0]["errors"]
-            self.assertTrue(any("安装态后端入口不可导入" in error for error in errors), errors)
+            self.assertTrue(any("wheel 缺少后端入口模块" in error for error in errors), errors)
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
@@ -1473,10 +2708,86 @@ class ExtensionManagementCommandTests(TestCase):
             payload = json.loads(stdout.getvalue())
             self.assertFalse(payload["summary"]["ok"])
             self.assertTrue(any(issue["code"] == "missing_service" for issue in payload["issues"]))
-            build_host_mock.assert_called_once_with("alpha")
+            self.assertIn(("alpha",), [call.args for call in build_host_mock.call_args_list])
             import_call = next(args for name, args in calls if name == "inspect_extension_imports")
             self.assertIn("--check-runtime-facades", import_call)
             self.assertIn("--fail-on-warnings", import_call)
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_check_extension_workspace_runs_foundation_boundary_gate(self):
+        temp_dir = make_workspace_temp_dir()
+        try:
+            for extension_id, extra in {
+                "content": {"auto_install": True, "auto_enable": True, "protected": True},
+                "users": {"auto_install": True, "auto_enable": True, "protected": True},
+                "discussions": {},
+                "posts": {},
+            }.items():
+                manifest_dir = Path(temp_dir) / f"bias-ext-{extension_id}"
+                if extension_id == "content":
+                    manifest_dir = Path(temp_dir) / "bias-content"
+                manifest_dir.mkdir(parents=True, exist_ok=False)
+                (manifest_dir / "extension.json").write_text(json.dumps({
+                    "id": extension_id,
+                    "name": extension_id,
+                    "version": "1.0.0",
+                    "extra": extra,
+                }, ensure_ascii=False), encoding="utf-8")
+                (manifest_dir / "pyproject.toml").write_text(
+                    "\n".join([
+                        "[project]",
+                        f'name = "bias-ext-{extension_id}"',
+                        'version = "1.0.0"',
+                        "",
+                        "[tool.pytest.ini_options]",
+                        'DJANGO_SETTINGS_MODULE = "bias_core.extension_test_settings"',
+                        "",
+                    ]),
+                    encoding="utf-8",
+                )
+
+            class Meta:
+                def __init__(self, label):
+                    self.label = label
+
+            class Model:
+                def __init__(self, label):
+                    self._meta = Meta(label)
+
+            class Definition:
+                def __init__(self, label):
+                    self.model = Model(label)
+
+            class Models:
+                def get_owned_models(self, *, extension_id=None):
+                    if extension_id == "content":
+                        return [
+                            Definition("content.Discussion"),
+                            Definition("content.DiscussionUser"),
+                            Definition("content.Post"),
+                        ]
+                    return []
+
+            host = SimpleNamespace(models=Models())
+
+            stdout = StringIO()
+            with patch("bias_core.management.commands.check_extension_workspace.build_extension_test_host", return_value=host):
+                call_command(
+                    "check_extension_workspace",
+                    "--extensions-path",
+                    str(temp_dir),
+                    "--format",
+                    "json",
+                    stdout=stdout,
+                )
+
+            payload = json.loads(stdout.getvalue())
+            self.assertTrue(payload["checks"]["foundation_boundaries"]["ok"])
+            self.assertEqual(
+                payload["checks"]["foundation_boundaries"]["owned_by_extension"]["content"],
+                ["content.Discussion", "content.DiscussionUser", "content.Post"],
+            )
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
@@ -1543,11 +2854,29 @@ class ExtensionManagementCommandTests(TestCase):
                 encoding="utf-8",
             )
 
-            call_command_quietly(
+            stdout = StringIO()
+            call_command(
                 "inspect_extension_imports",
                 "--extensions-path",
                 str(Path(temp_dir) / "extensions"),
                 "--check-runtime-facades",
+                "--format",
+                "json",
+                stdout=stdout,
+            )
+            payload = json.loads(stdout.getvalue())
+            graph = payload["runtime_facade_dependency_graph"]
+            self.assertIn("users", graph["dependencies"]["alpha-tools"])
+            self.assertEqual(
+                graph["runtime_edges"],
+                [{
+                    "source": "alpha-tools",
+                    "target": "users",
+                    "references": [{
+                        "field": "extensions/alpha-tools/backend/ext.py",
+                        "facade": "get_runtime_user_by_id",
+                    }],
+                }],
             )
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
@@ -1692,6 +3021,109 @@ class ExtensionManagementCommandTests(TestCase):
             )
 
             self.assertNotIn("runtime_facade_top_level_import", stdout.getvalue())
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_inspect_extension_imports_command_warns_on_lazy_legacy_runtime_facade_imports(self):
+        temp_dir = make_workspace_temp_dir()
+        try:
+            users_dir = Path(temp_dir) / "extensions" / "users"
+            users_dir.mkdir(parents=True, exist_ok=False)
+            (users_dir / "extension.json").write_text(json.dumps({
+                "id": "users",
+                "name": "Users",
+                "version": "1.0.0",
+                "dependencies": ["core"],
+            }, ensure_ascii=False), encoding="utf-8")
+            manifest_dir = Path(temp_dir) / "extensions" / "alpha-tools"
+            backend_dir = manifest_dir / "backend"
+            backend_dir.mkdir(parents=True, exist_ok=False)
+            (manifest_dir / "extension.json").write_text(json.dumps({
+                "id": "alpha-tools",
+                "name": "Alpha Tools",
+                "version": "1.0.0",
+                "dependencies": ["core", "users"],
+                "backend_entry": "extensions.alpha_tools.backend.ext",
+            }, ensure_ascii=False), encoding="utf-8")
+            (backend_dir / "ext.py").write_text(
+                "def resolve_user(user_id):\n"
+                "    from bias_core.extensions.runtime import get_runtime_user_by_id\n"
+                "    return get_runtime_user_by_id(user_id)\n"
+                "\n"
+                "def extend():\n"
+                "    return []\n",
+                encoding="utf-8",
+            )
+
+            stdout = StringIO()
+            call_command(
+                "inspect_extension_imports",
+                "--extensions-path",
+                str(Path(temp_dir) / "extensions"),
+                "--extension-id",
+                "alpha-tools",
+                "--check-runtime-facades",
+                "--format",
+                "json",
+                stdout=stdout,
+            )
+
+            payload = json.loads(stdout.getvalue())
+            self.assertTrue(payload["summary"]["ok"])
+            self.assertEqual(payload["summary"]["warning_count"], 1)
+            self.assertEqual(payload["issues"][0]["code"], "legacy_runtime_facade_import")
+            self.assertIn("get_runtime_user_by_id", payload["issues"][0]["message"])
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_inspect_extension_imports_command_allows_lazy_runtime_service_contract_access(self):
+        temp_dir = make_workspace_temp_dir()
+        try:
+            users_dir = Path(temp_dir) / "extensions" / "users"
+            users_dir.mkdir(parents=True, exist_ok=False)
+            (users_dir / "extension.json").write_text(json.dumps({
+                "id": "users",
+                "name": "Users",
+                "version": "1.0.0",
+                "dependencies": ["core"],
+            }, ensure_ascii=False), encoding="utf-8")
+            manifest_dir = Path(temp_dir) / "extensions" / "alpha-tools"
+            backend_dir = manifest_dir / "backend"
+            backend_dir.mkdir(parents=True, exist_ok=False)
+            (manifest_dir / "extension.json").write_text(json.dumps({
+                "id": "alpha-tools",
+                "name": "Alpha Tools",
+                "version": "1.0.0",
+                "dependencies": ["core", "users"],
+                "backend_entry": "extensions.alpha_tools.backend.ext",
+            }, ensure_ascii=False), encoding="utf-8")
+            (backend_dir / "ext.py").write_text(
+                "def resolve_user(user_id):\n"
+                "    from bias_core.extensions.runtime import get_runtime_service\n"
+                "    return get_runtime_service('users.service').get_by_id(user_id)\n"
+                "\n"
+                "def extend():\n"
+                "    return []\n",
+                encoding="utf-8",
+            )
+
+            stdout = StringIO()
+            call_command(
+                "inspect_extension_imports",
+                "--extensions-path",
+                str(Path(temp_dir) / "extensions"),
+                "--extension-id",
+                "alpha-tools",
+                "--check-runtime-facades",
+                "--format",
+                "json",
+                stdout=stdout,
+            )
+
+            payload = json.loads(stdout.getvalue())
+            self.assertTrue(payload["summary"]["ok"])
+            self.assertEqual(payload["summary"]["warning_count"], 0)
+            self.assertEqual(payload["runtime_facade_dependency_graph"]["runtime_edges"], [])
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
@@ -3022,7 +4454,7 @@ class ExtensionManagementCommandTests(TestCase):
         from bias_core.extensions.validation_inspection import inspect_backend_entry
 
         temp_dir = make_workspace_temp_dir()
-        module_name = "bias_ext_users"
+        module_name = "bias_ext_packaged_demo"
         original_path = list(sys.path)
         try:
             package_root = temp_dir / module_name / "backend"
@@ -3045,7 +4477,7 @@ class ExtensionManagementCommandTests(TestCase):
                 "name": "Users",
                 "version": "0.1.0",
                 "backend": {
-                    "entry": "bias_ext_users.backend.ext",
+                    "entry": "bias_ext_packaged_demo.backend.ext",
                 },
             }, ensure_ascii=False), encoding="utf-8")
 
@@ -3075,7 +4507,7 @@ class ExtensionManagementCommandTests(TestCase):
 
             self.assertEqual(inspection["entry_type"], "python-package")
             self.assertTrue(inspection["exists"], inspection)
-            self.assertEqual(inspection["resolved_path"], "bias_ext_users.backend.ext")
+            self.assertEqual(inspection["resolved_path"], "bias_ext_packaged_demo.backend.ext")
             self.assertIn("extend", inspection["available_hooks"])
             self.assertIn("run_rebuild_cache", inspection["available_hooks"])
         finally:
@@ -3355,6 +4787,81 @@ class ExtensionManagementCommandTests(TestCase):
             inspect_call = next((args for name, args in calls if name == "inspect_extensions"), None)
             self.assertIsNotNone(inspect_call)
             self.assertIn("--fail-on-runtime-service-fallback", inspect_call)
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_prepare_release_can_run_capacity_smoke_gate(self):
+        temp_dir = make_workspace_temp_dir()
+        try:
+            base_dir = Path(temp_dir)
+            (base_dir / "VERSION").write_text("1.2.3\n", encoding="utf-8")
+            frontend_dir = base_dir / "frontend"
+            frontend_dir.mkdir(parents=True, exist_ok=False)
+            (frontend_dir / "package.json").write_text(json.dumps({"version": "1.2.3"}), encoding="utf-8")
+            (frontend_dir / "package-lock.json").write_text(json.dumps({
+                "version": "1.2.3",
+                "packages": {"": {"version": "1.2.3"}},
+            }), encoding="utf-8")
+            calls = []
+
+            def fake_call_command(name, *args, **kwargs):
+                calls.append((name, args))
+                if name == "inspect_extensions":
+                    kwargs["stdout"].write(json.dumps({
+                        "summary": {
+                            "blocking_count": 0,
+                            "warning_count": 0,
+                            "attention_count": 0,
+                            "asset_count": 0,
+                            "frontend_bundle_count": 0,
+                            "migration_bundle_count": 0,
+                            "locale_bundle_count": 0,
+                            "signed_extension_count": 0,
+                        },
+                        "extensions": [
+                            {
+                                "id": "alpha",
+                                "contract_snapshot": build_minimal_contract_snapshot("alpha"),
+                            },
+                        ],
+                    }))
+                return None
+
+            with override_settings(BASE_DIR=base_dir, BIAS_FRONTEND_DIR=frontend_dir):
+                with patch("bias_core.management.commands.prepare_release.run_git_command") as git_mock:
+                    git_mock.return_value = SimpleNamespace(stdout="")
+                    with patch("bias_core.management.commands.prepare_release.call_command", side_effect=fake_call_command):
+                        call_command_quietly(
+                            "prepare_release",
+                            "--skip-frontend-platform-check",
+                            "--set-version",
+                            "1.2.3",
+                            "--dry-run",
+                            "--run-capacity-smoke",
+                            "--websocket-smoke-connections",
+                            "2",
+                            "--websocket-smoke-discussion-id",
+                            "321",
+                            "--websocket-smoke-p95-threshold-ms",
+                            "750",
+                        )
+
+            baseline_call = next((args for name, args in calls if name == "inspect_performance_baseline"), None)
+            websocket_call = next((args for name, args in calls if name == "smoke_websocket_realtime"), None)
+            self.assertIsNotNone(baseline_call)
+            self.assertIn("--format", baseline_call)
+            self.assertIn("json", baseline_call)
+            self.assertIn("--strict", baseline_call)
+            self.assertIn("--extensions-path", baseline_call)
+            self.assertIsNotNone(websocket_call)
+            self.assertIn("--connections", websocket_call)
+            self.assertEqual(websocket_call[websocket_call.index("--connections") + 1], "2")
+            self.assertIn("--discussion-id", websocket_call)
+            self.assertEqual(websocket_call[websocket_call.index("--discussion-id") + 1], "321")
+            self.assertIn("--p95-threshold-ms", websocket_call)
+            self.assertEqual(websocket_call[websocket_call.index("--p95-threshold-ms") + 1], "750.0")
+            self.assertIn("--format", websocket_call)
+            self.assertIn("json", websocket_call)
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
@@ -3822,6 +5329,152 @@ class ExtensionManagementCommandTests(TestCase):
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
+    def test_smoke_queue_worker_enables_runtime_queue_and_dispatches_probe(self):
+        from bias_core.models import Setting
+        from bias_core.queue_service import QueueService
+        from bias_core.settings_service import clear_runtime_setting_caches
+        from bias_core.tasks import queue_worker_probe
+
+        class DummyWorker:
+            def __init__(self):
+                self.terminated = False
+                self.killed = False
+
+            def poll(self):
+                return None
+
+            def terminate(self):
+                self.terminated = True
+
+            def wait(self, timeout=None):
+                return 0
+
+            def kill(self):
+                self.killed = True
+
+        class DummyAsyncResult:
+            def get(self, timeout=None, propagate=True):
+                return {
+                    "ok": True,
+                    "token": dispatched_tokens[-1],
+                    "worker_pid": 123,
+                }
+
+        dispatched_tokens = []
+        worker = DummyWorker()
+        Setting.objects.update_or_create(
+            key="advanced.queue_enabled",
+            defaults={"value": json.dumps(False)},
+        )
+        Setting.objects.update_or_create(
+            key="advanced.queue_driver",
+            defaults={"value": json.dumps("sync")},
+        )
+        clear_runtime_setting_caches()
+
+        def fake_dispatch(task, token):
+            self.assertIs(task, queue_worker_probe)
+            self.assertEqual(
+                QueueService.get_runtime_config(),
+                {"enabled": True, "driver": "redis"},
+            )
+            dispatched_tokens.append(token)
+            return DummyAsyncResult()
+
+        stdout = StringIO()
+        with override_settings(CELERY_BROKER_URL="redis://localhost:6379/5", CELERY_RESULT_BACKEND="redis://localhost:6379/5"):
+            with patch("bias_core.management.commands.smoke_queue_worker.Command._start_worker", return_value=worker) as start_worker:
+                with patch("bias_core.management.commands.smoke_queue_worker.Command._wait_for_worker", return_value={
+                    "status": "available",
+                    "label": "1 个 worker 在线",
+                    "available": True,
+                    "worker_count": 1,
+                    "message": "Celery worker 可用。",
+                }) as wait_for_worker:
+                    with patch("bias_core.management.commands.smoke_queue_worker.QueueService.dispatch_celery_task", side_effect=fake_dispatch):
+                        call_command(
+                            "smoke_queue_worker",
+                            "--format",
+                            "json",
+                            stdout=stdout,
+                        )
+
+        payload = json.loads(stdout.getvalue())
+        self.assertTrue(payload["summary"]["ok"])
+        self.assertEqual(payload["task_result"]["token"], dispatched_tokens[-1])
+        self.assertEqual(payload["worker_status"]["worker_count"], 1)
+        self.assertTrue(worker.terminated)
+        self.assertFalse(worker.killed)
+        self.assertTrue(start_worker.called)
+        self.assertTrue(wait_for_worker.called)
+        self.assertEqual(
+            json.loads(Setting.objects.get(key="advanced.queue_enabled").value),
+            False,
+        )
+        self.assertEqual(
+            json.loads(Setting.objects.get(key="advanced.queue_driver").value),
+            "sync",
+        )
+
+    def test_smoke_queue_worker_cli_broker_updates_current_process_runtime_config(self):
+        from bias_core.queue_service import QueueService
+
+        class DummyWorker:
+            def poll(self):
+                return None
+
+            def terminate(self):
+                return None
+
+            def wait(self, timeout=None):
+                return 0
+
+            def kill(self):
+                return None
+
+        class DummyAsyncResult:
+            def get(self, timeout=None, propagate=True):
+                return {
+                    "ok": True,
+                    "token": dispatched_tokens[-1],
+                    "worker_pid": 123,
+                }
+
+        dispatched_tokens = []
+
+        def fake_dispatch(_task, token):
+            self.assertEqual(
+                QueueService.get_runtime_config(),
+                {"enabled": True, "driver": "redis"},
+            )
+            dispatched_tokens.append(token)
+            return DummyAsyncResult()
+
+        with override_settings(CELERY_BROKER_URL="", CELERY_RESULT_BACKEND=""):
+            with patch("bias_core.management.commands.smoke_queue_worker.Command._start_worker", return_value=DummyWorker()):
+                with patch("bias_core.management.commands.smoke_queue_worker.Command._wait_for_worker", return_value={
+                    "status": "available",
+                    "label": "1 个 worker 在线",
+                    "available": True,
+                    "worker_count": 1,
+                    "message": "Celery worker 可用。",
+                }):
+                    with patch("bias_core.management.commands.smoke_queue_worker.QueueService.dispatch_celery_task", side_effect=fake_dispatch):
+                        call_command_quietly(
+                            "smoke_queue_worker",
+                            "--broker-url",
+                            "redis://localhost:6379/5",
+                            "--result-backend",
+                            "redis://localhost:6379/5",
+                        )
+
+        self.assertTrue(dispatched_tokens)
+
+    def test_smoke_queue_worker_requires_broker_url(self):
+        with override_settings(CELERY_BROKER_URL="", CELERY_RESULT_BACKEND=""):
+            with self.assertRaisesMessage(CommandError, "缺少 Celery broker URL"):
+                call_command_quietly("smoke_queue_worker")
+
     def test_install_forum_publish_frontend_dist_runs_rebuild_before_collectstatic(self):
         temp_dir = make_workspace_temp_dir()
         try:
@@ -3861,6 +5514,16 @@ class ExtensionManagementCommandTests(TestCase):
                             "5432",
                             "--redis",
                             "auto",
+                            "--site-domains",
+                            "forum.example.com",
+                            "--frontend-url",
+                            "https://forum.example.com",
+                            "--email-backend",
+                            "django.core.mail.backends.smtp.EmailBackend",
+                            "--email-host",
+                            "smtp.example.com",
+                            "--default-from-email",
+                            "noreply@example.com",
                             "--publish-frontend-dist",
                         )
 
@@ -3874,6 +5537,216 @@ class ExtensionManagementCommandTests(TestCase):
             self.assertLess(calls.index(frontend_call), collectstatic_index)
             self.assertIn("--rebuild", frontend_call)
             self.assertIn("--publish", frontend_call)
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_install_forum_dry_run_outputs_plan_without_writing_config(self):
+        temp_dir = make_workspace_temp_dir()
+        try:
+            config_path = Path(temp_dir) / "instance" / "site.json"
+            stdout = StringIO()
+
+            with override_settings(BASE_DIR=Path(temp_dir)):
+                with patch("bias_core.management.commands.install_forum.assert_database_connection"):
+                    with patch("bias_core.management.commands.install_forum.run_manage_py") as run_manage_py:
+                        call_command(
+                            "install_forum",
+                            "--database",
+                            "sqlite",
+                            "--config",
+                            str(config_path),
+                            "--overwrite",
+                            "--non-interactive",
+                            "--admin-username",
+                            "dry-admin",
+                            "--admin-email",
+                            "dry-admin@example.com",
+                            "--admin-password",
+                            "dry-admin-password",
+                            "--dry-run",
+                            stdout=stdout,
+                        )
+
+            self.assertFalse(config_path.exists())
+            run_manage_py.assert_not_called()
+            output = stdout.getvalue()
+            self.assertIn("安装计划", output)
+            self.assertIn("python manage.py migrate --noinput", output)
+            self.assertIn("[DRY-RUN]", output)
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_install_forum_postgres_dry_run_reports_production_findings_without_database_connection(self):
+        temp_dir = make_workspace_temp_dir()
+        try:
+            config_path = Path(temp_dir) / "instance" / "site.example.json"
+            config_path.parent.mkdir(parents=True, exist_ok=True)
+            config_path.write_text(json.dumps({
+                "installed": False,
+                "source": "example",
+                "debug": False,
+                "secret_key": "replace-with-django-secret-key",
+                "jwt_secret_key": "replace-with-jwt-secret-key",
+                "site_domains": ["forum.example.com"],
+                "site_scheme": "https",
+                "frontend_url": "https://forum.example.com",
+                "database_mode": "postgres",
+                "db_name": "replace-with-db-name",
+                "db_user": "replace-with-db-user",
+                "db_password": "replace-with-db-password",
+                "db_host": "db",
+                "db_port": "5432",
+                "use_redis": True,
+                "redis_host": "redis",
+                "redis_port": "6379",
+                "redis_db": "0",
+                "email_backend": "django.core.mail.backends.smtp.EmailBackend",
+                "email_host": "smtp.example.com",
+                "email_port": 587,
+                "email_use_tls": True,
+                "default_from_email": "noreply@example.com",
+            }), encoding="utf-8")
+            stdout = StringIO()
+
+            with override_settings(BASE_DIR=Path(temp_dir)):
+                with patch("bias_core.management.commands.install_forum.assert_database_connection") as assert_db:
+                    with patch("bias_core.management.commands.install_forum.run_manage_py") as run_manage_py:
+                        call_command(
+                            "install_forum",
+                            "--database",
+                            "postgres",
+                            "--config",
+                            str(config_path),
+                            "--non-interactive",
+                            "--skip-admin",
+                            "--dry-run",
+                            stdout=stdout,
+                        )
+
+            assert_db.assert_not_called()
+            run_manage_py.assert_not_called()
+            output = stdout.getvalue()
+            self.assertIn("生产配置检查", output)
+            self.assertIn("secret_key_placeholder", output)
+            self.assertIn("jwt_secret_key_placeholder", output)
+            self.assertIn("db_name_placeholder", output)
+            self.assertIn("[DRY-RUN]", output)
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_install_forum_postgres_dry_run_json_reports_findings_for_ci(self):
+        temp_dir = make_workspace_temp_dir()
+        try:
+            config_path = Path(temp_dir) / "instance" / "site.example.json"
+            config_path.parent.mkdir(parents=True, exist_ok=True)
+            config_path.write_text(json.dumps({
+                "installed": False,
+                "source": "example",
+                "debug": False,
+                "secret_key": "replace-with-django-secret-key",
+                "jwt_secret_key": "replace-with-jwt-secret-key",
+                "site_domains": ["forum.example.com"],
+                "site_scheme": "https",
+                "frontend_url": "https://forum.example.com",
+                "database_mode": "postgres",
+                "db_name": "replace-with-db-name",
+                "db_user": "replace-with-db-user",
+                "db_password": "replace-with-db-password",
+                "db_host": "replace-with-db-host",
+                "db_port": "5432",
+                "use_redis": True,
+                "redis_host": "replace-with-redis-host",
+                "redis_port": "6379",
+                "redis_db": "0",
+                "email_backend": "django.core.mail.backends.smtp.EmailBackend",
+                "email_host": "replace-with-email-host",
+                "email_port": 587,
+                "email_use_tls": True,
+                "default_from_email": "noreply@example.com",
+            }), encoding="utf-8")
+            stdout = StringIO()
+
+            with override_settings(BASE_DIR=Path(temp_dir)):
+                with patch("bias_core.management.commands.install_forum.assert_database_connection") as assert_db:
+                    with patch("bias_core.management.commands.install_forum.run_manage_py") as run_manage_py:
+                        call_command(
+                            "install_forum",
+                            "--database",
+                            "postgres",
+                            "--config",
+                            str(config_path),
+                            "--non-interactive",
+                            "--skip-admin",
+                            "--dry-run",
+                            "--format",
+                            "json",
+                            stdout=stdout,
+                        )
+
+            assert_db.assert_not_called()
+            run_manage_py.assert_not_called()
+            payload = json.loads(stdout.getvalue())
+            self.assertEqual(payload["config_path"], str(config_path))
+            self.assertEqual(payload["database_mode"], "postgres")
+            self.assertTrue(payload["redis_enabled"])
+            self.assertEqual(payload["site_domains"], ["forum.example.com"])
+            self.assertFalse(payload["summary"]["ok"])
+            self.assertGreater(payload["summary"]["error_count"], 0)
+            self.assertTrue(payload["summary"]["dry_run"])
+            self.assertTrue(payload["install_steps"])
+            codes = {item["code"] for item in payload["production_config_findings"]}
+            self.assertIn("secret_key_placeholder", codes)
+            self.assertIn("jwt_secret_key_placeholder", codes)
+            self.assertIn("db_name_placeholder", codes)
+            self.assertIn("db_user_placeholder", codes)
+            self.assertIn("db_password_placeholder", codes)
+            self.assertIn("db_host_placeholder", codes)
+            self.assertIn("redis_host_placeholder", codes)
+            self.assertIn("email_host_placeholder", codes)
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_install_forum_rejects_placeholder_production_config_before_database_connection(self):
+        temp_dir = make_workspace_temp_dir()
+        try:
+            config_path = Path(temp_dir) / "instance" / "site.json"
+
+            with override_settings(BASE_DIR=Path(temp_dir)):
+                with patch("bias_core.management.commands.install_forum.assert_database_connection") as assert_db:
+                    with self.assertRaisesMessage(CommandError, "生产配置缺少必需项"):
+                        call_command_quietly(
+                            "install_forum",
+                            "--database",
+                            "postgres",
+                            "--config",
+                            str(config_path),
+                            "--overwrite",
+                            "--non-interactive",
+                            "--skip-admin",
+                            "--db-name",
+                            "replace-with-db-name",
+                            "--db-user",
+                            "replace-with-db-user",
+                            "--db-password",
+                            "replace-with-db-password",
+                            "--db-host",
+                            "db",
+                            "--db-port",
+                            "5432",
+                            "--redis",
+                            "on",
+                            "--site-domains",
+                            "forum.example.com",
+                            "--frontend-url",
+                            "https://forum.example.com",
+                            "--email-backend",
+                            "django.core.mail.backends.smtp.EmailBackend",
+                            "--email-host",
+                            "smtp.example.com",
+                        )
+
+            assert_db.assert_not_called()
+            self.assertFalse(config_path.exists())
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
@@ -4428,6 +6301,57 @@ class ExtensionManagementCommandTests(TestCase):
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
+    def test_prepare_release_dry_run_allows_split_site_without_version_file(self):
+        temp_dir = make_workspace_temp_dir()
+        try:
+            base_dir = Path(temp_dir)
+            frontend_dir = base_dir / "frontend"
+            frontend_dir.mkdir(parents=True, exist_ok=False)
+            (frontend_dir / "package.json").write_text(json.dumps({"version": "1.2.1"}), encoding="utf-8")
+            (frontend_dir / "package-lock.json").write_text(json.dumps({
+                "version": "1.2.1",
+                "packages": {"": {"version": "1.2.1"}},
+            }), encoding="utf-8")
+
+            def fake_call_command(name, *args, **kwargs):
+                if name == "inspect_extensions":
+                    kwargs["stdout"].write(json.dumps({
+                        "summary": {
+                            "blocking_count": 0,
+                            "warning_count": 0,
+                            "attention_count": 0,
+                            "asset_count": 0,
+                            "frontend_bundle_count": 0,
+                            "migration_bundle_count": 0,
+                            "locale_bundle_count": 0,
+                            "signed_extension_count": 0,
+                        },
+                        "extensions": [
+                            {
+                                "id": "alpha",
+                                "contract_snapshot": build_minimal_contract_snapshot("alpha"),
+                            },
+                        ],
+                    }))
+                return None
+
+            with override_settings(BASE_DIR=base_dir, BIAS_FRONTEND_DIR=frontend_dir):
+                with patch("bias_core.management.commands.prepare_release.run_git_command") as git_mock:
+                    git_mock.return_value = SimpleNamespace(stdout="")
+                    with patch("bias_core.management.commands.prepare_release.call_command", side_effect=fake_call_command):
+                        call_command_quietly(
+                            "prepare_release",
+                            "--skip-frontend-platform-check",
+                            "--set-version",
+                            "1.2.3",
+                            "--dry-run",
+                        )
+
+            self.assertFalse((base_dir / "VERSION").exists())
+            self.assertEqual(json.loads((frontend_dir / "package.json").read_text(encoding="utf-8"))["version"], "1.2.1")
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
     def test_prepare_release_runs_frontend_platform_check_when_available(self):
         temp_dir = make_workspace_temp_dir()
         try:
@@ -4826,6 +6750,13 @@ class ExtensionManagementCommandTests(TestCase):
                             "--contract-baseline",
                             "extension-contract-baseline.json",
                             "--skip-frontend-platform-check",
+                            "--run-capacity-smoke",
+                            "--websocket-smoke-connections",
+                            "3",
+                            "--websocket-smoke-discussion-id",
+                            "456",
+                            "--websocket-smoke-p95-threshold-ms",
+                            "800",
                             "--commit-message",
                             "release",
                         )
@@ -4837,6 +6768,10 @@ class ExtensionManagementCommandTests(TestCase):
                 "extension-contract-baseline.json",
             )
             self.assertIn("--skip-frontend-platform-check", prepare_args)
+            self.assertIn("--run-capacity-smoke", prepare_args)
+            self.assertEqual(prepare_args[prepare_args.index("--websocket-smoke-connections") + 1], "3")
+            self.assertEqual(prepare_args[prepare_args.index("--websocket-smoke-discussion-id") + 1], "456")
+            self.assertEqual(prepare_args[prepare_args.index("--websocket-smoke-p95-threshold-ms") + 1], "800.0")
             git_add_args = next(args for _base, args in git_commands if args and args[0] == "add")
             self.assertIn(str(frontend_dir / "package.json"), git_add_args)
             self.assertIn(str(frontend_dir / "package-lock.json"), git_add_args)

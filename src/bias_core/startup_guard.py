@@ -1,9 +1,41 @@
 from __future__ import annotations
 
 import os
+import sys
 
 from django.core.checks import Critical, run_checks
 from django.core.exceptions import ImproperlyConfigured
+
+
+STARTUP_GUARD_EXEMPT_COMMANDS = {
+    "create_extension",
+    "inspect_extensions",
+    "validate_extensions",
+}
+
+
+def should_enforce_startup_guard(argv: list[str]) -> bool:
+    if len(argv) < 2:
+        return True
+    return argv[1] not in STARTUP_GUARD_EXEMPT_COMMANDS
+
+
+def run_django_management_with_startup_guard(argv: list[str] | None = None) -> None:
+    argv = argv or sys.argv
+
+    import django
+
+    django.setup()
+    if should_enforce_startup_guard(argv):
+        enforce_production_runtime_checks()
+
+    from django.core.management import execute_from_command_line
+
+    execute_from_command_line(argv)
+
+
+def enforce_celery_runtime_checks() -> None:
+    enforce_production_runtime_checks()
 
 
 def enforce_production_runtime_checks() -> None:

@@ -1,4 +1,5 @@
 from tests.common import *
+from bias_core.version import APP_VERSION
 
 class RuntimeStatusCacheTests(TestCase):
     def tearDown(self):
@@ -13,7 +14,7 @@ class RuntimeStatusCacheTests(TestCase):
         clear_runtime_status_cache()
         Setting.objects.update_or_create(
             key="system.version",
-            defaults={"value": json.dumps("1.0.0")},
+            defaults={"value": json.dumps(APP_VERSION)},
         )
         bootstrap = SiteBootstrapConfig(installed=True, source="file", database_mode="sqlite")
 
@@ -30,7 +31,7 @@ class RuntimeStatusCacheTests(TestCase):
         clear_runtime_status_cache()
         Setting.objects.update_or_create(
             key="system.version",
-            defaults={"value": json.dumps("1.0.0")},
+            defaults={"value": json.dumps(APP_VERSION)},
         )
         bootstrap = SiteBootstrapConfig(installed=True, source="file", database_mode="sqlite")
         get_runtime_status(bootstrap)

@@ -364,6 +364,7 @@ class ExtensionPublicApiBoundaryTests(TestCase):
         view = app.get_or_create_runtime_view("alpha")
         RuntimeServiceContractExtender().service(
             "alpha.service",
+            version="2.1",
             required_methods=("run",),
             required_values=("model",),
             optional_methods=("serialize",),
@@ -373,6 +374,7 @@ class ExtensionPublicApiBoundaryTests(TestCase):
         contract = view.runtime_service_contracts[0]
         self.assertEqual(contract.service_key, "alpha.service")
         self.assertEqual(contract.provider_extension, "alpha")
+        self.assertEqual(contract.version, "2.1")
         self.assertEqual(contract.required_methods, ("run",))
         self.assertEqual(contract.required_values, ("model",))
         self.assertEqual(contract.optional_methods, ("serialize",))
@@ -416,6 +418,7 @@ class ExtensionPublicApiBoundaryTests(TestCase):
             if item["service_key"] == "users.service"
         )
         self.assertEqual(users_contract["provider_extension"], "users")
+        self.assertEqual(users_contract["version"], "1.0")
         self.assertEqual(users_contract["required_methods"], ["custom"])
         self.assertEqual(users_contract["source"], "declared")
 

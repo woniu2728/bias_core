@@ -50,5 +50,39 @@ class HealthCheckApiTests(TestCase):
         self.assertEqual(payload["status"], "ok")
         self.assertNotIn("readiness", payload)
 
+    @patch("bias_core.health.collect_health_status")
+    def test_health_check_strict_returns_503_for_degraded_payload(self, collect_health_status):
+        collect_health_status.return_value = {
+            "status": "degraded",
+            "checks": {
+                "app": {
+                    "status": "ok",
+                    "available": True,
+                    "message": "Bias API runtime is available.",
+                    "state": "ready",
+                    "current_version": "0.1.0",
+                    "installed_version": "0.1.0",
+                },
+                "db": {
+                    "status": "unavailable",
+                    "available": False,
+                    "message": "Database connection failed.",
+                },
+            },
+        }
+
+        default_response = self.client.get("/api/health")
+        self.assertEqual(default_response.status_code, 200, default_response.content)
+        default_payload = default_response.json()
+        self.assertFalse(default_payload["strict"])
+        self.assertFalse(default_payload["strict_failed"])
+
+        strict_response = self.client.get("/api/health?strict=1")
+        self.assertEqual(strict_response.status_code, 503, strict_response.content)
+        strict_payload = strict_response.json()
+        self.assertTrue(strict_payload["strict"])
+        self.assertTrue(strict_payload["strict_failed"])
+        self.assertEqual(strict_payload["status"], "degraded")
+
 
 

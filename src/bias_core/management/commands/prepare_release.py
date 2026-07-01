@@ -45,6 +45,19 @@ class Command(BaseCommand):
             action="store_true",
             help="允许存在扩展关注项继续发布；默认存在关注项就阻止发布",
         )
+        parser.add_argument(
+            "--run-capacity-smoke",
+            action="store_true",
+            help="追加执行性能基线和 realtime WebSocket smoke；默认不执行耗时或环境相关 smoke",
+        )
+        parser.add_argument("--websocket-smoke-connections", type=int, default=5, help="realtime WebSocket smoke 连接数")
+        parser.add_argument("--websocket-smoke-discussion-id", type=int, default=101, help="realtime WebSocket smoke 使用的讨论 ID")
+        parser.add_argument(
+            "--websocket-smoke-p95-threshold-ms",
+            type=float,
+            default=1000.0,
+            help="realtime WebSocket smoke 广播 P95 阈值",
+        )
 
     def handle(self, *args, **options):
         version = (options.get("set_version") or "").strip()
@@ -55,6 +68,7 @@ class Command(BaseCommand):
         contract_baseline_option = (options.get("contract_baseline") or "").strip()
         allow_extension_attention = bool(options.get("allow_extension_attention"))
         skip_frontend_platform_check = bool(options.get("skip_frontend_platform_check"))
+        run_capacity_smoke = bool(options.get("run_capacity_smoke"))
 
         if not version and not tag:
             raise CommandError("必须至少提供 --set-version 或 --tag")
@@ -71,6 +85,7 @@ class Command(BaseCommand):
         base_dir = settings.BASE_DIR
         version_file = base_dir / "VERSION"
         contract_baseline = contract_baseline_option or self._default_contract_baseline_path(base_dir)
+        has_version_file = version_file.exists()
 
         if not allow_dirty:
             self._ensure_clean_git_state()
@@ -132,18 +147,26 @@ class Command(BaseCommand):
             self._write_extension_report(extension_report, inspection_payload)
         if not skip_frontend_platform_check:
             self._run_frontend_platform_check(base_dir)
+        if run_capacity_smoke:
+            self._run_capacity_smoke_gate(options, extensions_path)
 
-        current_version = version_file.read_text(encoding="utf-8").strip()
-        validate_semver(current_version, field_name="VERSION")
+        state = self._resolve_release_version_state(
+            base_dir,
+            resolved_version,
+            dry_run=dry_run,
+            has_version_file=has_version_file,
+        )
 
-        if not dry_run:
+        if not dry_run and has_version_file:
             version_file.write_text(f"{resolved_version}\n", encoding="utf-8")
             update_frontend_versions(base_dir, resolved_version)
-
-        try:
-            state = self._resolve_release_version_state(base_dir, resolved_version, dry_run=dry_run)
-        except ValueError as exc:
-            raise CommandError(str(exc)) from exc
+            try:
+                state = ensure_release_versions_aligned(base_dir)
+            except ValueError as exc:
+                raise CommandError(str(exc)) from exc
+        elif not dry_run:
+            update_frontend_versions(base_dir, resolved_version)
+            state = self._site_release_version_state_without_version_file(base_dir, resolved_version)
 
         if tag and state.version != version_from_tag(tag):
             raise CommandError("VERSION 与 Git tag 不一致")
@@ -163,6 +186,8 @@ class Command(BaseCommand):
             self.stdout.write(f"- 扩展报告: {extension_report}")
         if contract_baseline:
             self.stdout.write(f"- 扩展契约基线: {contract_baseline}")
+        if run_capacity_smoke:
+            self.stdout.write("- 容量 smoke gate: 已执行")
         if tag:
             self.stdout.write(f"- Git tag: {tag}")
         if dry_run:
@@ -195,14 +220,52 @@ class Command(BaseCommand):
             return Path(workspace_root) / "extensions"
         return base_dir / "extensions"
 
-    def _resolve_release_version_state(self, base_dir: Path, resolved_version: str, *, dry_run: bool):
+    def _resolve_release_version_state(self, base_dir: Path, resolved_version: str, *, dry_run: bool, has_version_file: bool):
+        if not has_version_file:
+            return self._site_release_version_state_without_version_file(
+                base_dir,
+                resolved_version,
+                target_frontend_version=dry_run,
+            )
         if not dry_run:
-            return ensure_release_versions_aligned(base_dir)
+            from bias_core.release import ReleaseVersionState
+
+            version_file = base_dir / "VERSION"
+            current_version = version_file.read_text(encoding="utf-8").strip()
+            validate_semver(current_version, field_name="VERSION")
+            return ReleaseVersionState(version=current_version, frontend_version=current_version)
         from bias_core.release import load_release_version_state
 
-        state = load_release_version_state(base_dir)
+        try:
+            state = load_release_version_state(base_dir)
+        except ValueError as exc:
+            raise CommandError(str(exc)) from exc
         validate_semver(resolved_version, field_name="目标版本")
         return type(state)(version=resolved_version, frontend_version=resolved_version)
+
+    def _site_release_version_state_without_version_file(
+        self,
+        base_dir: Path,
+        resolved_version: str,
+        *,
+        target_frontend_version: bool = False,
+    ):
+        from bias_core.release import ReleaseVersionState, get_frontend_package_json_path
+
+        validate_semver(resolved_version, field_name="目标版本")
+        package_json_path = get_frontend_package_json_path(base_dir)
+        if not package_json_path.exists():
+            raise CommandError(f"前端版本文件不存在: {package_json_path}")
+        try:
+            package = json.loads(package_json_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise CommandError(f"前端版本文件不是有效 JSON: {package_json_path}") from exc
+        frontend_version = str(package.get("version", "")).strip()
+        validate_semver(frontend_version, field_name="frontend/package.json version")
+        return ReleaseVersionState(
+            version=resolved_version,
+            frontend_version=resolved_version if target_frontend_version else frontend_version,
+        )
 
     def _run_frontend_platform_check(self, base_dir: Path) -> None:
         from bias_core.release import get_frontend_package_json_path
@@ -225,6 +288,27 @@ class Command(BaseCommand):
             )
         except subprocess.CalledProcessError as exc:
             raise CommandError("前端平台检查失败：npm run check:platform") from exc
+
+    def _run_capacity_smoke_gate(self, options: dict, extensions_path: Path) -> None:
+        call_command(
+            "inspect_performance_baseline",
+            "--format",
+            "json",
+            "--strict",
+            "--extensions-path",
+            str(extensions_path),
+        )
+        call_command(
+            "smoke_websocket_realtime",
+            "--connections",
+            str(max(1, int(options.get("websocket_smoke_connections") or 1))),
+            "--discussion-id",
+            str(int(options.get("websocket_smoke_discussion_id") or 101)),
+            "--p95-threshold-ms",
+            str(float(options.get("websocket_smoke_p95_threshold_ms") or 1000.0)),
+            "--format",
+            "json",
+        )
 
     def _write_extension_report(self, output_path: str, payload: dict) -> None:
         report_path = Path(output_path)

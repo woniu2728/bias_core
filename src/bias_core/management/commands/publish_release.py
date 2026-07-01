@@ -34,6 +34,19 @@ class Command(BaseCommand):
             action="store_true",
             help="允许存在扩展关注项继续发布；默认存在关注项就阻止发布",
         )
+        parser.add_argument(
+            "--run-capacity-smoke",
+            action="store_true",
+            help="传递给 prepare_release，追加执行性能基线和 realtime WebSocket smoke",
+        )
+        parser.add_argument("--websocket-smoke-connections", type=int, default=5, help="传递给 prepare_release 的 WebSocket smoke 连接数")
+        parser.add_argument("--websocket-smoke-discussion-id", type=int, default=101, help="传递给 prepare_release 的 WebSocket smoke 讨论 ID")
+        parser.add_argument(
+            "--websocket-smoke-p95-threshold-ms",
+            type=float,
+            default=1000.0,
+            help="传递给 prepare_release 的 WebSocket smoke 广播 P95 阈值",
+        )
 
     def handle(self, *args, **options):
         version = str(options["set_version"]).strip()
@@ -47,6 +60,7 @@ class Command(BaseCommand):
         contract_baseline = str(options.get("contract_baseline") or "").strip()
         allow_extension_attention = bool(options.get("allow_extension_attention"))
         skip_frontend_platform_check = bool(options.get("skip_frontend_platform_check"))
+        run_capacity_smoke = bool(options.get("run_capacity_smoke"))
 
         self.stdout.write(self.style.MIGRATE_HEADING("开始准备发布 Bias"))
 
@@ -76,6 +90,16 @@ class Command(BaseCommand):
             prepare_args.extend(["--contract-baseline", contract_baseline])
         if skip_frontend_platform_check:
             prepare_args.append("--skip-frontend-platform-check")
+        if run_capacity_smoke:
+            prepare_args.extend([
+                "--run-capacity-smoke",
+                "--websocket-smoke-connections",
+                str(max(1, int(options.get("websocket_smoke_connections") or 1))),
+                "--websocket-smoke-discussion-id",
+                str(int(options.get("websocket_smoke_discussion_id") or 101)),
+                "--websocket-smoke-p95-threshold-ms",
+                str(float(options.get("websocket_smoke_p95_threshold_ms") or 1000.0)),
+            ])
 
         call_command("prepare_release", *prepare_args)
 

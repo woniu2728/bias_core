@@ -8,6 +8,7 @@ from typing import Any
 class RuntimeServiceContract:
     service_key: str
     provider_extension: str
+    version: str = "1.0"
     required_methods: tuple[str, ...] = ()
     required_values: tuple[str, ...] = ()
     optional_methods: tuple[str, ...] = ()
@@ -115,6 +116,7 @@ def snapshot_runtime_service_contracts(*, host: Any | None = None) -> list[dict]
         {
             "service_key": contract.service_key,
             "provider_extension": contract.provider_extension,
+            "version": contract.version,
             "required_methods": sorted(contract.required_methods),
             "required_values": sorted(contract.required_values),
             "optional_methods": sorted(contract.optional_methods),
@@ -185,6 +187,7 @@ def _normalize_runtime_service_contract(
     return RuntimeServiceContract(
         service_key=service_key,
         provider_extension=provider,
+        version=str(getattr(contract, "version", "1.0") or "1.0").strip() or "1.0",
         required_methods=_normalize_contract_names(getattr(contract, "required_methods", ()) or ()),
         required_values=_normalize_contract_names(getattr(contract, "required_values", ()) or ()),
         optional_methods=_normalize_contract_names(getattr(contract, "optional_methods", ()) or ()),
@@ -206,6 +209,8 @@ def _validate_runtime_service_contracts() -> None:
             raise RuntimeError(f"runtime service contract key mismatch: {service_key} != {contract.service_key}")
         if not contract.provider_extension:
             raise RuntimeError(f"runtime service contract is missing provider extension: {service_key}")
+        if not str(contract.version or "").strip():
+            raise RuntimeError(f"runtime service contract is missing version: {service_key}")
         for field in ("required_methods", "required_values", "optional_methods"):
             values = tuple(getattr(contract, field))
             normalized_values = tuple(str(item or "").strip() for item in values)

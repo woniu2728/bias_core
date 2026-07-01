@@ -33,6 +33,7 @@ CORE_REQUIRED_MIDDLEWARE = [
     "bias_core.middleware.ExtensionThrottleApiMiddleware",
     "bias_core.middleware.ExtensionRequestMiddleware",
     "bias_core.middleware.QueryLoggingMiddleware",
+    "bias_core.middleware.RequestMetricsMiddleware",
     "bias_core.middleware.MaintenanceModeMiddleware",
     "bias_core.middleware.SecurityHeadersMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",

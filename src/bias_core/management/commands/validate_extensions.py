@@ -13,8 +13,19 @@ from bias_core.extensions.validation import validate_extension_manifests_with_av
 from bias_core.forum_registry import get_core_module_ids
 
 
+SITE_HOST_DIRECTORY_NAMES = {"bias", "bias_site", "site"}
+
+
 def resolve_available_extension_ids(manifests) -> set[str]:
     return set(get_core_module_ids()) | {manifest.id for manifest in manifests}
+
+
+def resolve_command_workspace_root(extensions_path: Path) -> Path | None:
+    if extensions_path.name != "extensions":
+        return None
+    if extensions_path.parent.name in SITE_HOST_DIRECTORY_NAMES:
+        return extensions_path.parent.parent
+    return extensions_path.parent
 
 
 class Command(BaseCommand):
@@ -59,6 +70,7 @@ class Command(BaseCommand):
         loader = ExtensionManifestLoader(
             extensions_path,
             include_workspace=include_workspace,
+            workspace_root=resolve_command_workspace_root(extensions_path),
         )
         try:
             manifests = loader.discover_manifests()

@@ -356,10 +356,10 @@ class ExtensionRegistryTests(TestCase):
             self.assertEqual([view.extension_id for view in app.get_runtime_views()], ["alpha-tools"])
             self.assertIsNotNone(app.get_frontend_extension("alpha-tools"))
             self.assertIsNone(app.get_frontend_extension("beta-tools"))
-            self.assertEqual(
-                [endpoint.endpoint for endpoint in app.resources.get_endpoints("forum")],
-                ["alpha-tools.endpoint"],
-            )
+            forum_endpoints = [endpoint.endpoint for endpoint in app.resources.get_endpoints("forum")]
+            self.assertIn("show", forum_endpoints)
+            self.assertIn("alpha-tools.endpoint", forum_endpoints)
+            self.assertNotIn("beta-tools.endpoint", forum_endpoints)
             self.assertEqual(len(app.events.get_listeners(extension_id="alpha-tools")), 1)
             self.assertEqual(app.events.get_listeners(extension_id="beta-tools"), [])
             self.assertEqual(len(app.get_middleware_mounts(target="api")), 1)

@@ -46,6 +46,7 @@ class RuntimeServiceContractExtender:
         required_values: tuple[str, ...] | list[str] | set[str] = (),
         optional_methods: tuple[str, ...] | list[str] | set[str] = (),
         callable_service: bool = False,
+        version: str = "1.0",
     ) -> "RuntimeServiceContractExtender":
         normalized_key = str(service_key or "").strip()
         if not normalized_key:
@@ -53,6 +54,7 @@ class RuntimeServiceContractExtender:
         contract = RuntimeServiceContract(
             service_key=normalized_key,
             provider_extension="",
+            version=str(version or "1.0").strip() or "1.0",
             required_methods=_normalize_contract_names(required_methods),
             required_values=_normalize_contract_names(required_values),
             optional_methods=_normalize_contract_names(optional_methods),

@@ -867,7 +867,12 @@ def _snapshot_resource_endpoints(runtime_view, *, fallback):
     items = _runtime_items(runtime_view, "resource_endpoints")
     if not items:
         return _snapshot_items(fallback, ("resource", "endpoint", "module_id", "operation", "anchor"))
-    return _snapshot_objects(items, ("resource", "endpoint", "path", "module_id", "operation", "anchor", "description"))
+    return _deduplicate_snapshot_items(
+        [
+            *_snapshot_objects(items, ("resource", "endpoint", "path", "module_id", "operation", "anchor", "description")),
+            *_snapshot_items(fallback, ("resource", "endpoint", "module_id", "operation", "anchor")),
+        ]
+    )
 
 
 def _snapshot_resource_sorts(runtime_view, *, fallback):
@@ -893,6 +898,15 @@ def _snapshot_objects(items, fields):
             if hasattr(item, field)
         })
     return sorted(output, key=lambda value: json.dumps(value, ensure_ascii=False, sort_keys=True))
+
+
+def _deduplicate_snapshot_items(items):
+    by_key = {
+        json.dumps(item, ensure_ascii=False, sort_keys=True): item
+        for item in items
+        if isinstance(item, dict)
+    }
+    return [by_key[key] for key in sorted(by_key)]
 
 
 def _runtime_items(runtime_view, field):

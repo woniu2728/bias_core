@@ -129,7 +129,6 @@ class WebSocketRoutesExtender:
         extension_id = extension.extension_id
 
         def apply(routes, host: "ExtensionHost"):
-            routes.remove_routes(extension_id)
             for path, name, consumer in self.routes:
                 resolved_consumer = resolve_container_value(consumer, host) if isinstance(consumer, (str, type)) else consumer
                 routes.add_route(extension_id, path, name, resolved_consumer)

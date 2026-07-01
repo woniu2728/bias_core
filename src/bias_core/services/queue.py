@@ -3,6 +3,7 @@ Runtime queue dispatch helpers.
 """
 import logging
 import os
+import time
 from unittest.mock import Mock
 from django.conf import settings
 from django.core.cache import cache
@@ -22,6 +23,14 @@ DEFAULT_QUEUE_METRICS = {
     "enqueued_count": 0,
     "sync_count": 0,
     "fallback_count": 0,
+    "failed_count": 0,
+    "retry_count": 0,
+    "task_event_count": 0,
+    "total_duration_ms": 0.0,
+    "last_duration_ms": 0.0,
+    "max_duration_ms": 0.0,
+    "average_duration_ms": 0.0,
+    "failure_rate": 0.0,
     "last_task": "",
     "last_error": "",
     "last_event_at": "",
@@ -182,10 +191,16 @@ class QueueService:
         except Exception:
             metrics = {}
 
-        return {
+        normalized = {
             **DEFAULT_QUEUE_METRICS,
             **{key: metrics.get(key) for key in DEFAULT_QUEUE_METRICS.keys() if key in metrics},
         }
+        event_count = int(normalized.get("task_event_count", 0) or 0)
+        failed_count = int(normalized.get("failed_count", 0) or 0)
+        total_duration_ms = float(normalized.get("total_duration_ms", 0.0) or 0.0)
+        normalized["average_duration_ms"] = round(total_duration_ms / event_count, 3) if event_count else 0.0
+        normalized["failure_rate"] = round(failed_count / event_count, 4) if event_count else 0.0
+        return normalized
 
     @staticmethod
     def reset_metrics() -> dict:
@@ -197,16 +212,27 @@ class QueueService:
         return metrics
 
     @staticmethod
-    def _record_metric(event: str, task_name: str, error: str = "") -> None:
+    def _record_metric(event: str, task_name: str, error: str = "", duration_ms: float = 0.0) -> None:
         metrics = QueueService.get_metrics()
         counter_key = {
             "enqueued": "enqueued_count",
             "sync": "sync_count",
             "fallback": "fallback_count",
+            "failed": "failed_count",
+            "retry": "retry_count",
         }.get(event)
 
         if counter_key:
             metrics[counter_key] = int(metrics.get(counter_key, 0) or 0) + 1
+            metrics["task_event_count"] = int(metrics.get("task_event_count", 0) or 0) + 1
+
+        if event == "fallback":
+            metrics["failed_count"] = int(metrics.get("failed_count", 0) or 0) + 1
+
+        duration_ms = max(0.0, float(duration_ms or 0.0))
+        metrics["last_duration_ms"] = round(duration_ms, 3)
+        metrics["total_duration_ms"] = round(float(metrics.get("total_duration_ms", 0.0) or 0.0) + duration_ms, 3)
+        metrics["max_duration_ms"] = round(max(float(metrics.get("max_duration_ms", 0.0) or 0.0), duration_ms), 3)
 
         metrics["last_task"] = task_name
         metrics["last_error"] = error
@@ -216,6 +242,10 @@ class QueueService:
             cache.set(QUEUE_METRICS_CACHE_KEY, metrics, QUEUE_METRICS_TIMEOUT)
         except Exception:
             return None
+
+    @staticmethod
+    def record_retry(task_name: str, error: str = "") -> None:
+        QueueService._record_metric("retry", task_name, error=error)
 
     @staticmethod
     def dispatch_celery_task(
@@ -234,11 +264,12 @@ class QueueService:
         """
         task_name = getattr(task, "name", repr(task))
         should_enqueue = QueueService.should_enqueue()
+        started_at = time.perf_counter()
         if should_enqueue:
             if QueueService._should_skip_live_task_enqueue(task):
                 if fallback is not None:
                     result = fallback()
-                    QueueService._record_metric("sync", task_name)
+                    QueueService._record_metric("sync", task_name, duration_ms=(time.perf_counter() - started_at) * 1000)
                     return result
                 return None
             try:
@@ -246,7 +277,7 @@ class QueueService:
                     result = task.apply_async(args=args, kwargs=kwargs, countdown=countdown)
                 else:
                     result = task.delay(*args, **kwargs)
-                QueueService._record_metric("enqueued", task_name)
+                QueueService._record_metric("enqueued", task_name, duration_ms=(time.perf_counter() - started_at) * 1000)
                 return result
             except Exception as exc:
                 logger.warning(
@@ -254,14 +285,27 @@ class QueueService:
                     task_name,
                     exc_info=True,
                 )
-                QueueService._record_metric("fallback", task_name, error=str(exc))
                 if fallback is None:
+                    QueueService._record_metric(
+                        "failed",
+                        task_name,
+                        error=str(exc),
+                        duration_ms=(time.perf_counter() - started_at) * 1000,
+                    )
                     raise
+                result = fallback()
+                QueueService._record_metric(
+                    "fallback",
+                    task_name,
+                    error=str(exc),
+                    duration_ms=(time.perf_counter() - started_at) * 1000,
+                )
+                return result
 
         if fallback is not None:
             result = fallback()
             if not should_enqueue:
-                QueueService._record_metric("sync", task_name)
+                QueueService._record_metric("sync", task_name, duration_ms=(time.perf_counter() - started_at) * 1000)
             return result
 
         return None

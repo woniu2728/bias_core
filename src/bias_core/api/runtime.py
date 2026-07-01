@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import os
+
 from ninja import NinjaAPI, Router
 
-from bias_core.runtime_state import get_runtime_status
 from bias_core.version import APP_VERSION
 
 
@@ -86,16 +87,28 @@ def _register_extension_routes(api: NinjaAPI, *, extension_host=None) -> None:
 
 
 def _register_health_route(api: NinjaAPI) -> None:
-    @api.get("/health", tags=["System"])
-    def health_check(request):
-        runtime = get_runtime_status()
-        return {
-            "status": "ok" if runtime.state in ("ready", "starting") else "degraded",
-            "message": "Bias API is running",
-            "state": runtime.state,
-            "current_version": runtime.current_version,
-            "installed_version": runtime.installed_version,
+    @api.get("/health", tags=["System"], response={200: dict, 503: dict})
+    def health_check(request, strict: bool = False):
+        from bias_core.health import collect_health_status, health_status_code, strict_health_failed
+
+        payload = collect_health_status()
+        app = payload["checks"]["app"]
+        strict_enabled = bool(strict) or str(os.getenv("BIAS_HEALTH_STRICT") or "").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
         }
+        response_payload = {
+            **payload,
+            "message": "Bias API is running",
+            "state": app["state"],
+            "current_version": app["current_version"],
+            "installed_version": app["installed_version"],
+            "strict": strict_enabled,
+            "strict_failed": strict_health_failed(payload) if strict_enabled else False,
+        }
+        return health_status_code(payload, strict=strict_enabled), response_payload
 
 
 def _add_router_once(api: NinjaAPI, prefix, router, *, tags=None) -> None:

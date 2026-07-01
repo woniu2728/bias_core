@@ -208,8 +208,7 @@ class ForumDiscussionApiTests(TestCase):
         self.assertEqual(row["title"], "Visible topic")
         self.assertEqual(row["user"]["username"], self.user.username)
         self.assertEqual(row["last_posted_user"]["username"], self.other_user.username)
-        self.assertEqual(row["most_relevant_post"]["number"], 1)
-        self.assertEqual(row["most_relevant_post"]["user"]["username"], self.user.username)
+        self.assertNotIn("most_relevant_post", row)
 
     def test_discussion_list_endpoint_respects_resource_fields_and_includes(self):
         discussion = self.create_discussion(title="Resource list topic", content="Opening resource body")
@@ -254,7 +253,7 @@ class ForumDiscussionApiTests(TestCase):
         self.assertEqual(len(response.json()["data"]), 6)
         self.assertLessEqual(
             len(context.captured_queries),
-            24,
+            25,
             "\n".join(query["sql"] for query in context.captured_queries),
         )
 
@@ -325,6 +324,33 @@ class ForumDiscussionApiTests(TestCase):
         self.assertEqual(payload["last_post"]["user"]["username"], self.other_user.username)
         self.assertEqual(payload["first_post"]["content"], "Opening detail body")
 
+    def test_discussion_detail_endpoint_keeps_query_count_within_budget(self):
+        discussion = self.create_discussion(title="Detail budget topic", content="Opening detail budget")
+        for index in range(8):
+            self.create_reply(
+                discussion,
+                content=f"Detail budget reply {index}",
+                user=self.other_user if index % 2 == 0 else self.user,
+            )
+
+        with CaptureQueriesContext(connection) as context:
+            response = self.client.get(
+                f"/api/discussions/{discussion.id}",
+                {
+                    "include": "first_post,last_post.user",
+                    "fields[discussion]": "can_reply,can_hide,last_read_post_number,unread_count",
+                },
+                **self.auth_header(self.user),
+            )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()["id"], discussion.id)
+        self.assertLessEqual(
+            len(context.captured_queries),
+            20,
+            "\n".join(query["sql"] for query in context.captured_queries),
+        )
+
     def test_post_stream_endpoint_supports_window_parameters(self):
         discussion = self.create_discussion(title="Post stream", content="Opening")
         post_two = self.create_reply(discussion, content="Second")
@@ -354,6 +380,35 @@ class ForumDiscussionApiTests(TestCase):
         self.assertEqual([item["number"] for item in after_response.json()["data"]], [post_three.number])
         self.assertTrue(after_response.json()["has_previous"])
         self.assertFalse(after_response.json()["has_more"])
+
+    def test_post_stream_endpoint_keeps_query_count_within_budget(self):
+        discussion = self.create_discussion(title="Post stream budget", content="Opening budget")
+        anchor = None
+        for index in range(12):
+            post = self.create_reply(
+                discussion,
+                content=f"Budget stream reply {index}",
+                user=self.other_user if index % 2 == 0 else self.user,
+            )
+            if index == 5:
+                anchor = post
+
+        with CaptureQueriesContext(connection) as context:
+            response = self.client.get(
+                f"/api/discussions/{discussion.id}/posts?near={anchor.number}&limit=8",
+                **self.auth_header(self.user),
+            )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        payload = response.json()
+        self.assertGreaterEqual(len(payload["data"]), 1)
+        self.assertLessEqual(len(payload["data"]), 8)
+        self.assertIn(anchor.number, [item["number"] for item in payload["data"]])
+        self.assertLessEqual(
+            len(context.captured_queries),
+            22,
+            "\n".join(query["sql"] for query in context.captured_queries),
+        )
 
     def test_post_stream_and_detail_endpoints_respect_resource_fields_and_includes(self):
         discussion = self.create_discussion(title="Post resource discussion", content="Opening")

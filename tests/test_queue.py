@@ -107,6 +107,11 @@ class QueueServiceTests(TestCase):
         self.assertEqual(metrics["sync_count"], 1)
         self.assertEqual(metrics["enqueued_count"], 0)
         self.assertEqual(metrics["fallback_count"], 0)
+        self.assertEqual(metrics["task_event_count"], 1)
+        self.assertGreaterEqual(metrics["last_duration_ms"], 0)
+        self.assertGreaterEqual(metrics["average_duration_ms"], 0)
+        self.assertEqual(metrics["failed_count"], 0)
+        self.assertEqual(metrics["failure_rate"], 0)
         self.assertEqual(metrics["last_task"], "tests.sync_task")
 
     @override_settings(CELERY_BROKER_URL="redis://localhost:6379/1")
@@ -147,8 +152,24 @@ class QueueServiceTests(TestCase):
         self.assertEqual(metrics["enqueued_count"], 1)
         self.assertEqual(metrics["fallback_count"], 1)
         self.assertEqual(metrics["sync_count"], 0)
+        self.assertEqual(metrics["failed_count"], 1)
+        self.assertEqual(metrics["task_event_count"], 2)
+        self.assertEqual(metrics["failure_rate"], 0.5)
+        self.assertGreaterEqual(metrics["max_duration_ms"], metrics["last_duration_ms"])
         self.assertEqual(metrics["last_task"], "tests.failing_task")
         self.assertEqual(metrics["last_error"], "queue down")
+
+    def test_queue_metrics_record_retry_events(self):
+        from bias_core.queue_service import QueueService
+
+        QueueService.reset_metrics()
+        QueueService.record_retry("tests.retry_task", error="retry later")
+        metrics = QueueService.get_metrics()
+
+        self.assertEqual(metrics["retry_count"], 1)
+        self.assertEqual(metrics["task_event_count"], 1)
+        self.assertEqual(metrics["last_task"], "tests.retry_task")
+        self.assertEqual(metrics["last_error"], "retry later")
 
     @override_settings(CELERY_BROKER_URL="redis://localhost:6379/1")
     def test_queue_dispatch_skips_live_enqueue_for_app_tasks_during_tests(self):

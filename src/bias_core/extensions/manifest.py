@@ -85,6 +85,8 @@ class ExtensionManifestLoader:
         else:
             include_distributions = bool(self.include_distributions)
         if not include_distributions:
+            if self.distribution_path is None:
+                _distribution_manifest_cache = None
             return []
         use_cache = self.distribution_path is None
         if use_cache and _distribution_manifest_cache is not None:

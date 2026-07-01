@@ -778,6 +778,66 @@ class ExtensionManifestLoaderTests(TestCase):
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
+    def test_application_bootstrap_merges_multiple_websocket_route_extenders_for_same_extension(self):
+        temp_dir = make_workspace_temp_dir()
+        try:
+            extensions_dir = Path(temp_dir) / "extensions"
+            manifest_dir = extensions_dir / "alpha-tools"
+            backend_dir = manifest_dir / "backend"
+            manifest_dir.mkdir(parents=True, exist_ok=False)
+            backend_dir.mkdir(parents=True, exist_ok=False)
+            (manifest_dir / "extension.json").write_text(json.dumps({
+                "id": "alpha-tools",
+                "name": "Alpha Tools",
+                "version": "1.0.0",
+                "backend_entry": "extensions.alpha_tools.backend.ext",
+            }, ensure_ascii=False), encoding="utf-8")
+            (backend_dir / "ext.py").write_text(
+                "from channels.generic.websocket import AsyncWebsocketConsumer\n"
+                "from bias_core.extensions import WebSocketRoutesExtender\n"
+                "\n"
+                "class AlphaConsumer(AsyncWebsocketConsumer):\n"
+                "    pass\n"
+                "\n"
+                "class BetaConsumer(AsyncWebsocketConsumer):\n"
+                "    pass\n"
+                "\n"
+                "def extend():\n"
+                "    return [\n"
+                "        WebSocketRoutesExtender().route(r'ws/alpha/$', 'alpha.websocket', AlphaConsumer),\n"
+                "        WebSocketRoutesExtender().route(r'ws/beta/$', 'beta.websocket', BetaConsumer),\n"
+                "    ]\n",
+                encoding="utf-8",
+            )
+
+            ExtensionInstallation.objects.create(
+                extension_id="alpha-tools",
+                version="1.0.0",
+                source="filesystem",
+                enabled=True,
+                installed=True,
+                booted=True,
+            )
+
+            registry = ExtensionRegistry(extensions_path=extensions_dir)
+            application = build_extension_application(manager=registry, force=True)
+            routes = application.get_websocket_routes()
+            runtime_view = application.get_runtime_view("alpha-tools")
+
+            self.assertEqual(
+                [(route.name, route.path) for route in routes],
+                [
+                    ("alpha.websocket", "ws/alpha/$"),
+                    ("beta.websocket", "ws/beta/$"),
+                ],
+            )
+            self.assertEqual(
+                [route.name for route in runtime_view.websocket_routes],
+                ["alpha.websocket", "beta.websocket"],
+            )
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
     def test_realtime_routing_builds_extension_websocket_urlpatterns(self):
         temp_dir = make_workspace_temp_dir()
         try:
@@ -1689,6 +1749,43 @@ class ExtensionManifestLoaderTests(TestCase):
             clear_bootstrapped_extension_host()
 
         self.assertFalse(is_extension_host_bootstrapped())
+
+    def test_public_runtime_service_resolver_reads_and_calls_registered_services(self):
+        from bias_core.extensions import (
+            call_runtime_service,
+            get_runtime_model,
+            get_runtime_service,
+            get_runtime_service_value,
+            require_runtime_service,
+        )
+
+        app = ExtensionApplication()
+        app.instance("alpha.runtime", {
+            "model": "AlphaModel",
+            "double": lambda value: value * 2,
+        })
+
+        with patch("bias_core.extensions.bootstrap.get_extension_host", return_value=app):
+            self.assertEqual(get_runtime_service("alpha.runtime")["model"], "AlphaModel")
+            self.assertEqual(require_runtime_service("alpha.runtime")["model"], "AlphaModel")
+            self.assertEqual(get_runtime_service_value("alpha.runtime", "model"), "AlphaModel")
+            self.assertEqual(get_runtime_model("alpha.runtime"), "AlphaModel")
+            self.assertEqual(call_runtime_service("alpha.runtime", "double", 21), 42)
+            self.assertEqual(get_runtime_service("missing.runtime", "fallback"), "fallback")
+
+    def test_public_runtime_service_resolver_raises_for_missing_services_and_methods(self):
+        from bias_core.extensions import call_runtime_service, get_runtime_model, require_runtime_service
+
+        app = ExtensionApplication()
+        app.instance("alpha.runtime", {})
+
+        with patch("bias_core.extensions.bootstrap.get_extension_host", return_value=app):
+            with self.assertRaisesMessage(RuntimeError, "扩展运行时服务未注册: missing.runtime"):
+                require_runtime_service("missing.runtime")
+            with self.assertRaisesMessage(RuntimeError, "扩展运行时服务缺少方法: missing_method"):
+                call_runtime_service("alpha.runtime", "missing_method")
+            with self.assertRaisesMessage(RuntimeError, "alpha runtime must expose model"):
+                get_runtime_model("alpha.runtime", required_message="alpha runtime must expose model")
 
     def test_discussion_post_runtime_facades_prefer_content_foundation(self):
         from bias_core.extensions.runtime_posts import (

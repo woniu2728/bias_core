@@ -24,13 +24,13 @@ def _default_post_type() -> str:
 def _discussion_counted_post_types() -> tuple[str, ...]:
     from bias_core.extensions.platform import get_forum_registry
 
-    return tuple(get_forum_registry().get_discussion_counted_post_type_codes() or ())
+    return tuple(get_forum_registry().get_discussion_counted_post_type_codes() or (_default_post_type(),))
 
 
 def _user_counted_post_types() -> tuple[str, ...]:
     from bias_core.extensions.platform import get_forum_registry
 
-    return tuple(get_forum_registry().get_user_counted_post_type_codes() or ())
+    return tuple(get_forum_registry().get_user_counted_post_type_codes() or (_default_post_type(),))
 
 
 def get_runtime_content_posts_service(default: Any = None):

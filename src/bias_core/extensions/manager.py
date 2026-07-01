@@ -69,15 +69,9 @@ class ExtensionManager:
         default_path = Path(settings.BASE_DIR) / "extensions"
         self.extensions_path = Path(extensions_path or default_path)
         try:
-            self._uses_default_extensions_path = (
-                extensions_path is None
-                or self.extensions_path.resolve() == default_path.resolve()
-            )
+            self._uses_default_extensions_path = extensions_path is None
         except OSError:
-            self._uses_default_extensions_path = (
-                extensions_path is None
-                or self.extensions_path == default_path
-            )
+            self._uses_default_extensions_path = extensions_path is None
         self._extensions: dict[str, Extension] = {}
         self._loaded = False
         self._loading = False
@@ -707,7 +701,10 @@ class ExtensionManager:
             "updated": updated,
             "pruned": pruned,
             "locked": len(self._build_package_lock(discovered=discovered, installations=installations)["packages"]),
-            "package_inspection": self.inspect_extension_packages(force=True),
+            "package_inspection": self._inspect_extension_packages_from_snapshot(
+                discovered=discovered,
+                installations=installations,
+            ),
         }
 
     @transaction.atomic
@@ -752,6 +749,17 @@ class ExtensionManager:
             installation.extension_id: installation
             for installation in ExtensionInstallation.objects.all()
         }
+        return self._inspect_extension_packages_from_snapshot(
+            discovered=discovered,
+            installations=installations,
+        )
+
+    def _inspect_extension_packages_from_snapshot(
+        self,
+        *,
+        discovered: dict[str, Extension],
+        installations: dict[str, ExtensionInstallation],
+    ) -> dict:
         packages = self._build_package_lock(discovered=discovered, installations=installations)["packages"]
         missing = [item["id"] for item in packages if item["missing"]]
         version_drift = [item["id"] for item in packages if item.get("version_mismatch")]

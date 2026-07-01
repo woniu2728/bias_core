@@ -19,6 +19,9 @@ from bias_core.runtime_diagnostics import (
     detect_realtime_driver,
     is_redis_enabled,
 )
+from bias_core.health import collect_health_status
+from bias_core.services.http_metrics import get_http_metrics
+from bias_core.storage_service import get_storage_metrics
 
 
 router = Router()
@@ -50,6 +53,8 @@ def get_stats(request):
     queue_enabled = bool(advanced_settings.get("queue_enabled", False))
     queue_worker_status = QueueService.get_worker_status()
     queue_metrics = QueueService.get_metrics()
+    http_metrics = get_http_metrics()
+    storage_metrics = get_storage_metrics()
     database_label = detect_database_label()
     cache_driver = detect_cache_driver()
     realtime_driver = detect_realtime_driver()
@@ -80,6 +85,17 @@ def get_stats(request):
         auth_secret_risks=auth_secret_risks,
         web_concurrency=getattr(settings, "WEB_CONCURRENCY", 1),
     )
+    health = collect_health_status(
+        advanced_settings=advanced_settings,
+        cache_connection=cache_connection,
+        realtime_connection=realtime_connection,
+        queue_broker_connection=queue_broker_connection,
+        queue_worker_status=queue_worker_status,
+        storage_config=advanced_settings,
+        queue_enabled=queue_enabled,
+        queue_driver=queue_driver,
+    )
+    storage_health = health["checks"]["storage"]
 
     stats = {
         "runtimeName": "Python",
@@ -96,6 +112,7 @@ def get_stats(request):
         "queueWorkerCount": queue_worker_status["worker_count"],
         "queueWorkerMessage": queue_worker_status["message"],
         "queueMetrics": queue_metrics,
+        "httpMetrics": http_metrics,
         "realtimeDriver": realtime_driver,
         "redisEnabled": redis_enabled,
         "cacheConnectionStatus": cache_connection["status"],
@@ -111,6 +128,14 @@ def get_stats(request):
         "queueBrokerAvailable": queue_broker_connection["available"],
         "queueBrokerMessage": queue_broker_connection["message"],
         "runtimeDependencyChecks": runtime_dependency_checks,
+        "healthStatus": health["status"],
+        "healthChecks": health["checks"],
+        "storageStatus": storage_health["status"],
+        "storageAvailable": storage_health["available"],
+        "storageMessage": storage_health["message"],
+        "storageDriver": storage_health.get("driver", ""),
+        "storageBackend": storage_health.get("backend", ""),
+        "storageMetrics": storage_metrics,
         "runtimeRisks": runtime_risks,
         "authSecretStatus": auth_secret_status["status"],
         "authSecretLabel": auth_secret_status["label"],

@@ -20,6 +20,15 @@ from bias_core.testing import build_extension_test_host
 
 
 EXPECTED_TEST_SETTINGS = "bias_core.extension_test_settings"
+SITE_HOST_DIRECTORY_NAMES = {"bias", "bias_site", "site"}
+
+
+def resolve_command_workspace_root(extensions_path: Path) -> Path | None:
+    if extensions_path.name != "extensions":
+        return None
+    if extensions_path.parent.name in SITE_HOST_DIRECTORY_NAMES:
+        return extensions_path.parent.parent
+    return extensions_path.parent
 
 
 class Command(BaseCommand):
@@ -84,8 +93,14 @@ class Command(BaseCommand):
         )
         if not skip_inspect_extensions:
             payload["checks"]["runtime_service_contracts"] = self._run_runtime_service_contract_check(manifests)
+            payload["checks"]["foundation_boundaries"] = self._run_foundation_boundary_check(manifests)
         else:
             payload["checks"]["runtime_service_contracts"] = {
+                "ok": True,
+                "skipped": True,
+                "issues": [],
+            }
+            payload["checks"]["foundation_boundaries"] = {
                 "ok": True,
                 "skipped": True,
                 "issues": [],
@@ -131,6 +146,7 @@ class Command(BaseCommand):
         loader = ExtensionManifestLoader(
             extensions_path,
             include_workspace=include_workspace,
+            workspace_root=resolve_command_workspace_root(extensions_path),
             include_distributions=False,
         )
         try:
@@ -260,6 +276,71 @@ class Command(BaseCommand):
             "contracts": snapshot,
         }
 
+    def _run_foundation_boundary_check(self, manifests) -> dict:
+        by_id = {str(manifest.id or "").strip(): manifest for manifest in manifests}
+        issues = []
+        for extension_id in ("content", "users"):
+            manifest = by_id.get(extension_id)
+            if manifest is None:
+                issues.append(_issue(
+                    "missing_foundation_extension",
+                    f"{extension_id} foundation 扩展必须存在。",
+                    extension_id=extension_id,
+                ))
+                continue
+            extra = dict(getattr(manifest, "extra", {}) or {})
+            for field in ("auto_install", "auto_enable", "protected"):
+                if extra.get(field) is not True:
+                    issues.append(_issue(
+                        "foundation_not_protected",
+                        f"{extension_id} foundation 扩展 extra.{field} 必须为 true。",
+                        extension_id=extension_id,
+                    ))
+
+        required_ids = tuple(
+            extension_id
+            for extension_id in ("content", "users", "discussions", "posts")
+            if extension_id in by_id
+        )
+        owned_by_extension: dict[str, list[str]] = {}
+        content_owned_labels: set[str] = set()
+        try:
+            host = build_extension_test_host(*required_ids)
+            for extension_id in required_ids:
+                owned = host.models.get_owned_models(extension_id=extension_id)
+                owned_labels = sorted(_model_label(definition.model) for definition in owned)
+                owned_by_extension[extension_id] = owned_labels
+                if extension_id == "content":
+                    content_owned_labels.update(owned_labels)
+        except Exception as exc:
+            issues.append(_issue("foundation_model_ownership_failed", str(exc), extension_id="content"))
+            owned_by_extension = {}
+
+        required_content_labels = {"content.Discussion", "content.DiscussionUser", "content.Post"}
+        missing_labels = sorted(required_content_labels - content_owned_labels)
+        if missing_labels:
+            issues.append(_issue(
+                "content_missing_foundation_model_owner",
+                f"content 必须拥有基础内容模型: {', '.join(missing_labels)}。",
+                extension_id="content",
+            ))
+        for extension_id in ("discussions", "posts"):
+            leaked = sorted(required_content_labels & set(owned_by_extension.get(extension_id, ())))
+            if leaked:
+                issues.append(_issue(
+                    "feature_extension_owns_foundation_model",
+                    f"{extension_id} 只能作为 UI/API wrapper，不能拥有 foundation 模型: {', '.join(leaked)}。",
+                    extension_id=extension_id,
+                ))
+
+        return {
+            "ok": not any(issue.get("level") == "error" for issue in issues),
+            "required_foundations": ["content", "users"],
+            "foundation_model_labels": sorted(required_content_labels),
+            "owned_by_extension": owned_by_extension,
+            "issues": issues,
+        }
+
 
 def _load_json_stdout(stdout: StringIO) -> dict:
     value = stdout.getvalue().strip()
@@ -296,3 +377,13 @@ def _issue(code: str, message: str, *, extension_id: str = "", level: str = "err
         "extension_id": extension_id,
         "message": message,
     }
+
+
+def _model_label(model) -> str:
+    meta = getattr(model, "_meta", None)
+    label = str(getattr(meta, "label", "") or getattr(meta, "label_lower", "") or "").strip()
+    if label:
+        return label
+    module = str(getattr(model, "__module__", "") or "").strip()
+    name = str(getattr(model, "__name__", "") or getattr(model, "__qualname__", "") or "").strip()
+    return f"{module}.{name}" if module and name else (name or str(model))

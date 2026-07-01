@@ -4,6 +4,10 @@ class ExtensionValidationTests(TestCase):
     def test_resolve_bias_version_compatibility_supports_simple_ranges(self):
         temp_dir = make_extension_test_base_dir()
         try:
+            manifest_path = Path(temp_dir) / "extensions" / "alpha-tools" / "extension.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["compatibility"]["bias_version"] = ">=1.0.0 <2.0.0"
+            manifest_path.write_text(json.dumps(manifest, ensure_ascii=False), encoding="utf-8")
             registry = ExtensionRegistry(extensions_path=temp_dir / "extensions")
             extension = registry.get_extension("alpha-tools")
 

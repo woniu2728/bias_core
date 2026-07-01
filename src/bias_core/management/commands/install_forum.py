@@ -18,6 +18,7 @@ from bias_core.conf.bootstrap import (
 )
 from bias_core.management.command_utils import build_manage_env, run_manage_py
 from bias_core.models import Setting
+from bias_core.secret_validation import looks_like_placeholder_secret
 
 
 def _running_in_docker() -> bool:
@@ -171,22 +172,55 @@ class Command(BaseCommand):
         parser.add_argument("--email-host-password", help="SMTP 密码")
         parser.add_argument("--default-from-email", help="默认发件人邮箱")
         parser.add_argument("--non-interactive", action="store_true", help="使用非交互模式执行")
+        parser.add_argument("--dry-run", action="store_true", help="只输出安装计划，不写入配置或执行迁移")
+        parser.add_argument(
+            "--format",
+            choices=["text", "json"],
+            default="text",
+            help="输出格式。json 用于 CI 读取 dry-run 配置检查结果。",
+        )
 
     def handle(self, *args, **options):
         non_interactive = bool(options["non_interactive"])
-        config_path = self._resolve_config_path(options["config"])
+        dry_run = bool(options["dry_run"])
+        output_format = str(options.get("format") or "text")
+        config_path = self._resolve_config_path(options["config"], create_parent=not bool(options["dry_run"]))
         existing_content = config_path.read_text(encoding="utf-8") if config_path.exists() else None
         existing_config = read_site_config(config_path) if config_path.exists() else None
 
-        if existing_content is not None and not options["overwrite"]:
+        if existing_content is not None and not options["overwrite"] and not dry_run:
             raise CommandError(f"站点配置已存在: {config_path}。如需覆盖，请显式传入 --overwrite")
 
         database = options.get("database") or (
             existing_config.database_mode if existing_config else self._prompt_database(non_interactive)
         )
         config = self._build_site_config(database, options, existing_config)
-        self._validate_config(config)
-        assert_database_connection(config)
+        self._validate_config(config, emit_warnings=output_format != "json")
+        production_findings = self._build_production_config_findings(config)
+        install_settings = self._build_advanced_runtime_defaults(config)
+        command_env = build_manage_env({"BIAS_INSTALLING": "1"}, config_path=config_path)
+        steps = self._build_install_steps(options, non_interactive)
+
+        if output_format == "json" and dry_run:
+            self.stdout.write(json.dumps(
+                self._build_install_plan_payload(
+                    config_path=config_path,
+                    config=config,
+                    steps=steps,
+                    production_findings=production_findings,
+                    dry_run=dry_run,
+                ),
+                ensure_ascii=False,
+                indent=2,
+            ))
+            return
+
+        if not dry_run:
+            blocking_findings = [item for item in production_findings if item["level"] == "error"]
+            if blocking_findings:
+                details = "；".join(item["message"] for item in blocking_findings)
+                raise CommandError(f"生产配置缺少必需项: {details}")
+            assert_database_connection(config)
 
         self.stdout.write(self.style.MIGRATE_HEADING("开始初始化 Bias"))
         self.stdout.write(f"站点配置: {config_path}")
@@ -196,53 +230,36 @@ class Command(BaseCommand):
             f"站点域名: {', '.join(config.site_domains) if config.site_domains else '未配置，保持本地默认'}"
         )
 
-        write_site_config(config_path, config)
-        install_settings = self._build_advanced_runtime_defaults(config)
-        command_env = build_manage_env({"BIAS_INSTALLING": "1"}, config_path=config_path)
+        self.stdout.write("安装计划:")
+        for label, args in steps:
+            self.stdout.write(f"- {label}: python manage.py {' '.join(args)}")
+
+        if production_findings:
+            self.stdout.write("生产配置检查:")
+            for item in production_findings:
+                prefix = "[ERROR]" if item["level"] == "error" else "[WARN]"
+                self.stdout.write(f"- {prefix} {item['code']}: {item['message']}")
+        else:
+            self.stdout.write("生产配置检查: 未发现阻塞项")
+
+        if dry_run:
+            self.stdout.write(self.style.SUCCESS("[DRY-RUN] 仅输出计划，未写入配置或执行安装步骤"))
+            return
 
         try:
-            if not options["skip_migrate"]:
-                self._run_manage_step("数据库迁移", ["migrate", "--noinput"], command_env)
-            else:
-                self.stdout.write("[SKIP] 已跳过 migrate")
+            write_site_config(config_path, config)
+            settings_written = False
+            if not steps or steps[0][1][0] != "migrate":
+                self._write_install_settings(install_settings, command_env)
+                settings_written = True
 
-            self._write_install_settings(install_settings, command_env)
-
-            if not options["skip_sync_extensions"]:
-                self._run_manage_step("扩展状态同步", ["sync_extensions"], command_env)
-                self._run_manage_step("扩展启用顺序同步", ["sync_extension_order"], command_env)
-            else:
-                self.stdout.write("[SKIP] 已跳过 sync_extensions / sync_extension_order")
-
-            if not options["skip_extension_migrations"]:
-                self._run_manage_step("扩展迁移摘要同步", ["migrate_extensions", "--all"], command_env)
-            else:
-                self.stdout.write("[SKIP] 已跳过 migrate_extensions --all")
-
-            self._run_manage_step("默认用户组与权限初始化", ["init_groups"], command_env)
-            self._run_manage_step("写入安装版本", ["sync_forum_version"], command_env)
-
-            if not options["skip_extension_frontend"]:
-                frontend_args = ["build_extension_frontend"]
-                if options["rebuild_extension_frontend"] or options["publish_frontend_dist"]:
-                    frontend_args.append("--rebuild")
-                if options["publish_frontend_dist"]:
-                    frontend_args.append("--publish")
-                self._run_manage_step("扩展前端构建清单生成", frontend_args, command_env)
-            else:
-                self.stdout.write("[SKIP] 已跳过 build_extension_frontend")
-
-            if not options["skip_collectstatic"]:
-                self._run_manage_step("静态资源收集", ["collectstatic", "--noinput"], command_env)
-            else:
-                self.stdout.write("[SKIP] 已跳过 collectstatic")
-
-            if not options["skip_admin"]:
-                admin_args = self._build_admin_command_args(options, non_interactive)
-                self._run_manage_step("管理员创建", ["ensure_admin", *admin_args], command_env)
-                self.stdout.write(self.style.SUCCESS(f"[OK] 管理员账号已就绪: {admin_args[1]}"))
-            else:
-                self.stdout.write("[SKIP] 已跳过管理员创建")
+            for label, args in steps:
+                self._run_manage_step(label, args, command_env)
+                if args and args[0] == "migrate" and not settings_written:
+                    self._write_install_settings(install_settings, command_env)
+                    settings_written = True
+                if args and args[0] == "ensure_admin":
+                    self.stdout.write(self.style.SUCCESS(f"[OK] 管理员账号已就绪: {args[2]}"))
         except Exception:
             if existing_content is None:
                 config_path.unlink(missing_ok=True)
@@ -256,11 +273,70 @@ class Command(BaseCommand):
         if _running_in_docker():
             self.stdout.write("- 如果 web/celery 已经在运行，请执行 docker compose restart web celery 让新配置生效")
 
-    def _resolve_config_path(self, raw_path: str) -> Path:
+    def _build_install_plan_payload(
+        self,
+        *,
+        config_path: Path,
+        config: SiteBootstrapConfig,
+        steps: list[tuple[str, list[str]]],
+        production_findings: list[dict[str, str]],
+        dry_run: bool,
+    ) -> dict[str, object]:
+        error_count = sum(1 for item in production_findings if item.get("level") == "error")
+        warning_count = sum(1 for item in production_findings if item.get("level") == "warning")
+        return {
+            "config_path": str(config_path),
+            "database_mode": config.database_mode,
+            "redis_enabled": bool(config.use_redis),
+            "site_domains": list(config.site_domains),
+            "frontend_url": config.frontend_url,
+            "install_steps": [
+                {
+                    "label": label,
+                    "args": args,
+                    "command": "python manage.py " + " ".join(args),
+                }
+                for label, args in steps
+            ],
+            "production_config_findings": production_findings,
+            "summary": {
+                "ok": error_count == 0,
+                "error_count": error_count,
+                "warning_count": warning_count,
+                "dry_run": dry_run,
+            },
+        }
+
+    def _build_install_steps(self, options: Dict[str, str], non_interactive: bool) -> list[tuple[str, list[str]]]:
+        steps: list[tuple[str, list[str]]] = []
+        if not options["skip_migrate"]:
+            steps.append(("数据库迁移", ["migrate", "--noinput"]))
+        if not options["skip_sync_extensions"]:
+            steps.append(("扩展状态同步", ["sync_extensions"]))
+            steps.append(("扩展启用顺序同步", ["sync_extension_order"]))
+        if not options["skip_extension_migrations"]:
+            steps.append(("扩展迁移摘要同步", ["migrate_extensions", "--all"]))
+        steps.append(("默认用户组与权限初始化", ["init_groups"]))
+        steps.append(("写入安装版本", ["sync_forum_version"]))
+        if not options["skip_extension_frontend"]:
+            frontend_args = ["build_extension_frontend"]
+            if options["rebuild_extension_frontend"] or options["publish_frontend_dist"]:
+                frontend_args.append("--rebuild")
+            if options["publish_frontend_dist"]:
+                frontend_args.append("--publish")
+            steps.append(("扩展前端构建清单生成", frontend_args))
+        if not options["skip_collectstatic"]:
+            steps.append(("静态资源收集", ["collectstatic", "--noinput"]))
+        if not options["skip_admin"]:
+            steps.append(("管理员创建", ["ensure_admin", *self._build_admin_command_args(options, non_interactive)]))
+        return steps
+
+    def _resolve_config_path(self, raw_path: str, *, create_parent: bool = True) -> Path:
         path = Path(raw_path)
         if not path.is_absolute():
             path = Path(settings.BASE_DIR) / path
-        path.parent.mkdir(parents=True, exist_ok=True)
+        if create_parent:
+            path.parent.mkdir(parents=True, exist_ok=True)
         return path
 
     def _prompt_database(self, non_interactive: bool) -> str:
@@ -373,7 +449,7 @@ class Command(BaseCommand):
         config.frontend_url = config.resolved_frontend_url()
         return config
 
-    def _validate_config(self, config: SiteBootstrapConfig) -> None:
+    def _validate_config(self, config: SiteBootstrapConfig, *, emit_warnings: bool = True) -> None:
         db_mode = (config.database_mode or "sqlite").strip().lower()
         normalized = "sqlite" if db_mode.startswith("sqlite") else "postgres"
 
@@ -397,7 +473,7 @@ class Command(BaseCommand):
 
         # Postgres 生产模式下，console 邮件后端会导致 startup_guard 拒绝启动，
         # 提醒用户通过 EMAIL_BACKEND 环境变量或 --email-backend 参数配置真实邮件后端
-        if "console" in (config.email_backend or ""):
+        if emit_warnings and "console" in (config.email_backend or ""):
             self.stdout.write(
                 self.style.WARNING(
                     "⚠️  生产模式(postgres)下邮件后端仍为 console，启动自检会拒绝启动。\n"
@@ -405,6 +481,58 @@ class Command(BaseCommand):
                     "    安装阶段已通过 BIAS_INSTALLING 标志暂时放行，但安装完成后必须配置。"
                 )
             )
+
+    def _build_production_config_findings(self, config: SiteBootstrapConfig) -> list[dict[str, str]]:
+        db_mode = (config.database_mode or "sqlite").strip().lower()
+        normalized = "sqlite" if db_mode.startswith("sqlite") else "postgres"
+        if normalized != "postgres":
+            return []
+
+        findings: list[dict[str, str]] = []
+
+        def add(level: str, code: str, message: str) -> None:
+            findings.append({"level": level, "code": code, "message": message})
+
+        required_fields = (
+            ("db_name", config.db_name, "PostgreSQL 数据库名"),
+            ("db_user", config.db_user, "PostgreSQL 用户名"),
+            ("db_password", config.db_password, "PostgreSQL 密码"),
+            ("db_host", config.db_host, "PostgreSQL 主机"),
+            ("db_port", config.db_port, "PostgreSQL 端口"),
+        )
+        for field, value, label in required_fields:
+            if looks_like_placeholder_secret(value):
+                add("error", f"{field}_placeholder", f"{label} 仍为空或为占位值，请替换为真实部署值。")
+
+        if looks_like_placeholder_secret(config.secret_key):
+            add("error", "secret_key_placeholder", "SECRET_KEY 仍为空或为占位值，请使用独立高强度密钥。")
+        if looks_like_placeholder_secret(config.jwt_secret_key):
+            add("error", "jwt_secret_key_placeholder", "JWT_SECRET_KEY 仍为空或为占位值，请使用独立高强度密钥。")
+        if not config.site_domains and not config.frontend_url:
+            add("error", "site_origin_missing", "缺少 SITE_DOMAINS 或 FRONTEND_URL，无法生成 allowed hosts / CSRF trusted origins。")
+        if not config.use_redis:
+            add("error", "redis_disabled", "PostgreSQL 生产部署必须启用 Redis cache/queue。")
+        if config.use_redis:
+            for field, value, label in (
+                ("redis_host", config.redis_host, "Redis 主机"),
+                ("redis_port", config.redis_port, "Redis 端口"),
+                ("redis_db", config.redis_db, "Redis DB"),
+            ):
+                if looks_like_placeholder_secret(value):
+                    add("error", f"{field}_placeholder", f"{label} 仍为空或为占位值，请替换为真实部署值。")
+        if "console" in (config.email_backend or ""):
+            add("error", "email_backend_console", "生产部署不能使用 console 邮件后端，请配置 SMTP 或等价生产邮件 backend。")
+        if "smtp" in (config.email_backend or "").lower():
+            if looks_like_placeholder_secret(config.email_host):
+                add("error", "email_host_placeholder", "SMTP 主机仍为空或为占位值。")
+            if looks_like_placeholder_secret(config.default_from_email):
+                add("warning", "default_from_email_placeholder", "DEFAULT_FROM_EMAIL 仍为空或为占位值。")
+        if not (config.media_url or "").strip():
+            add("warning", "media_url_missing", "media_url 为空，生产部署应明确 media 访问路径或对象存储地址。")
+        if not (config.static_url or "").strip():
+            add("warning", "static_url_missing", "static_url 为空，生产部署应明确 static 访问路径。")
+
+        return findings
 
     def _resolve_redis_enabled(
         self,

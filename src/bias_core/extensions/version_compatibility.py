@@ -58,7 +58,7 @@ def matches_simple_version_range(version: str, version_range: str) -> bool:
         )
 
     operator = ""
-    for candidate in ("^", "~", ">=", "<=", ">", "<"):
+    for candidate in ("^", "~", ">=", "<=", "==", ">", "<", "="):
         if normalized.startswith(candidate):
             operator = candidate
             normalized = normalized[len(candidate):]
@@ -85,6 +85,8 @@ def matches_simple_version_range(version: str, version_range: str) -> bool:
         return current > target
     if operator == "<":
         return current < target
+    if operator in {"=", "=="}:
+        return current == target
     return current == target
 
 

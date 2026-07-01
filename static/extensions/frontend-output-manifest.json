@@ -1,7 +1,7 @@
 {
   "build": {
     "command": [],
-    "compiled_at": "2026-06-27T05:57:10.380127+00:00",
+    "compiled_at": "2026-07-01T07:54:52.170337+00:00",
     "published": {
       "message": "未请求发布前端 dist。",
       "source": "D:\\files\\project\\tmp\\bias_core\\frontend\\dist",
@@ -466,15 +466,6 @@
               "key": "../../../extensions/tags/frontend/forum/TagsView.vue",
               "module_id": "frontend/forum/TagsView.vue",
               "revision": ""
-            },
-            {
-              "css": [],
-              "dynamic_imports": [],
-              "file": "../../../extensions/discussions/frontend/forum/DiscussionListView.vue",
-              "imports": [],
-              "key": "../../../extensions/discussions/frontend/forum/DiscussionListView.vue",
-              "module_id": "frontend/forum/DiscussionListView.vue",
-              "revision": ""
             }
           ],
           "revision": ""
@@ -494,18 +485,6 @@
           "removed": false,
           "requires_auth": false,
           "title": "全部标签"
-        },
-        {
-          "component": "extensions/discussions/frontend/forum/DiscussionListView.vue",
-          "description": "查看该标签下的论坛讨论。",
-          "frontend": "forum",
-          "module_id": "tags",
-          "name": "tag-detail",
-          "order": 31,
-          "path": "/t/:slug",
-          "removed": false,
-          "requires_auth": false,
-          "title": "标签讨论"
         }
       ],
       "source": "filesystem",
@@ -681,8 +660,8 @@
       "title_driver": ""
     }
   },
-  "generated_at": "2026-06-27T05:57:10.380127+00:00",
-  "input_revision": "bc1ce59f56f8e156",
+  "generated_at": "2026-07-01T07:54:52.170337+00:00",
+  "input_revision": "6a4153939d997a7e",
   "revision": "",
   "vite_manifest_exists": false,
   "vite_manifest_path": "D:\\files\\project\\tmp\\bias_core\\frontend\\dist\\.vite\\manifest.json"

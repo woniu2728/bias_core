@@ -170,6 +170,12 @@ def validate_cross_extension_imports(
                 source,
                 relative_path,
             )
+            validate_legacy_runtime_facade_usage(
+                collector,
+                manifest,
+                source,
+                relative_path,
+            )
         validate_event_contract_paths(
             collector,
             manifest,
@@ -307,6 +313,38 @@ def validate_runtime_facade_import_phase(
     )
 
 
+def validate_legacy_runtime_facade_usage(
+    collector: ExtensionValidationCollector,
+    manifest: ExtensionManifest,
+    source: str,
+    relative_path: str,
+) -> None:
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return
+
+    imported_names = sorted({
+        imported_name
+        for imported_name, required_extension_id in iter_lazy_runtime_facade_extension_references(tree)
+        if required_extension_id != manifest.id
+    })
+    if not imported_names:
+        return
+
+    names_text = ", ".join(imported_names[:8])
+    if len(imported_names) > 8:
+        names_text = f"{names_text}, ..."
+    collector.add_warning(
+        "legacy_runtime_facade_import",
+        f"扩展源码通过旧 runtime facade 访问跨扩展能力: {names_text}。"
+        "新扩展应通过 get_runtime_service(...) / call_runtime_service(...) 访问声明过的 runtime service contract，"
+        "旧 facade 仅保留兼容期入口。",
+        extension_id=manifest.id,
+        field=relative_path,
+    )
+
+
 def validate_runtime_facade_dependency_graph(
     collector: ExtensionValidationCollector,
     manifests: list[ExtensionManifest],
@@ -316,6 +354,63 @@ def validate_runtime_facade_dependency_graph(
     include_tests: bool = False,
     capability_providers: dict[str, str] | None = None,
 ) -> None:
+    snapshot = snapshot_runtime_facade_dependency_graph(
+        manifests,
+        base_path,
+        known_extension_ids=known_extension_ids,
+        include_tests=include_tests,
+        capability_providers=capability_providers,
+    )
+    graph = {
+        source_id: set(targets)
+        for source_id, targets in snapshot["dependencies"].items()
+    }
+    runtime_edges = {
+        (edge["source"], edge["target"]): [
+            (reference["field"], reference["facade"])
+            for reference in edge["references"]
+        ]
+        for edge in snapshot["runtime_edges"]
+    }
+
+    for cycle in _find_dependency_cycles(graph):
+        cycle_edges = list(zip(cycle, (*cycle[1:], cycle[0])))
+        inferred_edges = [
+            (source_id, target_id, runtime_edges[(source_id, target_id)])
+            for source_id, target_id in cycle_edges
+            if (source_id, target_id) in runtime_edges
+        ]
+        if not inferred_edges:
+            continue
+        cycle_text = " -> ".join((*cycle, cycle[0]))
+        for source_id, target_id, references in inferred_edges:
+            fields = sorted({field for field, _name in references})
+            names = sorted({name for _field, name in references})
+            names_text = ", ".join(names[:8])
+            if len(names) > 8:
+                names_text = f"{names_text}, ..."
+            fields_text = ", ".join(fields[:4])
+            if len(fields) > 4:
+                fields_text = f"{fields_text}, ..."
+            collector.add_error(
+                "runtime_facade_dependency_cycle",
+                f"runtime facade 推断出 {source_id} -> {target_id} 依赖，"
+                f"与现有依赖图形成循环: {cycle_text}。"
+                f"涉及 facade: {names_text or '-'}。涉及文件: {fields_text or '-'}。"
+                "这类问题不能靠补 manifest 依赖解决，需要合并领域边界或把共享生命周期契约下沉到更低层。",
+                extension_id=source_id,
+                field=fields[0] if fields else "dependencies",
+            )
+
+
+def snapshot_runtime_facade_dependency_graph(
+    manifests: list[ExtensionManifest],
+    base_path: Path,
+    *,
+    known_extension_ids: set[str],
+    include_tests: bool = False,
+    capability_providers: dict[str, str] | None = None,
+) -> dict:
     manifest_ids = {manifest.id for manifest in manifests}
     graph: dict[str, set[str]] = {manifest.id: set() for manifest in manifests}
     runtime_edges: dict[tuple[str, str], list[tuple[str, str]]] = {}
@@ -355,34 +450,27 @@ def validate_runtime_facade_dependency_graph(
                     (relative_path, imported_name)
                 )
 
-    for cycle in _find_dependency_cycles(graph):
-        cycle_edges = list(zip(cycle, (*cycle[1:], cycle[0])))
-        inferred_edges = [
-            (source_id, target_id, runtime_edges[(source_id, target_id)])
-            for source_id, target_id in cycle_edges
-            if (source_id, target_id) in runtime_edges
-        ]
-        if not inferred_edges:
-            continue
-        cycle_text = " -> ".join((*cycle, cycle[0]))
-        for source_id, target_id, references in inferred_edges:
-            fields = sorted({field for field, _name in references})
-            names = sorted({name for _field, name in references})
-            names_text = ", ".join(names[:8])
-            if len(names) > 8:
-                names_text = f"{names_text}, ..."
-            fields_text = ", ".join(fields[:4])
-            if len(fields) > 4:
-                fields_text = f"{fields_text}, ..."
-            collector.add_error(
-                "runtime_facade_dependency_cycle",
-                f"runtime facade 推断出 {source_id} -> {target_id} 依赖，"
-                f"与现有依赖图形成循环: {cycle_text}。"
-                f"涉及 facade: {names_text or '-'}。涉及文件: {fields_text or '-'}。"
-                "这类问题不能靠补 manifest 依赖解决，需要合并领域边界或把共享生命周期契约下沉到更低层。",
-                extension_id=source_id,
-                field=fields[0] if fields else "dependencies",
-            )
+    return {
+        "dependencies": {
+            source_id: sorted(targets)
+            for source_id, targets in sorted(graph.items())
+        },
+        "runtime_edges": [
+            {
+                "source": source_id,
+                "target": target_id,
+                "references": [
+                    {"field": field, "facade": facade}
+                    for field, facade in sorted(references)
+                ],
+            }
+            for (source_id, target_id), references in sorted(runtime_edges.items())
+        ],
+        "cycles": [
+            list(cycle)
+            for cycle in _find_dependency_cycles(graph)
+        ],
+    }
 
 
 def validate_conditional_extension_dependencies(
@@ -551,6 +639,29 @@ def iter_top_level_runtime_facade_imports(tree: ast.AST):
             continue
         for alias in node.names:
             yield str(alias.name or "").strip()
+
+
+def iter_lazy_runtime_facade_extension_references(tree: ast.AST):
+    top_level_import_ids = {
+        id(node)
+        for node in getattr(tree, "body", ())
+        if isinstance(node, ast.ImportFrom)
+    }
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ImportFrom):
+            continue
+        if id(node) in top_level_import_ids:
+            continue
+        if getattr(node, "level", 0):
+            continue
+        module = str(node.module or "").strip()
+        if module != "bias_core.extensions.runtime":
+            continue
+        for alias in node.names:
+            imported_name = str(alias.name or "").strip()
+            required_extension_id = RUNTIME_FACADE_EXTENSION_DEPENDENCIES.get(imported_name)
+            if required_extension_id:
+                yield imported_name, required_extension_id
 
 
 def iter_event_contract_values(tree: ast.AST):

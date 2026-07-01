@@ -1,13 +1,23 @@
 from tests.common import *
 from django.contrib.auth import get_user_model
+from bias_core.services.http_metrics import get_http_metrics, reset_http_metrics
+from bias_core.storage_service import reset_storage_metrics
 
 class AdminDashboardStatsApiTests(TestCase):
     def setUp(self):
+        reset_http_metrics()
+        reset_storage_metrics()
         self.admin = get_user_model().objects.create_superuser(
             username="dashboard-admin",
             email="dashboard-admin@example.com",
             password="password123",
         )
+        self.settings_cache_patcher = patch("bias_core.services.settings.cache")
+        self.settings_cache = self.settings_cache_patcher.start()
+        self.settings_cache.get.return_value = None
+        self.settings_cache.set.return_value = None
+        self.settings_cache.delete.return_value = True
+        self.addCleanup(self.settings_cache_patcher.stop)
 
     def auth_header(self):
         token = RefreshToken.for_user(self.admin).access_token
@@ -38,6 +48,20 @@ class AdminDashboardStatsApiTests(TestCase):
         self.assertEqual(payload["queueMetrics"]["enqueued_count"], 0)
         self.assertEqual(payload["queueMetrics"]["sync_count"], 0)
         self.assertEqual(payload["queueMetrics"]["fallback_count"], 0)
+        self.assertGreaterEqual(payload["httpMetrics"]["request_count"], 1)
+        self.assertIn("GET", payload["httpMetrics"]["method_counts"])
+        self.assertEqual(payload["healthStatus"], "ok")
+        self.assertIn("app", payload["healthChecks"])
+        self.assertIn("db", payload["healthChecks"])
+        self.assertIn("http", payload["healthChecks"])
+        self.assertIn("cache", payload["healthChecks"])
+        self.assertIn("queue", payload["healthChecks"])
+        self.assertIn("realtime", payload["healthChecks"])
+        self.assertIn("storage", payload["healthChecks"])
+        self.assertEqual(payload["storageStatus"], "available")
+        self.assertTrue(payload["storageAvailable"])
+        self.assertIn("storageMetrics", payload)
+        self.assertEqual(payload["storageMetrics"]["upload_count"], 0)
         self.assertFalse(payload["redisEnabled"])
         self.assertEqual(payload["cacheConnectionStatus"], "disabled")
         self.assertIsNone(payload["cacheConnectionAvailable"])
@@ -140,7 +164,14 @@ class AdminDashboardStatsApiTests(TestCase):
         DATABASES={"default": {"ENGINE": "django.db.backends.postgresql", "NAME": "bias", "HOST": "db"}},
         CELERY_BROKER_URL="redis://localhost:6379/1",
     )
-    def test_admin_stats_reports_production_runtime_risks(self):
+    @patch("bias_core.admin_runtime_summary.probe_redis_ping")
+    def test_admin_stats_reports_production_runtime_risks(self, probe_redis_ping):
+        probe_redis_ping.return_value = {
+            "available": False,
+            "status": "unreachable",
+            "label": "不可达",
+            "message": "Redis unavailable",
+        }
         Setting.objects.update_or_create(
             key="advanced.queue_enabled",
             defaults={"value": json.dumps(True)},
@@ -363,7 +394,14 @@ class AdminDashboardStatsApiTests(TestCase):
         CHANNEL_LAYERS={"default": {"BACKEND": "channels.layers.InMemoryChannelLayer"}},
         CELERY_BROKER_URL="memory://",
     )
-    def test_admin_stats_reports_missing_redis_in_postgres_runtime(self):
+    @patch("bias_core.admin_runtime_summary.probe_redis_ping")
+    def test_admin_stats_reports_missing_redis_in_postgres_runtime(self, probe_redis_ping):
+        probe_redis_ping.return_value = {
+            "available": False,
+            "status": "unreachable",
+            "label": "不可达",
+            "message": "Redis unavailable",
+        }
         Setting.objects.update_or_create(
             key="advanced.queue_enabled",
             defaults={"value": json.dumps(False)},
@@ -398,4 +436,84 @@ class AdminDashboardStatsApiTests(TestCase):
         self.assertIn("django-secret-placeholder", risk_codes)
         self.assertIn("jwt-secret-too-short", risk_codes)
         self.assertIn("JWT 签名密钥长度不足", payload["authSecretMessage"])
+
+
+class HealthApiTests(TestCase):
+    def setUp(self):
+        reset_http_metrics()
+        reset_storage_metrics()
+        self.settings_cache_patcher = patch("bias_core.services.settings.cache")
+        self.settings_cache = self.settings_cache_patcher.start()
+        self.settings_cache.get.return_value = None
+        self.settings_cache.set.return_value = None
+        self.settings_cache.delete.return_value = True
+        self.addCleanup(self.settings_cache_patcher.stop)
+
+    @override_settings(
+        CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache", "LOCATION": "health-test"}},
+        CHANNEL_LAYERS={"default": {"BACKEND": "channels.layers.InMemoryChannelLayer"}},
+        CELERY_BROKER_URL="memory://",
+    )
+    def test_health_endpoint_reports_subsystem_checks(self):
+        response = self.client.get("/api/health")
+
+        self.assertEqual(response.status_code, 200, response.content)
+        payload = response.json()
+        self.assertEqual(payload["status"], "ok")
+        self.assertEqual(payload["message"], "Bias API is running")
+        self.assertIn(payload["state"], {"ready", "starting", "stale", "error"})
+        checks = payload["checks"]
+        self.assertEqual(checks["app"]["status"], "ok")
+        self.assertEqual(checks["db"]["status"], "available")
+        self.assertEqual(checks["http"]["status"], "available")
+        self.assertIn("request_count", checks["http"]["metrics"])
+        self.assertEqual(checks["cache"]["status"], "disabled")
+        self.assertEqual(checks["queue"]["status"], "disabled")
+        self.assertEqual(checks["realtime"]["status"], "disabled")
+        self.assertEqual(checks["storage"]["status"], "available")
+        self.assertTrue(checks["storage"]["available"])
+        self.assertIn("metrics", checks["storage"])
+
+    @override_settings(
+        CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache", "LOCATION": "health-request-id-test"}},
+        CHANNEL_LAYERS={"default": {"BACKEND": "channels.layers.InMemoryChannelLayer"}},
+        CELERY_BROKER_URL="memory://",
+    )
+    def test_request_metrics_middleware_records_request_id_and_status(self):
+        response = self.client.get("/api/health", HTTP_X_REQUEST_ID="test-request-id")
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response["X-Request-ID"], "test-request-id")
+        metrics = get_http_metrics()
+        self.assertGreaterEqual(metrics["request_count"], 1)
+        self.assertEqual(metrics["last_request_id"], "test-request-id")
+        self.assertEqual(metrics["last_status_code"], 200)
+        self.assertIn("200", metrics["status_code_counts"])
+
+    @override_settings(
+        CACHES={"default": {"BACKEND": "django_redis.cache.RedisCache", "LOCATION": "redis://localhost:6379/0"}},
+        CHANNEL_LAYERS={"default": {"BACKEND": "channels_redis.core.RedisChannelLayer", "CONFIG": {}}},
+        CELERY_BROKER_URL="",
+    )
+    @patch("bias_core.admin_runtime_summary.cache")
+    @patch("bias_core.admin_runtime_summary.probe_redis_ping")
+    def test_health_endpoint_degrades_when_dependency_is_unavailable(self, probe_redis_ping, mock_cache):
+        mock_cache.get.side_effect = RuntimeError("cache offline")
+        mock_cache.set.side_effect = RuntimeError("cache offline")
+        probe_redis_ping.return_value = {
+            "available": False,
+            "status": "unreachable",
+            "label": "不可达",
+            "message": "Redis unavailable",
+        }
+
+        response = self.client.get("/api/health")
+
+        self.assertEqual(response.status_code, 200, response.content)
+        payload = response.json()
+        self.assertEqual(payload["status"], "degraded")
+        self.assertEqual(payload["checks"]["cache"]["status"], "unavailable")
+        self.assertFalse(payload["checks"]["cache"]["available"])
+        self.assertEqual(payload["checks"]["realtime"]["status"], "misconfigured")
+        self.assertFalse(payload["checks"]["realtime"]["available"])
 

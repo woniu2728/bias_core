@@ -1,9 +1,14 @@
 from __future__ import annotations
 
 from bias_core.extensions.runtime_core import (
+    call_runtime_service,
     get_extension_host_service,
+    get_runtime_model,
     get_runtime_resource_registry,
+    get_runtime_service,
+    get_runtime_service_value,
     require_extension_host_service,
+    require_runtime_service,
     runtime_service_method,
 )
 from bias_core.extensions.runtime_discussions import (
@@ -224,6 +229,7 @@ __all__ = [
     "approve_runtime_post",
     "broadcast_runtime_discussion_event",
     "bulk_process_runtime_approval_items",
+    "call_runtime_service",
     "can_runtime_like_post",
     "can_runtime_add_to_discussion",
     "can_runtime_reply_in_tag",
@@ -264,6 +270,9 @@ __all__ = [
     "follow_runtime_discussion",
     "generate_runtime_model_slug",
     "get_extension_host_service",
+    "get_runtime_model",
+    "get_runtime_service",
+    "get_runtime_service_value",
     "get_runtime_approval_service",
     "get_runtime_approved_discussion_post_stats",
     "get_runtime_approved_reply_counts_by_author",
@@ -361,6 +370,7 @@ __all__ = [
     "render_runtime_template",
     "report_runtime_post_flag",
     "require_extension_host_service",
+    "require_runtime_service",
     "require_runtime_approval_service",
     "require_runtime_discussion_service",
     "require_runtime_flag_service",

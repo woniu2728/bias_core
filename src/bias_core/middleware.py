@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import inspect
 import logging
+import time
 
 from asgiref.sync import async_to_sync, iscoroutinefunction, markcoroutinefunction, sync_to_async
 from django.conf import settings
@@ -271,6 +272,62 @@ class QueryLoggingMiddleware:
         if not await sync_to_async(is_query_logging_enabled, thread_sensitive=True)():
             return await self.get_response(request)
         return await self.get_response(request)
+
+
+class RequestMetricsMiddleware(_AsyncCapableMiddleware):
+    def _sync_call(self, request):
+        from bias_core.services.http_metrics import record_http_request, start_request_timer
+
+        request_id, started_at = start_request_timer(request)
+        try:
+            response = self.get_response(request)
+        except Exception as exc:
+            record_http_request(
+                method=request.method,
+                path=request.path,
+                status_code=500,
+                request_id=request_id,
+                duration_ms=(time.perf_counter() - started_at) * 1000,
+                error=str(exc),
+            )
+            raise
+
+        response.setdefault("X-Request-ID", request_id)
+        record_http_request(
+            method=request.method,
+            path=request.path,
+            status_code=getattr(response, "status_code", 0),
+            request_id=request_id,
+            duration_ms=(time.perf_counter() - started_at) * 1000,
+        )
+        return response
+
+    async def _async_call(self, request):
+        from bias_core.services.http_metrics import record_http_request, start_request_timer
+
+        request_id, started_at = await sync_to_async(start_request_timer, thread_sensitive=True)(request)
+        try:
+            response = await self.get_response(request)
+        except Exception as exc:
+            await sync_to_async(record_http_request, thread_sensitive=True)(
+                method=request.method,
+                path=request.path,
+                status_code=500,
+                request_id=request_id,
+                duration_ms=(time.perf_counter() - started_at) * 1000,
+                error=str(exc),
+            )
+            raise
+
+        response.setdefault("X-Request-ID", request_id)
+        await sync_to_async(record_http_request, thread_sensitive=True)(
+            method=request.method,
+            path=request.path,
+            status_code=getattr(response, "status_code", 0),
+            request_id=request_id,
+            duration_ms=(time.perf_counter() - started_at) * 1000,
+        )
+        return response
 
 
 class ExtensionRequestMiddleware:

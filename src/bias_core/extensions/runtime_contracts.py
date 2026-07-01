@@ -31,9 +31,14 @@ MISSING_SERVICE_BEHAVIORS = frozenset({
 
 
 _CORE_FACADES = (
+    "call_runtime_service",
     "get_extension_host_service",
+    "get_runtime_model",
     "get_runtime_resource_registry",
+    "get_runtime_service",
+    "get_runtime_service_value",
     "require_extension_host_service",
+    "require_runtime_service",
     "runtime_service_method",
 )
 
@@ -404,6 +409,7 @@ _MISSING_SERVICE_BEHAVIOR_GROUPS = {
     ),
     "returns_default": (
         "get_extension_host_service",
+        "get_runtime_model",
         "get_runtime_approval_service",
         "get_runtime_content_posts_service",
         "get_runtime_discussion_service",
@@ -412,6 +418,8 @@ _MISSING_SERVICE_BEHAVIOR_GROUPS = {
         "get_runtime_notification_service",
         "get_runtime_post_service",
         "get_runtime_search_extension_service",
+        "get_runtime_service",
+        "get_runtime_service_value",
         "get_runtime_tag_service",
         "get_runtime_user_preference",
         "get_runtime_user_service",

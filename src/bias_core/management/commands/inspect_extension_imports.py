@@ -11,11 +11,23 @@ from bias_core.extensions.exceptions import ExtensionManifestError
 from bias_core.extensions.manifest import ExtensionManifestLoader
 from bias_core.extensions.validation_source import (
     build_capability_provider_map,
+    snapshot_runtime_facade_dependency_graph,
     validate_cross_extension_imports,
     validate_runtime_facade_dependency_graph,
 )
 from bias_core.extensions.validation_types import ExtensionValidationCollector
 from bias_core.forum_registry import get_core_module_ids
+
+
+SITE_HOST_DIRECTORY_NAMES = {"bias", "bias_site", "site"}
+
+
+def resolve_command_workspace_root(extensions_path: Path) -> Path | None:
+    if extensions_path.name != "extensions":
+        return None
+    if extensions_path.parent.name in SITE_HOST_DIRECTORY_NAMES:
+        return extensions_path.parent.parent
+    return extensions_path.parent
 
 
 class Command(BaseCommand):
@@ -77,6 +89,7 @@ class Command(BaseCommand):
         loader = ExtensionManifestLoader(
             extensions_path,
             include_workspace=include_workspace,
+            workspace_root=resolve_command_workspace_root(extensions_path),
             include_distributions=False,
         )
         try:
@@ -104,9 +117,17 @@ class Command(BaseCommand):
                 check_runtime_facade_dependencies=check_runtime_facades,
                 capability_providers=capability_providers,
             )
+        runtime_facade_dependency_graph = None
         if check_runtime_facades:
             validate_runtime_facade_dependency_graph(
                 collector,
+                manifests,
+                extensions_path,
+                known_extension_ids=known_extension_ids,
+                include_tests=include_tests,
+                capability_providers=capability_providers,
+            )
+            runtime_facade_dependency_graph = snapshot_runtime_facade_dependency_graph(
                 manifests,
                 extensions_path,
                 known_extension_ids=known_extension_ids,
@@ -151,6 +172,8 @@ class Command(BaseCommand):
                 for issue in result.issues
             ],
         }
+        if runtime_facade_dependency_graph is not None:
+            payload["runtime_facade_dependency_graph"] = runtime_facade_dependency_graph
 
         if output_format == "json":
             self.stdout.write(json.dumps(payload, ensure_ascii=False, indent=2))

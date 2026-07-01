@@ -514,8 +514,12 @@ class ResourceRegistry:
     def get_endpoints(self, resource: str) -> List[ResourceEndpointDefinition]:
         enabled_module_ids = self._get_enabled_module_ids()
         definitions = [
-            self._endpoint_to_definition(resource, definition)
-            for definition in self._resource_endpoints(resource)
+            definition
+            for definition in (
+                self._endpoint_to_definition(resource, endpoint)
+                for endpoint in self._resource_endpoints(resource)
+            )
+            if self._is_module_enabled(definition.module_id, enabled_module_ids)
         ]
         definitions.extend([
             definition

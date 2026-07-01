@@ -20,6 +20,8 @@ def _default_bias_version_range() -> str:
     except (IndexError, TypeError, ValueError):
         return ""
     return f">={major}.{minor}.0 <{major}.{minor + 1}.0"
+
+
 from bias_core.extensions.validation import EXTENSION_ID_PATTERN
 
 
@@ -118,10 +120,7 @@ class Command(BaseCommand):
         )
         self._write_text(
             backend_dir / "resources.py",
-            self._build_empty_contract_module_source(
-                "resource_definitions",
-                "API 资源、字段、关系和端点声明。需要资源能力时返回对应公开 SDK 定义。",
-            ),
+            self._build_resources_source(),
         )
         self._write_text(
             backend_dir / "policies.py",
@@ -139,10 +138,7 @@ class Command(BaseCommand):
         )
         self._write_text(
             backend_dir / "runtime.py",
-            self._build_empty_contract_module_source(
-                "service_providers",
-                "运行时服务声明。需要向宿主暴露服务时返回服务 provider 定义。",
-            ),
+            self._build_runtime_source(),
         )
         self._write_text(
             backend_dir / "admin_surface.py",
@@ -308,7 +304,14 @@ class Command(BaseCommand):
             "import { extendAdmin } from '@bias/core/admin'\n"
             "\n"
             "export const extend = [\n"
-            "  extendAdmin(admin => admin),\n"
+            "  extendAdmin(admin => admin.page({\n"
+            f"    name: '{extension_id}.getting-started',\n"
+            f"    path: '/admin/extensions/{extension_id}/getting-started',\n"
+            f"    label: '{self._js_string(self._build_default_name(extension_id))}',\n"
+            "    icon: 'fas fa-puzzle-piece',\n"
+            "    navSection: 'feature',\n"
+            "    navOrder: 1000,\n"
+            "  })),\n"
             "]\n\n"
             "export function resolveDetailPage() {\n"
             "  return null\n"
@@ -319,7 +322,14 @@ class Command(BaseCommand):
         return (
             "import { extendForum } from '@bias/core/forum'\n\n"
             "export const extend = [\n"
-            "  extendForum(forum => forum),\n"
+            "  extendForum(forum => forum.navItem({\n"
+            f"    key: '{extension_id}',\n"
+            f"    label: '{self._js_string(name)}',\n"
+            f"    href: '/{extension_id}',\n"
+            "    icon: 'fas fa-puzzle-piece',\n"
+            "    section: 'primary',\n"
+            "    order: 1000,\n"
+            "  })),\n"
             "]\n"
         )
 
@@ -327,10 +337,15 @@ class Command(BaseCommand):
         return (
             "from __future__ import annotations\n\n"
             "from .frontend import frontend_extender\n\n"
+            "from .resources import resource_extender\n\n"
+            "from .runtime import service_contract_extender, service_provider_extender\n"
             "\n"
             "def extend():\n"
             "    return [\n"
             "        frontend_extender(),\n"
+            "        service_provider_extender(),\n"
+            "        service_contract_extender(),\n"
+            "        resource_extender(),\n"
             "    ]\n\n"
         )
 
@@ -350,6 +365,65 @@ class Command(BaseCommand):
             "        FrontendExtender()\n"
             "        .admin('frontend/admin/index.js')\n"
             "        .forum('frontend/forum/index.js')\n"
+            "    )\n"
+        )
+
+    def _build_resources_source(self) -> str:
+        return (
+            "from __future__ import annotations\n\n"
+            "from bias_core.extensions import ApiResourceExtender, ExtensionResourceEndpointDefinition\n\n"
+            "from .constants import EXTENSION_ID, EXTENSION_NAME\n\n\n"
+            "def status_endpoint(context):\n"
+            "    from bias_core.extensions.runtime import call_runtime_service\n\n"
+            "    return call_runtime_service(f\"{EXTENSION_ID}.status\", \"status_payload\")\n\n\n"
+            "def resource_definitions():\n"
+            "    return ()\n\n\n"
+            "def resource_extender():\n"
+            "    return ApiResourceExtender(\"forum\").endpoint(\n"
+            "        ExtensionResourceEndpointDefinition(\n"
+            "            resource=\"forum\",\n"
+            "            endpoint=f\"{EXTENSION_ID}.status\",\n"
+            "            module_id=EXTENSION_ID,\n"
+            "            handler=status_endpoint,\n"
+            "            path=f\"{EXTENSION_ID}/status\",\n"
+            "            methods=(\"GET\",),\n"
+            "            description=\"Minimal generated extension status endpoint.\",\n"
+            "        )\n"
+            "    )\n"
+        )
+
+    def _build_runtime_source(self) -> str:
+        return (
+            "from __future__ import annotations\n\n"
+            "from bias_core.extensions import RuntimeServiceContractExtender, ServiceProviderExtender\n\n"
+            "from .constants import EXTENSION_ID, EXTENSION_NAME\n\n\n"
+            "class StatusService:\n"
+            "    model = \"extension-status\"\n\n"
+            "    def status_payload(self):\n"
+            "        return {\n"
+            "            \"data\": {\n"
+            "                \"type\": self.model,\n"
+            "                \"id\": EXTENSION_ID,\n"
+            "                \"attributes\": {\n"
+            "                    \"ok\": True,\n"
+            "                    \"extension_id\": EXTENSION_ID,\n"
+            "                    \"name\": EXTENSION_NAME,\n"
+            "                },\n"
+            "            }\n"
+            "        }\n\n\n"
+            "def status_service_provider():\n"
+            "    return StatusService()\n\n\n"
+            "def service_provider_extender():\n"
+            "    return ServiceProviderExtender(\n"
+            "        key=f\"{EXTENSION_ID}.status\",\n"
+            "        provider=status_service_provider,\n"
+            "    )\n\n\n"
+            "def service_contract_extender():\n"
+            "    return RuntimeServiceContractExtender().service(\n"
+            "        f\"{EXTENSION_ID}.status\",\n"
+            "        version=\"1.0\",\n"
+            "        required_methods=(\"status_payload\",),\n"
+            "        required_values=(\"model\",),\n"
             "    )\n"
         )
 
@@ -380,9 +454,12 @@ class Command(BaseCommand):
             "- 后端入口：`backend/ext.py` 的 `extend()` 只负责组装扩展器列表，是扩展接入 Bias 运行时的主入口。\n"
             "- 后端布局：`backend/frontend.py`、`resources.py`、`settings.py`、`policies.py`、`listeners.py`、`runtime.py`、`admin_surface.py` 分别承载前端、资源、设置、权限、事件、服务和后台表面声明。\n"
             "- 后端 SDK：扩展代码只应从 `bias_core.extensions`、`bias_core.extensions.runtime`、`bias_core.extensions.platform` 获取宿主能力，不直接 import `bias_core.*` 内部实现。\n"
+            "- 跨扩展调用：新代码必须优先通过 `get_runtime_service(...)` / `call_runtime_service(...)` 访问已声明的 service contract，不新增 `get_runtime_*` / `*_runtime_*` 大 facade 依赖。\n"
             "- Django AppConfig：`backend/apps.py` 绑定扩展 app label，确保模型与迁移归属能被审计。\n"
             "- 前端入口：`frontend/admin/index.js` 与 `frontend/forum/index.js` 导出 `extend`，由 Bias 前端扩展注册中心加载。\n"
-            "- API 资源：如需扩展 JSON:API 资源，请在 `backend/ext.py` 中加入 `ApiResourceExtender(...)`。\n"
+            "- API 资源：`backend/resources.py` 默认声明一个最小状态 endpoint；如需扩展 JSON:API 资源，请继续使用公开 `ApiResourceExtender(...)` SDK。\n"
+            "- 运行时服务：`backend/runtime.py` 默认声明一个最小状态服务和 service contract，资源 endpoint 通过 `call_runtime_service(...)` 调用服务。\n"
+            "- 前端表面：后台入口默认声明一个 admin page，前台入口默认声明一个 forum nav item；如需复杂页面，可在前端入口中继续使用公开 `@bias/core` SDK。\n"
             "- 迁移：如需扩展迁移，请添加到 `backend/django_migrations`；Bias 会按扩展 app label 注册 Django migration 模块。\n"
             "- 打包：`pyproject.toml` 与 `MANIFEST.in` 已声明扩展 manifest、前端入口和语言资源，发布 wheel 后仍可被 Bias 扩展发现器识别。\n"
             "- 模型归属：如需拥有模型，请在 `backend/ext.py` 中使用 `ModelExtender().owns(...)` 声明，并通过 `python manage.py inspect_extensions --extension-id "
@@ -397,6 +474,9 @@ class Command(BaseCommand):
             "extension.name": name,
             "extension.status.ready": "扩展资源已就绪",
         }, ensure_ascii=False, indent=2) + "\n"
+
+    def _js_string(self, value: str) -> str:
+        return str(value or "").replace("\\", "\\\\").replace("'", "\\'")
 
     def _write_json(self, path: Path, payload: dict) -> None:
         path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

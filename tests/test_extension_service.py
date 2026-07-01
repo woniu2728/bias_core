@@ -15,7 +15,10 @@ class ExtensionServiceTests(TestCase):
         shutil.rmtree(self.extension_base_dir, ignore_errors=True)
 
     def _record_alpha_tools_django_migration(self):
+        from bias_core.extensions.migrations import clear_applied_migration_cache
+
         MigrationRecorder(connection).record_applied("alpha_tools", "0001_bootstrap")
+        clear_applied_migration_cache()
 
     def _create_beta_tools_dependency_fixture(self):
         beta_dir = self.extension_base_dir / "extensions" / "beta-tools"
@@ -177,7 +180,8 @@ class ExtensionServiceTests(TestCase):
         self.assertGreaterEqual(payload["summary"]["target_count"], 1)
         sample_extension = next(item for item in payload["extensions"] if item["id"] == "alpha-tools")
         self.assertEqual(sample_extension["status"], "ok")
-        self.assertIn("0001_bootstrap.py", sample_extension["migration_plan"]["pending_files"])
+        self.assertIn("0001_bootstrap.py", sample_extension["django_applied_files"])
+        self.assertEqual(sample_extension["django_pending_files"], [])
         installation.refresh_from_db()
         self.assertEqual(installation.meta, {})
 
