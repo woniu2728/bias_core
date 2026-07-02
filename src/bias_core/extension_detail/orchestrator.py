@@ -470,6 +470,7 @@ def _serialize_admin_extension_summary(extension, *, frontend_output_manifest: d
     frontend_boot = _build_extension_frontend_boot_payload(extension)
     frontend_outputs = _resolve_extension_frontend_outputs(extension.id, frontend_output_manifest=frontend_output_manifest)
     frontend_routes = _build_extension_frontend_routes(runtime_view)
+    admin_frontend_output = dict(frontend_outputs.get("admin") or {})
 
     return {
         "id": extension.id,
@@ -480,7 +481,9 @@ def _serialize_admin_extension_summary(extension, *, frontend_output_manifest: d
         "category": _manifest_attr(extension, "category", "feature"),
         "frontend_admin_entry": frontend_admin_entry,
         "frontend_boot": frontend_boot,
-        "frontend_outputs": frontend_outputs,
+        "frontend_outputs": {
+            "admin": admin_frontend_output,
+        } if admin_frontend_output else {},
         "frontend_routes": frontend_routes,
         "installed": extension.runtime.installed,
         "enabled": extension.runtime.enabled,
@@ -509,7 +512,6 @@ def _serialize_admin_extension_summary(extension, *, frontend_output_manifest: d
         "delivery_checks": [],
         "delivery_assets": [],
         "runtime_issues": list(extension.runtime.runtime_issues),
-        "lifecycle_plan": _build_lifecycle_plan_for_extension_view(extension),
     }
 
 def _serialize_admin_extensions_payload(extensions, *, summary: bool = False):
@@ -544,9 +546,9 @@ def _serialize_admin_extensions_payload(extensions, *, summary: bool = False):
             "product_visible_count": sum(1 for item in payload if item["product_visible"]),
         },
         "runtime": {
-            **_serialize_extension_runtime_rebuild_state(),
+            **_serialize_extension_runtime_rebuild_state(include_frontend_assets=not summary),
             "recovery": serialize_extension_recovery_state(),
-            "package_lock": ExtensionService.inspect_extension_packages(),
+            **({} if summary else {"package_lock": ExtensionService.inspect_extension_packages()}),
         },
         "extensions": payload,
     }

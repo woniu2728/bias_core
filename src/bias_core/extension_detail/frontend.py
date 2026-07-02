@@ -134,7 +134,7 @@ def _build_runtime_surface_view(
         "runtime_actions": tuple(getattr(runtime_record, "runtime_actions", ()) or extension.manifest_runtime_actions),
     })()
 
-def _serialize_extension_runtime_rebuild_state():
+def _serialize_extension_runtime_rebuild_state(*, include_frontend_assets: bool = True):
     import json
 
     from bias_core.models import Setting
@@ -146,28 +146,32 @@ def _serialize_extension_runtime_rebuild_state():
     raw_order = str(getattr(enabled_order, "value", "") or "")
     runtime_version = str(getattr(version_setting, "value", "") or "")
     if setting is None:
-        return {
+        payload = {
             "required": False,
             "reason": "",
             "extension_id": "",
             "urlconf": "",
             "version": runtime_version,
             "stamp": f"{raw_order}:{runtime_version}",
-            "frontend_assets": serialize_extension_frontend_asset_state(),
         }
+        if include_frontend_assets:
+            payload["frontend_assets"] = serialize_extension_frontend_asset_state()
+        return payload
     try:
         payload = json.loads(setting.value or "{}")
     except json.JSONDecodeError:
         payload = {}
-    return {
+    payload = {
         "required": True,
         "reason": str(payload.get("reason") or ""),
         "extension_id": str(payload.get("extension_id") or ""),
         "urlconf": str(payload.get("urlconf") or ""),
         "version": runtime_version or str(payload.get("version") or ""),
         "stamp": f"{raw_order}:{runtime_version or setting.value or ''}",
-        "frontend_assets": serialize_extension_frontend_asset_state(),
     }
+    if include_frontend_assets:
+        payload["frontend_assets"] = serialize_extension_frontend_asset_state()
+    return payload
 
 def _serialize_extension_frontend_asset_state_for_extension(extension):
     return serialize_extension_frontend_asset_state_for_extension(

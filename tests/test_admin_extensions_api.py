@@ -137,12 +137,17 @@ class AdminExtensionsApiTests(TestCase):
         self.assertIn("frontend_outputs", users_extension)
         self.assertIn("frontend_routes", users_extension)
         self.assertTrue(users_extension["frontend_boot"]["admin"])
+        self.assertNotIn("forum", users_extension["frontend_outputs"])
         self.assertEqual(alpha_extension["frontend_boot"], {"admin": False, "forum": False})
+        self.assertNotIn("package_lock", payload["runtime"])
+        self.assertNotIn("frontend_assets", payload["runtime"])
+        self.assertNotIn("lifecycle_plan", users_extension)
         self.assertNotIn("settings_schema", users_extension)
         self.assertNotIn("settings_values", users_extension)
         self.assertNotIn("contract_snapshot", users_extension)
         self.assertNotIn("debug_info", users_extension)
         self.assertNotIn("capability_summary", users_extension)
+        self.assertLess(len(response.content), 65000)
 
     def test_extensions_sync_api_prunes_missing_installations_and_returns_package_lock(self):
         ExtensionInstallation.objects.create(
