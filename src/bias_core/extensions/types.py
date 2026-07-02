@@ -584,6 +584,7 @@ class ExtensionManifest:
     id: str
     name: str
     version: str
+    schema_version: int = 1
     description: str = ""
     icon: str = "fas fa-puzzle-piece"
     category: str = "feature"

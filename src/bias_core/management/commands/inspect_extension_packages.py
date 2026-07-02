@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 from django.conf import settings
 from django.core.management import BaseCommand, CommandError
@@ -9,11 +10,16 @@ from django.core.management.base import CommandParser
 
 from bias_core.extensions.exceptions import ExtensionManifestError
 from bias_core.extensions.manifest import ExtensionManifestLoader
+from bias_core.extensions.manager_dependencies import (
+    get_core_satisfied_dependency_ids,
+    resolve_extension_order,
+)
 from bias_core.extensions.packaging import (
     _temporary_directory,
     inspect_extension_package_install_set,
     inspect_extension_package_wheel,
 )
+from bias_core.extensions.version_compatibility import resolve_bias_version_compatibility
 
 
 class Command(BaseCommand):
@@ -115,6 +121,17 @@ class Command(BaseCommand):
             if not manifests:
                 raise CommandError(f"未找到扩展: {extension_id}")
 
+        install_plan = self._build_install_plan(
+            manifests,
+            build=build,
+            install_smoke=install_smoke,
+            install_set_smoke=install_set_smoke,
+            migration_smoke=migration_smoke,
+            lifecycle_smoke=lifecycle_smoke,
+            wheel_dir=wheel_dir,
+        )
+        upgrade_risk = self._build_upgrade_risk(manifests, install_plan=install_plan)
+
         with (
             _temporary_directory("bias-wheel-set-", extensions_path)
             if build and install_set_smoke
@@ -182,9 +199,13 @@ class Command(BaseCommand):
             "migration_smoke": migration_smoke,
             "lifecycle_smoke": lifecycle_smoke,
             "wheel_dir": str(wheel_dir) if wheel_dir is not None else "",
+            "install_plan": install_plan,
+            "upgrade_risk": upgrade_risk,
             "summary": {
                 "manifest_count": len(manifests),
                 "error_count": error_count,
+                "risk_count": upgrade_risk["summary"]["risk_count"],
+                "blocking_risk_count": upgrade_risk["summary"]["blocking_risk_count"],
                 "ok": error_count == 0 and not (require_extensions and not manifests),
             },
             "results": [
@@ -251,6 +272,158 @@ class Command(BaseCommand):
             raise CommandError("扩展 wheel 审计未发现任何扩展")
         if error_count:
             raise CommandError(f"扩展 wheel 审计失败，共 {error_count} 个问题")
+
+    def _build_install_plan(
+        self,
+        manifests,
+        *,
+        build: bool,
+        install_smoke: bool,
+        install_set_smoke: bool,
+        migration_smoke: bool,
+        lifecycle_smoke: bool,
+        wheel_dir: Path | None,
+    ) -> dict:
+        resolved = resolve_extension_order(
+            [
+                SimpleNamespace(
+                    id=manifest.id,
+                    manifest=manifest,
+                )
+                for manifest in manifests
+            ],
+            satisfied_dependency_ids=get_core_satisfied_dependency_ids(),
+        )
+        ordered_ids = list(resolved.get("order") or [])
+        known_ids = {manifest.id for manifest in manifests}
+        remaining_ids = sorted(known_ids - set(ordered_ids))
+        install_order = [item for item in ordered_ids if item in known_ids] + remaining_ids
+        step_count = 0
+        steps = []
+        manifest_by_id = {manifest.id: manifest for manifest in manifests}
+        for extension_id in install_order:
+            manifest = manifest_by_id[extension_id]
+            actions = [
+                "discover_manifest",
+                "validate_pyproject",
+                "build_wheel" if build else "select_existing_wheel",
+                "inspect_wheel_archive",
+            ]
+            if install_smoke:
+                actions.append("install_smoke")
+            if install_set_smoke:
+                actions.append("install_set_smoke")
+            if migration_smoke:
+                actions.append("migration_smoke")
+            if lifecycle_smoke:
+                actions.append("lifecycle_smoke")
+            for action in actions:
+                step_count += 1
+                steps.append({
+                    "step": step_count,
+                    "extension_id": extension_id,
+                    "action": action,
+                    "executes_install": False,
+                    "requires_wheel": action not in {"discover_manifest", "validate_pyproject", "build_wheel"},
+                })
+
+        return {
+            "schema": 1,
+            "executes_install": False,
+            "extension_count": len(manifests),
+            "extension_ids": [manifest.id for manifest in manifests],
+            "install_order": install_order,
+            "build_requested": build,
+            "install_smoke_requested": install_smoke,
+            "install_set_smoke_requested": install_set_smoke,
+            "migration_smoke_requested": migration_smoke,
+            "lifecycle_smoke_requested": lifecycle_smoke,
+            "wheel_dir": str(wheel_dir) if wheel_dir is not None else "",
+            "dependency_graph": dict(resolved.get("graph") or {}),
+            "missing_dependencies": dict(resolved.get("missing_dependencies") or {}),
+            "circular_dependencies": list(resolved.get("circular_dependencies") or []),
+            "steps": steps,
+        }
+
+    def _build_upgrade_risk(self, manifests, *, install_plan: dict) -> dict:
+        risks = []
+        missing_dependencies = dict(install_plan.get("missing_dependencies") or {})
+        for extension_id, dependencies in sorted(missing_dependencies.items()):
+            if dependencies:
+                risks.append(self._risk(
+                    extension_id,
+                    "blocking",
+                    "missing_dependency",
+                    f"缺少必需依赖: {', '.join(dependencies)}",
+                ))
+        for extension_id in install_plan.get("circular_dependencies") or ():
+            risks.append(self._risk(
+                str(extension_id),
+                "blocking",
+                "dependency_cycle",
+                "扩展依赖图存在循环，无法确定安装顺序。",
+            ))
+
+        for manifest in manifests:
+            compatibility = resolve_bias_version_compatibility(manifest)
+            if not compatibility["compatible"]:
+                risks.append(self._risk(
+                    manifest.id,
+                    "blocking",
+                    "bias_version_incompatible",
+                    str(compatibility["message"] or "Bias 版本不满足扩展兼容范围。"),
+                    {
+                        "current_bias_version": str(compatibility["current_version"] or ""),
+                        "required_bias_version": str(compatibility["required_range"] or ""),
+                    },
+                ))
+            stability = str(manifest.compatibility.api_stability or "").strip()
+            if stability in {"experimental", "beta"}:
+                risks.append(self._risk(
+                    manifest.id,
+                    "warning" if stability == "experimental" else "info",
+                    "unstable_api",
+                    f"扩展声明 API 稳定性为 {stability}，升级前需要复核兼容契约。",
+                    {
+                        "api_version": manifest.compatibility.api_version,
+                        "api_stability": stability,
+                        "breaking_change_policy": manifest.compatibility.breaking_change_policy,
+                    },
+                ))
+            if manifest.distribution.abandoned:
+                risks.append(self._risk(
+                    manifest.id,
+                    "warning",
+                    "abandoned_distribution",
+                    "扩展分发已标记 abandoned，升级前应确认替代扩展或迁移路径。",
+                    {"replacement": manifest.distribution.replacement},
+                ))
+
+        severity_rank = {"blocking": 0, "warning": 1, "info": 2}
+        risks.sort(key=lambda item: (severity_rank.get(item["severity"], 9), item["extension_id"], item["code"]))
+        return {
+            "schema": 1,
+            "risk_count": len(risks),
+            "risks": risks,
+            "summary": {
+                "risk_count": len(risks),
+                "blocking_risk_count": sum(1 for risk in risks if risk["severity"] == "blocking"),
+                "warning_risk_count": sum(1 for risk in risks if risk["severity"] == "warning"),
+                "info_risk_count": sum(1 for risk in risks if risk["severity"] == "info"),
+                "ok": not any(risk["severity"] == "blocking" for risk in risks),
+            },
+        }
+
+    def _risk(self, extension_id: str, severity: str, code: str, message: str, extra: dict | None = None) -> dict:
+        payload = {
+            "extension_id": extension_id,
+            "severity": severity,
+            "code": code,
+            "message": message,
+        }
+        if extra:
+            payload.update(extra)
+        return payload
 
 
 class _null_temp_dir:

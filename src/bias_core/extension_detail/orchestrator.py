@@ -206,6 +206,7 @@ def _serialize_admin_extension(
         "id": extension.id,
         "name": extension.name,
         "version": extension.version,
+        "schema_version": int(_manifest_attr(extension, "schema_version", 1) or 1),
         "description": extension.description,
         "icon": _manifest_attr(extension, "icon", "fas fa-puzzle-piece"),
         "category": _manifest_attr(extension, "category", "feature"),

@@ -105,6 +105,7 @@ class Command(BaseCommand):
                 "skipped": True,
                 "issues": [],
             }
+        payload["summary"].update(_build_check_summary(payload["checks"]))
 
         issues = []
         if not manifests:
@@ -368,6 +369,24 @@ def _issues_from_import_payload(payload: dict) -> list[dict]:
     if not issues and payload:
         issues.append(_issue("import_boundary_failed", "扩展 import 边界检查失败。"))
     return issues
+
+
+def _build_check_summary(checks: dict) -> dict:
+    runtime_contracts = checks.get("runtime_service_contracts") or {}
+    foundation_boundaries = checks.get("foundation_boundaries") or {}
+    runtime_contracts_checked = not bool(runtime_contracts.get("skipped"))
+    foundation_boundaries_checked = not bool(foundation_boundaries.get("skipped"))
+    return {
+        "full_runtime_checks": runtime_contracts_checked and foundation_boundaries_checked,
+        "runtime_service_contracts_checked": runtime_contracts_checked,
+        "foundation_boundaries_checked": foundation_boundaries_checked,
+        "static_only": not (runtime_contracts_checked or foundation_boundaries_checked),
+        "skipped_checks": sorted(
+            check_name
+            for check_name, check_payload in checks.items()
+            if isinstance(check_payload, dict) and check_payload.get("skipped")
+        ),
+    }
 
 
 def _issue(code: str, message: str, *, extension_id: str = "", level: str = "error") -> dict:

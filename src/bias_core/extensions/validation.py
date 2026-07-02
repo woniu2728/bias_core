@@ -49,6 +49,9 @@ from bias_core.extensions.packaging import inspect_extension_package_metadata
 from bias_core.extensions.version_compatibility import resolve_bias_version_compatibility
 
 
+SUPPORTED_MANIFEST_SCHEMA_VERSION = 1
+
+
 def validate_extension_manifests(manifests: list[ExtensionManifest], *, extensions_base_path: Path | None = None) -> ExtensionValidationResult:
     return validate_extension_manifests_with_available_ids(
         manifests,
@@ -1076,6 +1079,22 @@ def _validate_single_manifest(
             "扩展版本号必须是 X.Y.Z 形式的语义化版本",
             extension_id=manifest.id,
             field="version",
+        )
+
+    schema_version = int(getattr(manifest, "schema_version", 1) or 0)
+    if schema_version < 1:
+        collector.add_error(
+            "invalid_manifest_schema_version",
+            "schema_version 必须是正整数，目前支持 1。",
+            extension_id=manifest.id,
+            field="schema_version",
+        )
+    elif schema_version > SUPPORTED_MANIFEST_SCHEMA_VERSION:
+        collector.add_error(
+            "unsupported_manifest_schema_version",
+            f"schema_version={schema_version} 高于当前支持版本 {SUPPORTED_MANIFEST_SCHEMA_VERSION}。",
+            extension_id=manifest.id,
+            field="schema_version",
         )
 
     _validate_unique_strings(collector, manifest, "dependencies", manifest.dependencies)

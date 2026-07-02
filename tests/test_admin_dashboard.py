@@ -62,6 +62,8 @@ class AdminDashboardStatsApiTests(TestCase):
         self.assertTrue(payload["storageAvailable"])
         self.assertIn("storageMetrics", payload)
         self.assertEqual(payload["storageMetrics"]["upload_count"], 0)
+        self.assertIn("capacitySmokeSummary", payload)
+        self.assertIn(payload["capacitySmokeSummary"]["status"], {"missing", "partial", "passed", "failed"})
         self.assertFalse(payload["redisEnabled"])
         self.assertEqual(payload["cacheConnectionStatus"], "disabled")
         self.assertIsNone(payload["cacheConnectionAvailable"])
@@ -436,6 +438,71 @@ class AdminDashboardStatsApiTests(TestCase):
         self.assertIn("django-secret-placeholder", risk_codes)
         self.assertIn("jwt-secret-too-short", risk_codes)
         self.assertIn("JWT 签名密钥长度不足", payload["authSecretMessage"])
+
+    def test_admin_stats_reports_missing_capacity_smoke_summary(self):
+        temp_dir = make_workspace_temp_dir()
+        try:
+            with override_settings(
+                BASE_DIR=Path(temp_dir),
+                CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache", "LOCATION": "capacity-missing-test"}},
+                CHANNEL_LAYERS={"default": {"BACKEND": "channels.layers.InMemoryChannelLayer"}},
+                CELERY_BROKER_URL="memory://",
+                SECRET_KEY="dashboard-secret-key-12345678901234567890",
+                NINJA_JWT={"ALGORITHM": "HS256", "SIGNING_KEY": "dashboard-jwt-secret-key-123456789012345"},
+            ):
+                response = self.client.get("/api/admin/stats", **self.auth_header())
+
+            self.assertEqual(response.status_code, 200, response.content)
+            summary = response.json()["capacitySmokeSummary"]
+            self.assertEqual(summary["schema"], 1)
+            self.assertEqual(summary["status"], "missing")
+            self.assertFalse(summary["ok"])
+            self.assertEqual(summary["passedCount"], 0)
+            self.assertEqual(summary["missingCount"], summary["profileCount"])
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_admin_stats_reads_capacity_smoke_reports(self):
+        temp_dir = make_workspace_temp_dir()
+        try:
+            report_dir = Path(temp_dir) / "reports" / "capacity" / "20260702-011925"
+            report_dir.mkdir(parents=True, exist_ok=True)
+            (report_dir / "forum-main-300s.json").write_text(json.dumps({
+                "profile": "forum-main",
+                "concurrency": 20,
+                "duration_seconds": 300.0,
+                "summary": {
+                    "ok": True,
+                    "request_count": 100,
+                    "error_count": 0,
+                    "error_rate": 0.0,
+                    "failed_threshold_count": 0,
+                },
+            }), encoding="utf-8")
+            with override_settings(
+                BASE_DIR=Path(temp_dir),
+                CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache", "LOCATION": "capacity-report-test"}},
+                CHANNEL_LAYERS={"default": {"BACKEND": "channels.layers.InMemoryChannelLayer"}},
+                CELERY_BROKER_URL="memory://",
+                SECRET_KEY="dashboard-secret-key-12345678901234567890",
+                NINJA_JWT={"ALGORITHM": "HS256", "SIGNING_KEY": "dashboard-jwt-secret-key-123456789012345"},
+            ):
+                response = self.client.get("/api/admin/stats", **self.auth_header())
+
+            self.assertEqual(response.status_code, 200, response.content)
+            summary = response.json()["capacitySmokeSummary"]
+            self.assertEqual(summary["status"], "partial")
+            self.assertFalse(summary["ok"])
+            self.assertEqual(summary["passedCount"], 1)
+            self.assertEqual(summary["missingCount"], summary["profileCount"] - 1)
+            forum_main = next(profile for profile in summary["profiles"] if profile["profile"] == "forum-main")
+            self.assertEqual(forum_main["status"], "passed")
+            self.assertEqual(forum_main["runId"], "20260702-011925")
+            self.assertEqual(forum_main["requestCount"], 100)
+            self.assertEqual(forum_main["durationSeconds"], 300.0)
+            self.assertEqual(forum_main["concurrency"], 20)
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
 
 
 class HealthApiTests(TestCase):

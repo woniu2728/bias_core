@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import concurrent.futures
+import itertools
 import json
 import math
+import os
+import string
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -15,6 +18,8 @@ from django.core.management.base import BaseCommand, CommandError, CommandParser
 from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
+
+from bias_core.management.commands.prepare_load_test_actors import LOAD_TEST_NOTIFICATION_PREFERENCES
 
 
 FORUM_MAIN_PROFILE = (
@@ -63,8 +68,8 @@ FORUM_WRITE_MIXED_PROFILE = (
     ),
     ("PATCH", "/api/discussions/{discussion_id}", {"data": {"attributes": {"title": "Load test update {sequence}"}}}, 500.0),
     ("POST", "/api/discussions/{discussion_id}/read", {"last_read_post_number": 1}, 300.0),
-    ("POST", "/api/posts/{post_id}/like", None, 500.0),
-    ("DELETE", "/api/posts/{post_id}/like", None, 500.0),
+    ("POST", "/api/posts/{like_post_id}/like", None, 500.0),
+    ("DELETE", "/api/posts/{unlike_post_id}/like", None, 500.0),
     ("POST", "/api/discussions/{discussion_id}/subscribe", None, 300.0),
     ("DELETE", "/api/discussions/{discussion_id}/subscribe", None, 300.0),
 )
@@ -79,16 +84,20 @@ FORUM_UPLOAD_PROFILE = (
 )
 
 FORUM_WRITE_MODERATION_PROFILE = (
-    ("PATCH", "/api/posts/{post_id}", {"content": "Load test edited post {sequence}"}, 500.0),
-    ("POST", "/api/posts/{post_id}/report", {"reason": "spam", "message": "Load test report {sequence}"}, 300.0),
-    ("POST", "/api/notifications/{notification_id}/read", None, 300.0),
-    ("POST", "/api/posts/{post_id}/hide", None, 300.0),
-    ("POST", "/api/posts/{post_id}/hide", None, 300.0),
+    ("PATCH", "/api/posts/{edit_post_id}", {"content": "Load test edited post {sequence}"}, 500.0),
+    ("POST", "/api/posts/{report_post_id}/report", {"reason": "spam", "message": "Load test report {sequence}"}, 300.0),
+    ("POST", "/api/notifications/{notification_read_id}/read", None, 300.0),
+    ("POST", "/api/posts/{hide_post_id}/hide", None, 300.0),
+    ("POST", "/api/posts/{restore_post_id}/hide", None, 300.0),
     ("POST", "/api/notifications/read-filtered?type=postReply&discussion_id={discussion_id}", None, 300.0),
     ("DELETE", "/api/notifications/read/clear-filtered?type=postReply&discussion_id={discussion_id}", None, 300.0),
     ("DELETE", "/api/notifications/read/clear", None, 300.0),
-    ("DELETE", "/api/posts/{post_id}", None, 500.0),
+    ("DELETE", "/api/posts/{delete_post_id}", None, 500.0),
 )
+
+_REQUEST_SEQUENCE_COUNTER = itertools.count(int(time.time() * 1000) * 1000)
+DEFAULT_STATE_TRANSITION_POOL_SIZE = 2048
+STATE_TRANSITION_POOL_SIZE_ENV = "BIAS_LOAD_TEST_STATE_POOL_SIZE"
 
 
 @dataclass(frozen=True)
@@ -99,6 +108,9 @@ class LoadTarget:
     json_body: dict[str, Any] | list[Any] | None = None
     multipart_file: dict[str, Any] | None = None
     threshold_ms: float | None = None
+    path_template: str | None = None
+    json_body_template: dict[str, Any] | list[Any] | str | None = None
+    dynamic_values: dict[str, Any] | None = None
 
     @property
     def key(self) -> str:
@@ -333,7 +345,7 @@ def run_http_load_test(
             "concurrency": concurrency,
             "duration_seconds": elapsed,
             "request_limit": request_limit,
-            "dynamic_values": dynamic_values,
+            "dynamic_values": _public_dynamic_values(dynamic_values),
             "isolated_targets": isolated_targets,
             "targets": target_payloads,
             "errors": [result for result in results if result["error"]][:20],
@@ -355,6 +367,22 @@ def run_http_load_test(
         raise
 
 
+def _public_dynamic_values(values: dict[str, Any]) -> dict[str, Any]:
+    public = {key: value for key, value in values.items() if not str(key).startswith("_")}
+    pools = values.get("_sequence_pools") or {}
+    if isinstance(pools, dict):
+        public["sequence_pools"] = {
+            key: {
+                "size": len(pool),
+                "first": pool[0] if pool else None,
+                "last": pool[-1] if pool else None,
+            }
+            for key, pool in pools.items()
+            if isinstance(key, str) and isinstance(pool, (list, tuple))
+        }
+    return public
+
+
 def parse_targets(
     target_specs: list[str],
     *,
@@ -362,8 +390,20 @@ def parse_targets(
     dynamic_values: dict[str, Any] | None = None,
 ) -> list[LoadTarget]:
     specs = target_specs or _profile_specs(profile)
-    values = dynamic_values or {}
+    values = dict(dynamic_values or {})
+    if profile == "forum-write-mixed" and "post_id" in values:
+        values.setdefault("like_post_id", values["post_id"])
+        values.setdefault("unlike_post_id", values["post_id"])
+    if profile == "forum-write-moderation" and "post_id" in values:
+        values.setdefault("edit_post_id", values["post_id"])
+        values.setdefault("report_post_id", values["post_id"])
+        values.setdefault("hide_post_id", values["post_id"])
+        values.setdefault("restore_post_id", values["post_id"])
+        values.setdefault("delete_post_id", values["post_id"])
+    if profile == "forum-write-moderation" and "notification_id" in values:
+        values.setdefault("notification_read_id", values["notification_id"])
     targets: list[LoadTarget] = []
+    _prepare_sequence_pool_counters(values)
     for index, spec in enumerate(specs):
         raw = str(spec or "").strip()
         if not raw:
@@ -378,6 +418,8 @@ def parse_targets(
             except ValueError as exc:
                 raise CommandError(f"无效的 P95 阈值: {raw}") from exc
         path, json_body = _split_path_and_json_body(target_part.strip())
+        raw_path = path
+        raw_json_body = json_body
         path = path.format(**values).strip()
         json_body = _format_json_body(json_body, values)
         if not path:
@@ -392,6 +434,9 @@ def parse_targets(
                 json_body=body,
                 multipart_file=multipart_file,
                 threshold_ms=threshold,
+                path_template=raw_path,
+                json_body_template=raw_json_body,
+                dynamic_values=dict(values),
             )
         )
     if not targets:
@@ -480,25 +525,27 @@ def _request_once(
     headers: dict[str, str],
     timeout: float,
     client: httpx.Client | None = None,
+    sequence: int | None = None,
 ) -> dict[str, Any]:
-    url = _target_url(base_url, target.path)
+    rendered = _render_target_for_request(target, sequence=sequence)
+    url = _target_url(base_url, rendered.path)
     started = time.perf_counter()
     try:
         request_kwargs = {}
-        if target.multipart_file is not None:
-            request_kwargs["files"] = _multipart_files_payload(target.multipart_file)
-        elif target.json_body is not None:
-            request_kwargs["json"] = target.json_body
+        if rendered.multipart_file is not None:
+            request_kwargs["files"] = _multipart_files_payload(rendered.multipart_file)
+        elif rendered.json_body is not None:
+            request_kwargs["json"] = rendered.json_body
         if client is None:
             with httpx.Client(timeout=timeout, headers=headers, follow_redirects=False) as scoped_client:
-                response = scoped_client.request(target.method, url, **request_kwargs)
+                response = scoped_client.request(rendered.method, url, **request_kwargs)
         else:
-            response = client.request(target.method, url, **request_kwargs)
+            response = client.request(rendered.method, url, **request_kwargs)
         duration_ms = (time.perf_counter() - started) * 1000
         error = response.status_code >= 400
         return {
-            "method": target.method,
-            "path": target.path,
+            "method": rendered.method,
+            "path": rendered.path,
             "target": target.key,
             "target_label": target.label,
             "url": url,
@@ -532,10 +579,11 @@ def _request_fixed_count(
     worker_count: int,
 ) -> list[dict[str, Any]]:
     results: list[dict[str, Any]] = []
+    sequence_counter = _request_sequence_counter()
     with httpx.Client(timeout=timeout, headers=headers, follow_redirects=False) as client:
         for index in range(worker_index, request_limit, worker_count):
             target = targets[index % len(targets)]
-            results.append(_request_once(base_url, target, headers, timeout, client=client))
+            results.append(_request_once(base_url, target, headers, timeout, client=client, sequence=next(sequence_counter)))
     return results
 
 
@@ -549,12 +597,114 @@ def _request_until_deadline(
 ) -> list[dict[str, Any]]:
     results: list[dict[str, Any]] = []
     index = worker_index
+    sequence_counter = _request_sequence_counter()
     with httpx.Client(timeout=timeout, headers=headers, follow_redirects=False) as client:
         while deadline is None or time.perf_counter() < deadline:
             target = targets[index % len(targets)]
-            results.append(_request_once(base_url, target, headers, timeout, client=client))
+            results.append(_request_once(base_url, target, headers, timeout, client=client, sequence=next(sequence_counter)))
             index += 1
     return results
+
+
+def _request_sequence_counter():
+    return _REQUEST_SEQUENCE_COUNTER
+
+
+def _render_target_for_request(target: LoadTarget, *, sequence: int | None = None) -> LoadTarget:
+    values = dict(target.dynamic_values or {})
+    if sequence is not None:
+        values["sequence"] = int(sequence)
+    _apply_sequence_pools(values, keys=_target_sequence_pool_keys(target))
+    path_template = target.path_template or target.path
+    body_template = target.json_body_template
+    path = path_template.format(**values).strip()
+    json_body = _format_json_body(body_template, values)
+    multipart_file = json_body if _is_multipart_body(json_body) else None
+    body = None if multipart_file is not None else json_body
+    return LoadTarget(
+        index=target.index,
+        method=target.method,
+        path=path,
+        json_body=body,
+        multipart_file=multipart_file,
+        threshold_ms=target.threshold_ms,
+        path_template=target.path_template,
+        json_body_template=target.json_body_template,
+        dynamic_values=target.dynamic_values,
+    )
+
+
+def _prepare_sequence_pool_counters(values: dict[str, Any]) -> None:
+    pools = values.get("_sequence_pools") or {}
+    if not isinstance(pools, dict):
+        return
+    counters = values.get("_sequence_pool_counters")
+    if not isinstance(counters, dict):
+        counters = {}
+        values["_sequence_pool_counters"] = counters
+    for key, pool in pools.items():
+        if isinstance(key, str) and isinstance(pool, (list, tuple)) and pool and key not in counters:
+            counters[key] = itertools.count()
+
+
+def _apply_sequence_pools(values: dict[str, Any], *, keys: set[str] | None = None) -> None:
+    pools = values.get("_sequence_pools") or {}
+    if not isinstance(pools, dict):
+        return
+    counters = values.get("_sequence_pool_counters")
+    if not isinstance(counters, dict):
+        counters = {}
+        values["_sequence_pool_counters"] = counters
+    try:
+        sequence = int(values.get("sequence") or 0)
+    except (TypeError, ValueError):
+        sequence = 0
+    for key, pool in pools.items():
+        if not isinstance(key, str) or not isinstance(pool, (list, tuple)) or not pool:
+            continue
+        if keys is not None and key not in keys:
+            continue
+        counter = counters.get(key)
+        if counter is None:
+            counter = itertools.count()
+            counters[key] = counter
+        values[key] = pool[next(counter) % len(pool)]
+
+
+def _target_sequence_pool_keys(target: LoadTarget) -> set[str]:
+    pools = (target.dynamic_values or {}).get("_sequence_pools") or {}
+    if not isinstance(pools, dict):
+        return set()
+    pool_keys = {key for key in pools if isinstance(key, str)}
+    if not pool_keys:
+        return set()
+    names = set()
+    names.update(_template_field_names(target.path_template or target.path))
+    names.update(_template_field_names(target.json_body_template))
+    return pool_keys.intersection(names)
+
+
+def _template_field_names(template: Any) -> set[str]:
+    if template is None:
+        return set()
+    if isinstance(template, str):
+        names = set()
+        for _, field_name, _, _ in string.Formatter().parse(template):
+            if field_name:
+                names.add(field_name.split(".", 1)[0].split("[", 1)[0])
+        return names
+    if isinstance(template, dict):
+        names = set()
+        for key, value in template.items():
+            names.update(_template_field_names(key))
+            names.update(_template_field_names(value))
+        return names
+    if isinstance(template, (list, tuple)):
+        names = set()
+        for value in template:
+            names.update(_template_field_names(value))
+        return names
+    return set()
 
 
 def _summarize_target(target: LoadTarget, results: list[dict[str, Any]]) -> dict[str, Any]:
@@ -742,6 +892,15 @@ def resolve_dynamic_values(
         if post is None:
             raise CommandError(f"{profile} profile 需要 --post-id 或数据库中已有 post")
         values["post_id"] = int(post.id)
+        if profile == "forum-write-mixed":
+            values.setdefault("like_post_id", values.get("post_id"))
+            values.setdefault("unlike_post_id", values.get("post_id"))
+    if profile == "forum-write-moderation":
+        values.setdefault("edit_post_id", values.get("post_id"))
+        values.setdefault("report_post_id", values.get("post_id"))
+        values.setdefault("hide_post_id", values.get("post_id"))
+        values.setdefault("restore_post_id", values.get("post_id"))
+        values.setdefault("delete_post_id", values.get("post_id"))
     if profile == "forum-write-mixed" and "tag_id" not in values:
         tag = _latest_model_row("tags", "Tag")
         if tag is None:
@@ -752,6 +911,8 @@ def resolve_dynamic_values(
         if notification is None:
             raise CommandError("forum-write-moderation profile 需要 --notification-id 或数据库中已有 notification")
         values["notification_id"] = int(notification.id)
+    if profile == "forum-write-moderation":
+        values.setdefault("notification_read_id", values.get("notification_id"))
     return values
 
 
@@ -813,13 +974,18 @@ def _prepare_isolated_targets(*, profile: str, sequence: int, actor_user_id: int
         raise CommandError("forum-write-moderation --prepare-isolated-targets 需要 notifications.Notification")
 
     prefix = f"loadtest-isolated-{sequence}"
+    transition_pool_size = _state_transition_pool_size()
     now = timezone.now()
     with transaction.atomic():
         user = _create_isolated_user(UserModel, prefix)
+        actor = None
+        if actor_user_id:
+            actor = UserModel.objects.filter(id=int(actor_user_id)).first()
+        discussion_user = actor or user
         discussion = Discussion.objects.create(
             title=f"Load isolated discussion {sequence}",
             slug=f"{prefix}-discussion",
-            user=user,
+            user=discussion_user,
             last_posted_user=user,
             last_posted_at=now,
             comment_count=0,
@@ -849,9 +1015,10 @@ def _prepare_isolated_targets(*, profile: str, sequence: int, actor_user_id: int
             approval_status=getattr(Post, "APPROVAL_APPROVED", "approved"),
             approved_at=now,
         )
+        next_post_number = 2
         reply = Post.objects.create(
             discussion=discussion,
-            number=2,
+            number=next_post_number,
             user=user,
             type="comment",
             content=f"{prefix} moderation target",
@@ -859,10 +1026,120 @@ def _prepare_isolated_targets(*, profile: str, sequence: int, actor_user_id: int
             approval_status=getattr(Post, "APPROVAL_APPROVED", "approved"),
             approved_at=now,
         )
+        next_post_number += 1
+        unlike_post = Post.objects.create(
+            discussion=discussion,
+            number=next_post_number,
+            user=user,
+            type="comment",
+            content=f"{prefix} unlike target",
+            content_html=f"<p>{prefix} unlike target</p>",
+            approval_status=getattr(Post, "APPROVAL_APPROVED", "approved"),
+            approved_at=now,
+        )
+        next_post_number += 1
+        like_post_pool: list[int] = [int(reply.id)]
+        unlike_post_pool: list[int] = [int(unlike_post.id)]
+        edit_post_pool: list[int] = []
+        report_post_pool: list[int] = []
+        hide_post_pool: list[int] = []
+        restore_post_pool: list[int] = []
+        delete_post_pool: list[int] = []
+        if actor is not None:
+            try:
+                PostLike = apps.get_model("likes", "PostLike")
+            except LookupError:
+                PostLike = None
+            if PostLike is not None:
+                PostLike.objects.get_or_create(post_id=unlike_post.id, user=actor)
+            if profile == "forum-write-mixed":
+                for pool_index in range(transition_pool_size):
+                    like_target = Post.objects.create(
+                        discussion=discussion,
+                        number=next_post_number,
+                        user=user,
+                        type="comment",
+                        content=f"{prefix} like target {pool_index}",
+                        content_html=f"<p>{prefix} like target {pool_index}</p>",
+                        approval_status=getattr(Post, "APPROVAL_APPROVED", "approved"),
+                        approved_at=now,
+                    )
+                    next_post_number += 1
+                    unlike_target = Post.objects.create(
+                        discussion=discussion,
+                        number=next_post_number,
+                        user=user,
+                        type="comment",
+                        content=f"{prefix} unlike target {pool_index}",
+                        content_html=f"<p>{prefix} unlike target {pool_index}</p>",
+                        approval_status=getattr(Post, "APPROVAL_APPROVED", "approved"),
+                        approved_at=now,
+                    )
+                    next_post_number += 1
+                    PostLike.objects.get_or_create(post_id=unlike_target.id, user=actor)
+                    like_post_pool.append(int(like_target.id))
+                    unlike_post_pool.append(int(unlike_target.id))
+            elif profile == "forum-write-moderation":
+                for pool_index in range(transition_pool_size + 1):
+                    edit_target = _create_isolated_post(
+                        Post,
+                        discussion=discussion,
+                        user=user,
+                        number=next_post_number,
+                        content=f"{prefix} edit target {pool_index}",
+                        approved_at=now,
+                    )
+                    next_post_number += 1
+                    report_target = _create_isolated_post(
+                        Post,
+                        discussion=discussion,
+                        user=user,
+                        number=next_post_number,
+                        content=f"{prefix} report target {pool_index}",
+                        approved_at=now,
+                    )
+                    next_post_number += 1
+                    hide_target = _create_isolated_post(
+                        Post,
+                        discussion=discussion,
+                        user=user,
+                        number=next_post_number,
+                        content=f"{prefix} hide target {pool_index}",
+                        approved_at=now,
+                    )
+                    next_post_number += 1
+                    restore_target = _create_isolated_post(
+                        Post,
+                        discussion=discussion,
+                        user=user,
+                        number=next_post_number,
+                        content=f"{prefix} restore target {pool_index}",
+                        approved_at=now,
+                    )
+                    _mark_post_hidden(Post, restore_target, now=now)
+                    next_post_number += 1
+                    delete_target = _create_isolated_post(
+                        Post,
+                        discussion=discussion,
+                        user=user,
+                        number=next_post_number,
+                        content=f"{prefix} delete target {pool_index}",
+                        approved_at=now,
+                    )
+                    next_post_number += 1
+                    edit_post_pool.append(int(edit_target.id))
+                    report_post_pool.append(int(report_target.id))
+                    hide_post_pool.append(int(hide_target.id))
+                    restore_post_pool.append(int(restore_target.id))
+                    delete_post_pool.append(int(delete_target.id))
         discussion.first_post_id = first_post.id
-        discussion.last_post_id = reply.id
-        discussion.last_post_number = 2
-        discussion.comment_count = 2
+        discussion.last_post_id = (
+            delete_post_pool[-1]
+            if profile == "forum-write-moderation" and actor is not None
+            else unlike_post_pool[-1]
+        )
+        discussion.last_post_number = next_post_number - 1
+        discussion.comment_count = discussion.last_post_number
         discussion.save(update_fields=["first_post_id", "last_post_id", "last_post_number", "comment_count"])
 
         notification = None
@@ -873,7 +1150,7 @@ def _prepare_isolated_targets(*, profile: str, sequence: int, actor_user_id: int
             notification = Notification.objects.create(
                 user=notification_user,
                 from_user=user,
-                type="postReply",
+                type="loadTestSingleRead" if profile == "forum-write-moderation" else "postReply",
                 subject_type="post",
                 subject_id=reply.id,
                 data={
@@ -884,26 +1161,127 @@ def _prepare_isolated_targets(*, profile: str, sequence: int, actor_user_id: int
                 is_read=False,
                 is_deleted=False,
             )
+            notification_read_pool: list[int] = [int(notification.id)]
+            if profile == "forum-write-moderation":
+                for pool_index, subject_id in enumerate(report_post_pool[1:]):
+                    pooled_notification = Notification.objects.create(
+                        user=notification_user,
+                        from_user=user,
+                        type="loadTestSingleRead",
+                        subject_type="post",
+                        subject_id=subject_id,
+                        data={
+                            "post_id": subject_id,
+                            "discussion_id": discussion.id,
+                            "discussion_title": discussion.title,
+                            "load_test_index": pool_index,
+                        },
+                        is_read=False,
+                        is_deleted=False,
+                    )
+                    notification_read_pool.append(int(pooled_notification.id))
+        else:
+            notification_read_pool = []
 
     isolated = {
         "prefix": prefix,
         "user_id": user.id,
         "discussion_id": discussion.id,
         "post_id": reply.id,
+        "like_post_id": reply.id,
+        "unlike_post_id": unlike_post.id,
+        "edit_post_id": edit_post_pool[0] if edit_post_pool else reply.id,
+        "report_post_id": report_post_pool[0] if report_post_pool else reply.id,
+        "hide_post_id": hide_post_pool[0] if hide_post_pool else reply.id,
+        "restore_post_id": restore_post_pool[0] if restore_post_pool else reply.id,
+        "delete_post_id": delete_post_pool[0] if delete_post_pool else reply.id,
         "first_post_id": first_post.id,
+        "like_post_pool_size": len(like_post_pool),
+        "unlike_post_pool_size": len(unlike_post_pool),
+        "edit_post_pool_size": len(edit_post_pool),
+        "report_post_pool_size": len(report_post_pool),
+        "hide_post_pool_size": len(hide_post_pool),
+        "restore_post_pool_size": len(restore_post_pool),
+        "delete_post_pool_size": len(delete_post_pool),
     }
     values = {
         "discussion_id": int(discussion.id),
         "post_id": int(reply.id),
+        "like_post_id": int(reply.id),
+        "unlike_post_id": int(unlike_post.id),
+        "edit_post_id": int(edit_post_pool[0]) if edit_post_pool else int(reply.id),
+        "report_post_id": int(report_post_pool[0]) if report_post_pool else int(reply.id),
+        "hide_post_id": int(hide_post_pool[0]) if hide_post_pool else int(reply.id),
+        "restore_post_id": int(restore_post_pool[0]) if restore_post_pool else int(reply.id),
+        "delete_post_id": int(delete_post_pool[0]) if delete_post_pool else int(reply.id),
         "isolated_targets": isolated,
     }
+    if profile == "forum-write-mixed" and actor is not None:
+        values["_sequence_pools"] = {
+            "like_post_id": like_post_pool,
+            "unlike_post_id": unlike_post_pool,
+        }
+    if profile == "forum-write-moderation" and actor is not None:
+        values["_sequence_pools"] = {
+            "edit_post_id": edit_post_pool,
+            "report_post_id": report_post_pool,
+            "hide_post_id": hide_post_pool,
+            "restore_post_id": restore_post_pool,
+            "delete_post_id": delete_post_pool,
+        }
     if tag is not None:
         values["tag_id"] = int(tag.id)
         isolated["tag_id"] = tag.id
     if notification is not None:
         values["notification_id"] = int(notification.id)
+        values["notification_read_id"] = int(notification.id)
+        if profile == "forum-write-moderation" and actor is not None:
+            values["_sequence_pools"]["notification_read_id"] = notification_read_pool
         isolated["notification_id"] = notification.id
+        isolated["notification_read_id"] = notification.id
+        isolated["notification_read_pool_size"] = len(notification_read_pool)
     return values
+
+
+def _create_isolated_post(Post, *, discussion: Any, user: Any, number: int, content: str, approved_at) -> Any:
+    return Post.objects.create(
+        discussion=discussion,
+        number=number,
+        user=user,
+        type="comment",
+        content=content,
+        content_html=f"<p>{content}</p>",
+        approval_status=getattr(Post, "APPROVAL_APPROVED", "approved"),
+        approved_at=approved_at,
+    )
+
+
+def _mark_post_hidden(Post, post: Any, *, now) -> None:
+    update_fields = []
+    if hasattr(post, "hidden_at"):
+        post.hidden_at = now
+        update_fields.append("hidden_at")
+    if hasattr(post, "hidden_reason"):
+        post.hidden_reason = "load-test-restore-target"
+        update_fields.append("hidden_reason")
+    if hasattr(post, "visibility"):
+        post.visibility = "hidden"
+        update_fields.append("visibility")
+    if hasattr(Post, "APPROVAL_HIDDEN") and hasattr(post, "approval_status"):
+        post.approval_status = getattr(Post, "APPROVAL_HIDDEN")
+        update_fields.append("approval_status")
+    if update_fields:
+        post.save(update_fields=update_fields)
+
+
+def _state_transition_pool_size() -> int:
+    raw = str(os.environ.get(STATE_TRANSITION_POOL_SIZE_ENV) or "").strip()
+    if not raw:
+        return DEFAULT_STATE_TRANSITION_POOL_SIZE
+    try:
+        return max(1, int(raw))
+    except ValueError as exc:
+        raise CommandError(f"{STATE_TRANSITION_POOL_SIZE_ENV} 必须是正整数") from exc
 
 
 def cleanup_isolated_targets_for_prefix(prefix: str) -> dict[str, Any]:
@@ -995,6 +1373,8 @@ def _create_isolated_user(UserModel, prefix: str):
         user.is_email_confirmed = True
     if "is_active" in fields:
         user.is_active = True
+    if "preferences" in fields:
+        user.preferences = dict(LOAD_TEST_NOTIFICATION_PREFERENCES)
     user.save()
     return user
 

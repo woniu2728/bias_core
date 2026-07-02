@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
 import sys
 
 import django
@@ -27,6 +29,16 @@ from bias_core.storage_service import get_storage_metrics
 router = Router()
 
 
+CAPACITY_SMOKE_PROFILES = {
+    "forum-main": "P0 anonymous read",
+    "forum-main-auth": "P1 authenticated read",
+    "forum-write": "P1 write reply",
+    "forum-write-mixed": "P1 mixed write",
+    "forum-upload": "P1 upload",
+    "forum-write-moderation": "P1 moderation",
+}
+
+
 def _build_auth_secret_risks() -> list[dict]:
     secret_key = runtime_diagnostics.normalize_secret_value(settings.SECRET_KEY)
     jwt_algorithm = str(settings.NINJA_JWT.get("ALGORITHM") or "").strip().upper()
@@ -37,7 +49,76 @@ def _build_auth_secret_risks() -> list[dict]:
         secret_key=secret_key,
         jwt_algorithm=jwt_algorithm,
         jwt_signing_key=jwt_signing_key,
-    )
+    ) or []
+
+
+def _build_capacity_smoke_summary() -> dict:
+    report_root = Path(settings.BASE_DIR) / "reports" / "capacity"
+    profiles = {
+        profile: {
+            "profile": profile,
+            "label": label,
+            "status": "missing",
+            "ok": False,
+            "runId": "",
+            "reportFile": "",
+            "requestCount": 0,
+            "errorCount": 0,
+            "errorRate": None,
+            "failedThresholdCount": 0,
+            "durationSeconds": None,
+            "concurrency": None,
+        }
+        for profile, label in CAPACITY_SMOKE_PROFILES.items()
+    }
+    if report_root.exists():
+        for run_dir in sorted((path for path in report_root.iterdir() if path.is_dir()), reverse=True):
+            for report_file in sorted(run_dir.glob("*.json")):
+                try:
+                    payload = json.loads(report_file.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    continue
+                profile = str(payload.get("profile") or "").strip()
+                if profile not in profiles or profiles[profile]["reportFile"]:
+                    continue
+                summary = payload.get("summary") if isinstance(payload.get("summary"), dict) else {}
+                ok = bool(summary.get("ok"))
+                profiles[profile].update({
+                    "status": "passed" if ok else "failed",
+                    "ok": ok,
+                    "runId": run_dir.name,
+                    "reportFile": str(report_file.relative_to(report_root.parent.parent)),
+                    "requestCount": int(summary.get("request_count") or 0),
+                    "errorCount": int(summary.get("error_count") or 0),
+                    "errorRate": summary.get("error_rate"),
+                    "failedThresholdCount": int(summary.get("failed_threshold_count") or 0),
+                    "durationSeconds": payload.get("duration_seconds"),
+                    "concurrency": payload.get("concurrency"),
+                })
+
+    profile_values = list(profiles.values())
+    missing_count = sum(1 for profile in profile_values if profile["status"] == "missing")
+    failed_count = sum(1 for profile in profile_values if profile["status"] == "failed")
+    passed_count = sum(1 for profile in profile_values if profile["status"] == "passed")
+    if failed_count:
+        status = "failed"
+    elif missing_count == len(profile_values):
+        status = "missing"
+    elif missing_count:
+        status = "partial"
+    else:
+        status = "passed"
+    return {
+        "schema": 1,
+        "status": status,
+        "ok": status == "passed",
+        "reportRoot": str(report_root),
+        "profileCount": len(profile_values),
+        "passedCount": passed_count,
+        "failedCount": failed_count,
+        "missingCount": missing_count,
+        "profiles": profile_values,
+    }
 
 
 @router.get("/stats", auth=AccessTokenAuth(), tags=["Admin"])
@@ -136,6 +217,7 @@ def get_stats(request):
         "storageDriver": storage_health.get("driver", ""),
         "storageBackend": storage_health.get("backend", ""),
         "storageMetrics": storage_metrics,
+        "capacitySmokeSummary": _build_capacity_smoke_summary(),
         "runtimeRisks": runtime_risks,
         "authSecretStatus": auth_secret_status["status"],
         "authSecretLabel": auth_secret_status["label"],

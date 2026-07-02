@@ -1,38 +1,41 @@
 from __future__ import annotations
 
 import os
+import threading
 
 from ninja import NinjaAPI, Router
 
 from bias_core.version import APP_VERSION
 
-
 _api_namespace_counter = 0
+_api_build_lock = threading.RLock()
 
 
 def next_api_urls_namespace() -> str:
     global _api_namespace_counter
-    _api_namespace_counter += 1
-    return f"bias-api-{_api_namespace_counter}"
+    with _api_build_lock:
+        _api_namespace_counter += 1
+        return f"bias-api-{_api_namespace_counter}"
 
 
 def build_api_application(*, extension_host=None, urls_namespace: str | None = None) -> NinjaAPI:
-    api = NinjaAPI(
-        title="Bias API",
-        version=APP_VERSION,
-        description="Bias forum RESTful API",
-        docs_url="/docs",
-        csrf=True,
-        urls_namespace=urls_namespace or next_api_urls_namespace(),
-    )
+    with _api_build_lock:
+        api = NinjaAPI(
+            title="Bias API",
+            version=APP_VERSION,
+            description="Bias forum RESTful API",
+            docs_url="/docs",
+            csrf=True,
+            urls_namespace=urls_namespace or next_api_urls_namespace(),
+        )
 
-    _register_admin_routes(api)
-    _register_extension_routes(api, extension_host=extension_host)
-    _register_resource_routes(api, extension_host=extension_host)
-    _register_core_routes(api)
-    _register_frontend_manifest_route(api)
-    _register_health_route(api)
-    return api
+        _register_admin_routes(api)
+        _register_extension_routes(api, extension_host=extension_host)
+        _register_resource_routes(api, extension_host=extension_host)
+        _register_core_routes(api)
+        _register_frontend_manifest_route(api)
+        _register_health_route(api)
+        return api
 
 
 def _register_core_routes(api: NinjaAPI) -> None:

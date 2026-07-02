@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import threading
 import time
 import uuid
 
@@ -15,6 +16,7 @@ RUNTIME_VERSION_KEY = "extensions_runtime_version"
 _runtime_version_seen = ""
 _runtime_version_last_checked_at = 0.0
 _runtime_version_check_interval_seconds = 1.0
+_runtime_rebuild_lock = threading.RLock()
 
 
 def mark_extension_runtime_requires_rebuild(reason: str, *, extension_id: str = "") -> None:
@@ -108,10 +110,11 @@ def clear_extension_runtime_rebuild_marker() -> None:
 
 
 def rebuild_extension_runtime_state() -> None:
-    reset_extension_runtime_state()
-    rebuild_runtime_urlconf()
-    clear_extension_runtime_rebuild_marker()
-    mark_extension_runtime_version_seen()
+    with _runtime_rebuild_lock:
+        reset_extension_runtime_state()
+        rebuild_runtime_urlconf()
+        clear_extension_runtime_rebuild_marker()
+        mark_extension_runtime_version_seen()
 
 
 def mark_extension_runtime_version_seen(version: str | None = None) -> None:
@@ -140,41 +143,43 @@ def get_extension_runtime_version() -> str:
 def sync_extension_runtime_state_if_stale(*, force: bool = False) -> bool:
     global _runtime_version_last_checked_at
 
-    now = time.monotonic()
-    if (
-        not force
-        and _runtime_version_seen
-        and now - _runtime_version_last_checked_at < _runtime_version_check_interval_seconds
-    ):
-        return False
+    with _runtime_rebuild_lock:
+        now = time.monotonic()
+        if (
+            not force
+            and _runtime_version_seen
+            and now - _runtime_version_last_checked_at < _runtime_version_check_interval_seconds
+        ):
+            return False
 
-    _runtime_version_last_checked_at = now
-    try:
-        version = get_extension_runtime_version()
-    except (OperationalError, ProgrammingError, RuntimeError):
-        return False
+        _runtime_version_last_checked_at = now
+        try:
+            version = get_extension_runtime_version()
+        except (OperationalError, ProgrammingError, RuntimeError):
+            return False
 
-    if version == _runtime_version_seen:
-        return False
+        if version == _runtime_version_seen:
+            return False
 
-    rebuild_extension_runtime_state()
-    mark_extension_runtime_version_seen(version)
-    return True
+        rebuild_extension_runtime_state()
+        mark_extension_runtime_version_seen(version)
+        return True
 
 
 def rebuild_runtime_urlconf() -> None:
     import importlib
 
-    clear_url_caches()
-    try:
-        urlconf = importlib.import_module(settings.ROOT_URLCONF)
-    except Exception:
-        return
-
-    rebuild = getattr(urlconf, "rebuild_api_urlpatterns", None)
-    if callable(rebuild):
-        rebuild()
+    with _runtime_rebuild_lock:
         clear_url_caches()
+        try:
+            urlconf = importlib.import_module(settings.ROOT_URLCONF)
+        except Exception:
+            return
+
+        rebuild = getattr(urlconf, "rebuild_api_urlpatterns", None)
+        if callable(rebuild):
+            rebuild()
+            clear_url_caches()
 
 
 def reset_extension_runtime_state() -> None:

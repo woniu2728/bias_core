@@ -191,6 +191,7 @@ class ExtensionManifestLoader:
             id=extension_id,
             name=name,
             version=version,
+            schema_version=self._build_schema_version(payload.get("schema_version")),
             description=str(payload.get("description") or "").strip(),
             icon=str(payload.get("icon") or "fas fa-puzzle-piece").strip(),
             category=str(payload.get("category") or "feature").strip(),
@@ -222,6 +223,12 @@ class ExtensionManifestLoader:
             extra=extra,
         )
         return manifest
+
+    def _build_schema_version(self, value) -> int:
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return 1
 
     def _with_distribution_source(
         self,

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from django.conf import settings
@@ -44,20 +45,112 @@ class Command(BaseCommand):
         parser.add_argument("--skip-collectstatic", action="store_true", help="跳过静态资源收集")
         parser.add_argument("--dry-run", action="store_true", help="只输出升级计划，不实际执行")
         parser.add_argument("--non-interactive", action="store_true", help="不询问备份确认，直接执行")
+        parser.add_argument(
+            "--format",
+            choices=["text", "json"],
+            default="text",
+            help="输出格式。json 用于 CI 读取 dry-run 升级计划。",
+        )
 
     def handle(self, *args, **options):
         config_path = self._resolve_config_path(options["config"])
         config = self._ensure_site_config(config_path)
         self._validate_config(config)
         self._validate_release_versions()
+        steps = self._build_upgrade_steps(options)
+        output_format = str(options.get("format") or "text")
 
-        self.stdout.write(self.style.MIGRATE_HEADING("开始升级 Bias"))
-        self.stdout.write(f"站点配置: {config_path}")
-        self.stdout.write(f"数据库模式: {config.database_mode}")
-        self.stdout.write(f"Redis: {'开启' if config.use_redis else '关闭'}")
+        if output_format == "json" and options["dry_run"]:
+            self.stdout.write(json.dumps(
+                self._build_upgrade_plan_payload(
+                    config_path=config_path,
+                    config=config,
+                    steps=steps,
+                    dry_run=True,
+                    executed=False,
+                ),
+                ensure_ascii=False,
+                indent=2,
+            ))
+            return
+
+        if output_format != "json":
+            self.stdout.write(self.style.MIGRATE_HEADING("开始升级 Bias"))
+            self.stdout.write(f"站点配置: {config_path}")
+            self.stdout.write(f"数据库模式: {config.database_mode}")
+            self.stdout.write(f"Redis: {'开启' if config.use_redis else '关闭'}")
 
         self._confirm_backup(options, config_path, config.database_mode)
 
+        if output_format != "json":
+            self.stdout.write("升级计划:")
+            for label, args in steps:
+                self.stdout.write(f"- {label}: python manage.py {' '.join(args)}")
+
+        if options["dry_run"]:
+            self.stdout.write(self.style.SUCCESS("[DRY-RUN] 仅输出计划，未执行任何升级步骤"))
+            return
+
+        command_env = build_manage_env(config_path=config_path)
+        executed_steps = []
+        for label, args in steps:
+            executed_steps.append(self._run_manage_step(label, args, command_env, quiet=output_format == "json"))
+
+        if output_format == "json":
+            self.stdout.write(json.dumps(
+                self._build_upgrade_plan_payload(
+                    config_path=config_path,
+                    config=config,
+                    steps=steps,
+                    dry_run=False,
+                    executed=True,
+                    executed_steps=executed_steps,
+                ),
+                ensure_ascii=False,
+                indent=2,
+            ))
+            return
+
+        self.stdout.write(self.style.SUCCESS("\n[SUCCESS] 升级完成"))
+        self.stdout.write("- 建议确认首页、后台、登录与发帖链路是否正常")
+
+    def _build_upgrade_plan_payload(
+        self,
+        *,
+        config_path: Path,
+        config: SiteBootstrapConfig,
+        steps: list[tuple[str, list[str]]],
+        dry_run: bool,
+        executed: bool,
+        executed_steps: list[dict[str, object]] | None = None,
+    ) -> dict[str, object]:
+        return {
+            "config_path": str(config_path),
+            "database_mode": config.database_mode,
+            "redis_enabled": bool(config.use_redis),
+            "site_domains": list(config.site_domains),
+            "frontend_url": config.frontend_url,
+            "backup_required": not dry_run,
+            "upgrade_steps": [
+                {
+                    "label": label,
+                    "args": args,
+                    "command": "python manage.py " + " ".join(args),
+                }
+                for label, args in steps
+            ],
+            "executed_steps": executed_steps or [],
+            "summary": {
+                "ok": True,
+                "error_count": 0,
+                "warning_count": 0,
+                "dry_run": dry_run,
+                "executed": executed,
+                "executed_step_count": len(executed_steps or []),
+            },
+        }
+
+    def _build_upgrade_steps(self, options: dict) -> list[tuple[str, list[str]]]:
         steps: list[tuple[str, list[str]]] = []
         if not options["skip_check"]:
             steps.append(("Django 系统检查", ["check"]))
@@ -82,21 +175,7 @@ class Command(BaseCommand):
             steps.append(("扩展前端构建清单生成", frontend_args))
         if not options["skip_collectstatic"]:
             steps.append(("静态资源收集", ["collectstatic", "--noinput"]))
-
-        self.stdout.write("升级计划:")
-        for label, args in steps:
-            self.stdout.write(f"- {label}: python manage.py {' '.join(args)}")
-
-        if options["dry_run"]:
-            self.stdout.write(self.style.SUCCESS("[DRY-RUN] 仅输出计划，未执行任何升级步骤"))
-            return
-
-        command_env = build_manage_env(config_path=config_path)
-        for label, args in steps:
-            self._run_manage_step(label, args, command_env)
-
-        self.stdout.write(self.style.SUCCESS("\n[SUCCESS] 升级完成"))
-        self.stdout.write("- 建议确认首页、后台、登录与发帖链路是否正常")
+        return steps
 
     def _resolve_config_path(self, raw_path: str) -> Path:
         path = Path(raw_path)
@@ -168,22 +247,31 @@ class Command(BaseCommand):
         if answer not in {"y", "yes"}:
             raise CommandError("已取消升级，请先完成备份后再执行")
 
-    def _run_manage_step(self, label: str, args: list[str], env: dict[str, str]) -> None:
-        self.stdout.write(f"执行{label}...")
+    def _run_manage_step(self, label: str, args: list[str], env: dict[str, str], *, quiet: bool = False) -> dict[str, object]:
+        if not quiet:
+            self.stdout.write(f"执行{label}...")
         try:
             result = run_manage_py(args, env)
         except Exception as exc:
             stdout = getattr(exc, "stdout", "")
             stderr = getattr(exc, "stderr", "")
-            if stdout:
+            if stdout and not quiet:
                 self.stdout.write(stdout.rstrip())
-            if stderr:
+            if stderr and not quiet:
                 self.stderr.write(stderr.rstrip())
             raise CommandError(f"{label}失败。请先检查数据库、Redis 和站点配置；如已备份，可恢复后重试") from exc
 
-        if result.stdout:
+        if result.stdout and not quiet:
             self.stdout.write(result.stdout.rstrip())
-        if result.stderr:
+        if result.stderr and not quiet:
             self.stderr.write(result.stderr.rstrip())
+        return {
+            "label": label,
+            "args": args,
+            "command": "python manage.py " + " ".join(args),
+            "returncode": int(getattr(result, "returncode", 0) or 0),
+            "stdout": getattr(result, "stdout", "") or "",
+            "stderr": getattr(result, "stderr", "") or "",
+        }
 
 

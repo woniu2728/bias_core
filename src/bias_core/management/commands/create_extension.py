@@ -216,6 +216,7 @@ class Command(BaseCommand):
         version: str,
     ) -> dict:
         return {
+            "schema_version": 1,
             "id": extension_id,
             "name": name,
             "version": version,
@@ -290,6 +291,9 @@ class Command(BaseCommand):
             f"\"bias_extensions/{extension_id}/frontend/admin\" = [\"frontend/admin/index.js\"]\n"
             f"\"bias_extensions/{extension_id}/frontend/forum\" = [\"frontend/forum/index.js\"]\n"
             f"\"bias_extensions/{extension_id}/locale\" = [\"locale/zh-CN.json\"]\n"
+            "\n"
+            "[tool.pytest.ini_options]\n"
+            'DJANGO_SETTINGS_MODULE = "bias_core.extension_test_settings"\n'
         )
 
     def _build_manifest_in_source(self) -> str:

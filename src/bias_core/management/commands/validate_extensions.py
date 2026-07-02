@@ -226,6 +226,7 @@ class Command(BaseCommand):
                     "id": manifest.id,
                     "name": manifest.name,
                     "version": manifest.version,
+                    "schema_version": manifest.schema_version,
                     "source": manifest.source,
                     "path": manifest.path,
                 }

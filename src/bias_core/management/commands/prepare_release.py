@@ -101,16 +101,8 @@ class Command(BaseCommand):
             "--extensions-path",
             str(extensions_path),
         )
-        call_command(
-            "inspect_extension_packages",
-            "--require-extensions",
-            "--build",
-            "--install-smoke",
-            "--install-set-smoke",
-            "--migration-smoke",
-            "--extensions-path",
-            str(extensions_path),
-        )
+        package_payload = self._inspect_extension_packages(extensions_path)
+        self._validate_extension_package_upgrade_risk(package_payload)
         call_command(
             "validate_extensions",
             "--strict",
@@ -121,6 +113,7 @@ class Command(BaseCommand):
         )
         inspection_payload = self._inspect_extensions()
         self._validate_extension_contract_snapshots(inspection_payload)
+        self._validate_extension_compatibility_matrix(inspection_payload)
         if contract_baseline:
             self._validate_extension_contract_baseline(inspection_payload, contract_baseline)
         pending_migration_summary = self._build_pending_extension_migration_summary(inspection_payload)
@@ -128,6 +121,14 @@ class Command(BaseCommand):
         blocking_count = int(summary.get("blocking_count") or 0)
         warning_count = int(summary.get("warning_count") or 0)
         attention_count = int(summary.get("attention_count") or 0)
+        compatibility_blocking_count = int(summary.get("compatibility_blocking_count") or 0)
+        compatibility_warning_count = int(summary.get("compatibility_warning_count") or 0)
+        bias_version_incompatible_count = int(summary.get("bias_version_incompatible_count") or 0)
+        unstable_api_count = int(summary.get("unstable_api_count") or 0)
+        abandoned_distribution_count = int(summary.get("abandoned_distribution_count") or 0)
+        package_summary = package_payload.get("summary") if isinstance(package_payload.get("summary"), dict) else {}
+        package_risk_count = int(package_summary.get("risk_count") or 0)
+        package_blocking_risk_count = int(package_summary.get("blocking_risk_count") or 0)
         asset_count = int(summary.get("asset_count") or 0)
         frontend_bundle_count = int(summary.get("frontend_bundle_count") or 0)
         migration_bundle_count = int(summary.get("migration_bundle_count") or 0)
@@ -144,7 +145,13 @@ class Command(BaseCommand):
                 "如需继续请传 --allow-extension-attention"
             )
         if extension_report:
-            self._write_extension_report(extension_report, inspection_payload)
+            self._write_extension_report(
+                extension_report,
+                self._build_extension_release_report_payload(
+                    inspection_payload,
+                    package_payload=package_payload,
+                ),
+            )
         if not skip_frontend_platform_check:
             self._run_frontend_platform_check(base_dir)
         if run_capacity_smoke:
@@ -177,6 +184,13 @@ class Command(BaseCommand):
         self.stdout.write(f"- 扩展阻断项: {blocking_count}")
         self.stdout.write(f"- 扩展告警项: {warning_count}")
         self.stdout.write(f"- 扩展关注项: {attention_count}")
+        self.stdout.write(f"- 兼容矩阵阻断项: {compatibility_blocking_count}")
+        self.stdout.write(f"- 兼容矩阵告警项: {compatibility_warning_count}")
+        self.stdout.write(f"- Bias 版本不兼容扩展: {bias_version_incompatible_count}")
+        self.stdout.write(f"- 实验性/测试中 API 扩展: {unstable_api_count}")
+        self.stdout.write(f"- abandoned 分发扩展: {abandoned_distribution_count}")
+        self.stdout.write(f"- 扩展包升级风险: {package_risk_count}")
+        self.stdout.write(f"- 扩展包阻断风险: {package_blocking_risk_count}")
         self.stdout.write(f"- 扩展交付资源: {asset_count}")
         self.stdout.write(f"- 含前端交付扩展: {frontend_bundle_count}")
         self.stdout.write(f"- 含迁移交付扩展: {migration_bundle_count}")
@@ -213,6 +227,32 @@ class Command(BaseCommand):
             stdout=stdout,
         )
         return json.loads(stdout.getvalue())
+
+    def _inspect_extension_packages(self, extensions_path: Path) -> dict:
+        from io import StringIO
+
+        stdout = StringIO()
+        call_command(
+            "inspect_extension_packages",
+            "--require-extensions",
+            "--build",
+            "--install-smoke",
+            "--install-set-smoke",
+            "--migration-smoke",
+            "--lifecycle-smoke",
+            "--extensions-path",
+            str(extensions_path),
+            "--format",
+            "json",
+            stdout=stdout,
+        )
+        try:
+            payload = json.loads(stdout.getvalue())
+        except json.JSONDecodeError as exc:
+            raise CommandError("扩展包审计未输出有效 JSON") from exc
+        if not isinstance(payload, dict):
+            raise CommandError("扩展包审计输出格式无效")
+        return payload
 
     def _release_extensions_path(self, base_dir: Path) -> Path:
         workspace_root = str(getattr(settings, "BIAS_EXTENSION_WORKSPACE_ROOT", "") or "").strip()
@@ -317,6 +357,20 @@ class Command(BaseCommand):
         report_path.parent.mkdir(parents=True, exist_ok=True)
         report_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
+    def _build_extension_release_report_payload(self, inspection_payload: dict, *, package_payload: dict) -> dict:
+        return {
+            **inspection_payload,
+            "release_gate": {
+                "schema": 1,
+                "source": "prepare_release",
+                "package_audit_included": True,
+                "contract_snapshot_required": True,
+                "compatibility_matrix_required": True,
+                "runtime_service_fallback_blocked": True,
+            },
+            "package_audit": package_payload,
+        }
+
     def _default_contract_baseline_path(self, base_dir: Path) -> str:
         path = base_dir / DEFAULT_EXTENSION_CONTRACT_BASELINE
         return str(path) if path.exists() else ""
@@ -360,6 +414,37 @@ class Command(BaseCommand):
             detail = "；".join(missing[:10])
             suffix = f" 等 {len(missing)} 项" if len(missing) > 10 else ""
             raise CommandError(f"扩展契约快照不完整: {detail}{suffix}")
+
+    def _validate_extension_compatibility_matrix(self, payload: dict) -> None:
+        matrix = payload.get("compatibility_matrix") if isinstance(payload.get("compatibility_matrix"), dict) else {}
+        matrix_summary = matrix.get("summary") if isinstance(matrix.get("summary"), dict) else {}
+        summary = payload.get("summary") if isinstance(payload.get("summary"), dict) else {}
+        compatibility_blocking_count = int(
+            matrix_summary.get("blocking_count")
+            if "blocking_count" in matrix_summary
+            else summary.get("compatibility_blocking_count") or 0
+        )
+        bias_version_incompatible_count = int(
+            matrix_summary.get("bias_version_incompatible_count")
+            if "bias_version_incompatible_count" in matrix_summary
+            else summary.get("bias_version_incompatible_count") or 0
+        )
+        if compatibility_blocking_count:
+            raise CommandError(
+                f"扩展兼容矩阵存在 {compatibility_blocking_count} 个阻断项，请先处理"
+            )
+        if bias_version_incompatible_count:
+            raise CommandError(
+                f"扩展兼容矩阵存在 {bias_version_incompatible_count} 个 Bias 版本不兼容扩展，请先处理"
+            )
+
+    def _validate_extension_package_upgrade_risk(self, payload: dict) -> None:
+        summary = payload.get("summary") if isinstance(payload.get("summary"), dict) else {}
+        blocking_risk_count = int(summary.get("blocking_risk_count") or 0)
+        if blocking_risk_count:
+            raise CommandError(
+                f"扩展包升级风险存在 {blocking_risk_count} 个阻断项，请先处理"
+            )
 
     def _build_pending_extension_migration_summary(self, payload: dict) -> str:
         pending = []
